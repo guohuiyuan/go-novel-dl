@@ -1,13 +1,20 @@
-# Tests
+# 测试说明
 
-All Go tests are organized conceptually under `tests/`.
+项目在概念上将测试统一归纳到 `tests/` 目录下进行说明。
 
-The project still keeps package-specific `_test.go` files next to the code they verify because Go's testing toolchain requires tests to live in the package directory when they need package-private access.
+但实际的 Go 测试文件仍然保留在各自源码目录旁边，也就是 `_test.go` 文件和被测代码放在同一个包目录中。
 
-Use these commands:
+这样做的原因是：
+
+- Go 的测试工具链天然以包为单位运行测试
+- 一部分测试需要访问包内未导出的函数或类型
+- 如果强行把所有 `_test.go` 都移动到单独目录，会破坏现有测试能力，或者需要额外暴露很多内部实现
+
+常用测试命令如下：
 
 ```bash
 go test ./...
 go test ./internal/site
 go test ./internal/exporter
+go build ./...
 ```
