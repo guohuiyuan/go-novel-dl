@@ -1,0 +1,304 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/guohuiyuan/go-novel-dl/internal/config"
+	"github.com/guohuiyuan/go-novel-dl/internal/exporter"
+	"github.com/guohuiyuan/go-novel-dl/internal/model"
+	"github.com/guohuiyuan/go-novel-dl/internal/pipeline"
+	"github.com/guohuiyuan/go-novel-dl/internal/site"
+	"github.com/guohuiyuan/go-novel-dl/internal/state"
+	"github.com/guohuiyuan/go-novel-dl/internal/store"
+	"github.com/guohuiyuan/go-novel-dl/internal/textconv"
+	"github.com/guohuiyuan/go-novel-dl/internal/ui"
+)
+
+const AppName = "go-novel-dl"
+
+type Runtime struct {
+	Config   *config.Config
+	Console  *ui.Console
+	Registry *site.Registry
+	Library  *store.Library
+	Pipeline *pipeline.Runner
+	Exporter *exporter.Service
+	State    *state.Manager
+}
+
+type DownloadResult struct {
+	Book      *model.Book
+	Stage     string
+	Exported  []string
+	Processed *model.Book
+}
+
+func NewRuntime(cfg *config.Config, console *ui.Console) *Runtime {
+	return &Runtime{
+		Config:   cfg,
+		Console:  console,
+		Registry: site.NewDefaultRegistry(),
+		Library:  store.NewLibrary(cfg.General.RawDataDir),
+		Pipeline: pipeline.New(),
+		Exporter: exporter.New(),
+		State:    state.NewManager(AppName),
+	}
+}
+
+func LoadOrInitConfig(console *ui.Console, explicitPath string) (*config.Config, string, error) {
+	cfg, path, err := config.Load(explicitPath)
+	if err == nil {
+		return cfg, path, nil
+	}
+
+	if errors.Is(err, os.ErrNotExist) {
+		target := explicitPath
+		if target == "" {
+			target = config.DefaultConfigFilename
+		}
+
+		absPath, absErr := filepath.Abs(target)
+		if absErr != nil {
+			absPath = target
+		}
+		console.Warnf("No config found at %s", absPath)
+
+		create, confirmErr := console.Confirm("Create a default config now?", true)
+		if confirmErr != nil {
+			return nil, "", confirmErr
+		}
+		if !create {
+			console.Errorf("Cannot continue without a config file")
+			return nil, "", nil
+		}
+
+		if err := config.WriteDefault(target, false); err != nil {
+			return nil, "", err
+		}
+		console.Successf("Created default config at %s", absPath)
+		return nil, target, nil
+	}
+
+	return nil, "", err
+}
+
+func (r *Runtime) Download(ctx context.Context, siteKey string, books []model.BookRef, formats []string, skipExport bool) ([]DownloadResult, error) {
+	resolved := r.Config.ResolveSiteConfig(siteKey)
+	if len(books) == 0 {
+		books = resolved.BookIDs
+	}
+	if len(books) == 0 {
+		return nil, fmt.Errorf("no book IDs provided for site %s", siteKey)
+	}
+
+	client, err := r.Registry.Build(siteKey, resolved)
+	if err != nil {
+		return nil, err
+	}
+
+	if resolved.General.LoginRequired && resolved.Cookie == "" && resolved.Username == "" {
+		r.Console.Warnf("Site %s is marked as login-required; starter scaffold continues with mock adapters", siteKey)
+	}
+
+	results := make([]DownloadResult, 0, len(books))
+	for _, ref := range books {
+		var existing *store.BookState
+		existing, err = r.Library.LoadBookState(siteKey, ref.BookID, "raw")
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return results, err
+		}
+		if err != nil && errors.Is(err, os.ErrNotExist) {
+			existing = nil
+		}
+
+		book, err := client.Download(ctx, ref)
+		if err != nil {
+			return results, err
+		}
+		if existing != nil {
+			mergeExistingChapters(book, existing.Book)
+		}
+		book = textconv.NormalizeBookLocale(book, resolved.General.LocaleStyle)
+		book.Site = siteKey
+		if book.DownloadedAt.IsZero() {
+			book.DownloadedAt = time.Now().UTC()
+		}
+		book.UpdatedAt = time.Now().UTC()
+
+		if err := r.Library.SaveBookStage(siteKey, "raw", book); err != nil {
+			return results, err
+		}
+
+		processed, stage := r.Pipeline.Run(book, resolved.General.Processors)
+		if processed == nil {
+			processed = book
+		}
+		if stage == "" {
+			stage = "raw"
+		}
+		if stage != "raw" {
+			if err := r.Library.SaveBookStage(siteKey, stage, processed); err != nil {
+				return results, err
+			}
+		}
+
+		result := DownloadResult{Book: book, Processed: processed, Stage: stage}
+		if !skipExport {
+			exported, err := r.Exporter.Export(processed, siteKey, resolved.General.Output, resolved.General.OutputDir, formats)
+			if err != nil {
+				return results, err
+			}
+			result.Exported = exported
+		}
+
+		results = append(results, result)
+	}
+
+	return results, nil
+}
+
+func mergeExistingChapters(target *model.Book, existing *model.Book) {
+	if target == nil || existing == nil {
+		return
+	}
+	byID := make(map[string]model.Chapter, len(existing.Chapters))
+	for _, chapter := range existing.Chapters {
+		if chapter.Downloaded || chapter.Content != "" {
+			byID[chapter.ID] = chapter
+		}
+	}
+	for idx, chapter := range target.Chapters {
+		if cached, ok := byID[chapter.ID]; ok {
+			target.Chapters[idx].Content = cached.Content
+			target.Chapters[idx].Downloaded = true
+			if target.Chapters[idx].Title == "" {
+				target.Chapters[idx].Title = cached.Title
+			}
+		}
+	}
+}
+
+func (r *Runtime) Search(ctx context.Context, sites []string, keyword string, overallLimit, perSiteLimit int) ([]model.SearchResult, error) {
+	if len(sites) == 0 {
+		sites = r.Registry.Keys()
+	}
+
+	results := make([]model.SearchResult, 0)
+	for _, siteKey := range sites {
+		resolved := r.Config.ResolveSiteConfig(siteKey)
+		client, err := r.Registry.Build(siteKey, resolved)
+		if err != nil {
+			return results, err
+		}
+
+		limit := perSiteLimit
+		if limit <= 0 {
+			limit = 10
+		}
+		items, err := client.Search(ctx, keyword, limit)
+		if err != nil {
+			return results, err
+		}
+		results = append(results, items...)
+		if overallLimit > 0 && len(results) >= overallLimit {
+			return textconv.NormalizeSearchResultsLocale(results[:overallLimit], resolved.General.LocaleStyle), nil
+		}
+	}
+
+	localeStyle := r.Config.General.LocaleStyle
+	if len(sites) > 0 {
+		localeStyle = r.Config.ResolveSiteConfig(sites[0]).General.LocaleStyle
+	}
+	return textconv.NormalizeSearchResultsLocale(results, localeStyle), nil
+}
+
+func (r *Runtime) Export(siteKey string, books []model.BookRef, stage string, formats []string) ([]string, error) {
+	resolved := r.Config.ResolveSiteConfig(siteKey)
+	if len(books) == 0 {
+		books = resolved.BookIDs
+	}
+	if len(books) == 0 {
+		return nil, fmt.Errorf("no book IDs provided for export")
+	}
+
+	created := make([]string, 0)
+	for _, ref := range books {
+		book, usedStage, err := r.Library.LoadBook(siteKey, ref.BookID, stage)
+		if err != nil {
+			return created, err
+		}
+		paths, err := r.Exporter.Export(book, siteKey, resolved.General.Output, resolved.General.OutputDir, formats)
+		if err != nil {
+			return created, err
+		}
+		created = append(created, paths...)
+		r.Console.Infof("Exported %s/%s from stage %s", siteKey, ref.BookID, usedStage)
+	}
+	return created, nil
+}
+
+func (r *Runtime) ListStoredSites() ([]string, error) {
+	return r.Library.ListSites()
+}
+
+func (r *Runtime) ListStoredBooks(siteKey string) ([]store.BookSummary, error) {
+	return r.Library.ListBooks(siteKey)
+}
+
+func (r *Runtime) CleanLogs(dryRun bool) ([]string, error) {
+	logDir := r.Config.General.Debug.LogDir
+	entries, err := os.ReadDir(logDir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	removed := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		path := filepath.Join(logDir, entry.Name())
+		removed = append(removed, path)
+		if !dryRun {
+			if err := os.Remove(path); err != nil {
+				return removed, err
+			}
+		}
+	}
+	return removed, nil
+}
+
+func (r *Runtime) CleanCache(siteKey string) error {
+	target := r.Config.General.CacheDir
+	if siteKey != "" {
+		target = filepath.Join(target, siteKey)
+	}
+	if _, err := os.Stat(target); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	return os.RemoveAll(target)
+}
+
+func (r *Runtime) CleanAllBooks(siteKey string) error {
+	return r.Library.RemoveAll(siteKey)
+}
+
+func (r *Runtime) CleanBooks(siteKey string, books []model.BookRef, stage string, removeChapters, removeMetadata, removeMedia, removeAll bool) error {
+	for _, ref := range books {
+		if err := r.Library.RemoveBook(siteKey, ref.BookID, stage, removeChapters, removeMetadata, removeMedia, removeAll); err != nil {
+			return err
+		}
+	}
+	return nil
+}
