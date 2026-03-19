@@ -6,7 +6,7 @@ The project is CLI-first for now. The initial version keeps the same high-level 
 
 CLI -> config -> site registry -> download -> process pipeline -> export -> local storage
 
-The current codebase focuses on project structure, command compatibility, staged storage, and extensibility. The current real site set now includes `esjzone`, `westnovel`, `yibige`, `yodu`, `linovelib`, and `n23qb`, with ESJ Zone carrying the more advanced login and resume flow.
+The current codebase focuses on project structure, command compatibility, staged storage, and extensibility. The current real site set now includes `esjzone`, `westnovel`, `yibige`, `yodu`, `linovelib`, `n23qb`, `biquge345`, `biquge5`, `fsshu`, `n69shuba`, `piaotia`, and `ixdzs8`, with ESJ Zone carrying the more advanced login and resume flow.
 
 ## Status
 
@@ -15,7 +15,7 @@ The current codebase focuses on project structure, command compatibility, staged
 - `data/settings.toml` workflow is in place
 - download/search/export/config/clean commands are implemented
 - staged raw storage and basic export pipeline are implemented
-- `esjzone`, `westnovel`, `yibige`, `yodu`, `linovelib`, and `n23qb` are implemented
+- `esjzone`, `westnovel`, `yibige`, `yodu`, `linovelib`, `n23qb`, `biquge345`, `biquge5`, `fsshu`, `n69shuba`, `piaotia`, and `ixdzs8` are implemented
 - ESJ Zone login, cookie persistence, and resume-aware chapter refresh are implemented
 - chapter-level progress output is shown during downloads
 - Web UI is intentionally deferred
@@ -36,6 +36,22 @@ novel-cli clean state
 novel-cli clean logs
 novel-cli clean cache
 novel-cli clean book
+```
+
+### Quick Start
+
+```bash
+# initialize config
+go run ./cmd/novel-cli config init
+
+# download a book
+go run ./cmd/novel-cli download --site esjzone 1660702902
+
+# export an existing download
+go run ./cmd/novel-cli export --site esjzone 1660702902 --format epub
+
+# run tests
+go test ./...
 ```
 
 ### Examples
@@ -67,6 +83,24 @@ go run ./cmd/novel-cli download --site linovelib 8
 
 # download from n23qb
 go run ./cmd/novel-cli download --site n23qb 12282
+
+# download from biquge345
+go run ./cmd/novel-cli download --site biquge345 151120
+
+# download from biquge5
+go run ./cmd/novel-cli download --site biquge5 9_9194
+
+# download from fsshu
+go run ./cmd/novel-cli download --site fsshu 527045
+
+# download from n69shuba
+go run ./cmd/novel-cli download --site n69shuba 54065
+
+# download from piaotia
+go run ./cmd/novel-cli download --site piaotia 1-1705
+
+# download from ixdzs8
+go run ./cmd/novel-cli download --site ixdzs8 15918
 
 # search and then interactively choose one result to download
 go run ./cmd/novel-cli search 三体

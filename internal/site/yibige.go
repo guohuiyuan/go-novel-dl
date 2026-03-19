@@ -77,11 +77,11 @@ func (s *YibigeSite) Download(ctx context.Context, ref model.BookRef) (*model.Bo
 }
 
 func (s *YibigeSite) DownloadPlan(ctx context.Context, ref model.BookRef) (*model.Book, error) {
-	infoMarkup, err := s.html.Get(ctx, fmt.Sprintf("%s/%s/", s.baseURL, ref.BookID))
+	infoMarkup, err := s.getWithMirrors(ctx, fmt.Sprintf("/%s/", ref.BookID))
 	if err != nil {
 		return nil, err
 	}
-	catalogMarkup, err := s.html.Get(ctx, fmt.Sprintf("%s/%s/index.html", s.baseURL, ref.BookID))
+	catalogMarkup, err := s.getWithMirrors(ctx, fmt.Sprintf("/%s/index.html", ref.BookID))
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +124,7 @@ func (s *YibigeSite) DownloadPlan(ctx context.Context, ref model.BookRef) (*mode
 }
 
 func (s *YibigeSite) FetchChapter(ctx context.Context, bookID string, chapter model.Chapter) (model.Chapter, error) {
-	markup, err := s.html.Get(ctx, fmt.Sprintf("%s/%s/%s.html", s.baseURL, bookID, chapter.ID))
+	markup, err := s.getWithMirrors(ctx, fmt.Sprintf("/%s/%s.html", bookID, chapter.ID))
 	if err != nil {
 		return chapter, err
 	}
@@ -146,6 +146,28 @@ func (s *YibigeSite) FetchChapter(ctx context.Context, bookID string, chapter mo
 	chapter.Content = strings.Join(paragraphs, "\n")
 	chapter.Downloaded = true
 	return chapter, nil
+}
+
+func (s *YibigeSite) getWithMirrors(ctx context.Context, path string) (string, error) {
+	hosts := []string{"https://www.yibige.org", "https://tw.yibige.org", "https://sg.yibige.org", "https://hk.yibige.org"}
+	var lastErr error
+	for _, host := range hosts {
+		markup, err := s.html.Get(ctx, host+path)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if strings.Contains(markup, "Just a moment...") || strings.Contains(markup, "cf-browser-verification") {
+			lastErr = fmt.Errorf("yibige is currently protected by Cloudflare challenge")
+			continue
+		}
+		s.baseURL = host
+		return markup, nil
+	}
+	if lastErr != nil {
+		return "", lastErr
+	}
+	return "", fmt.Errorf("yibige request failed")
 }
 
 func (s *YibigeSite) Search(ctx context.Context, keyword string, limit int) ([]model.SearchResult, error) {

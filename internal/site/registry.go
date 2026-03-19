@@ -85,6 +85,24 @@ func NewDefaultRegistry() *Registry {
 	registry.Register("n23qb", func(cfg config.ResolvedSiteConfig) Site {
 		return NewN23QBSite(cfg)
 	})
+	registry.Register("biquge345", func(cfg config.ResolvedSiteConfig) Site {
+		return NewBiquge345Site(cfg)
+	})
+	registry.Register("biquge5", func(cfg config.ResolvedSiteConfig) Site {
+		return NewBiqugePagedSite("biquge5", "Biquge5", "https://www.biquge5.com", "", cfg)
+	})
+	registry.Register("fsshu", func(cfg config.ResolvedSiteConfig) Site {
+		return NewBiqugePagedSite("fsshu", "Fsshu", "https://www.fsshu.com", "biquge", cfg)
+	})
+	registry.Register("n69shuba", func(cfg config.ResolvedSiteConfig) Site {
+		return NewN69ShubaSite(cfg)
+	})
+	registry.Register("piaotia", func(cfg config.ResolvedSiteConfig) Site {
+		return NewPiaotiaSite(cfg)
+	})
+	registry.Register("ixdzs8", func(cfg config.ResolvedSiteConfig) Site {
+		return NewIxdzs8Site(cfg)
+	})
 	return registry
 }
 

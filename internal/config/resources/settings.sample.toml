@@ -74,6 +74,24 @@ book_ids = ["8"]
 [sites.n23qb]
 book_ids = ["12282"]
 
+[sites.biquge345]
+book_ids = ["151120"]
+
+[sites.biquge5]
+book_ids = ["9_9194"]
+
+[sites.fsshu]
+book_ids = ["100_100256"]
+
+[sites.n69shuba]
+book_ids = ["54065"]
+
+[sites.piaotia]
+book_ids = ["1-1705"]
+
+[sites.ixdzs8]
+book_ids = ["15918"]
+
 [plugins]
 enable_local_plugins = false
 override_builtins = false

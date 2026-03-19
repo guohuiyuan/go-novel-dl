@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"golang.org/x/net/html"
+	charsetpkg "golang.org/x/net/html/charset"
 )
 
 type HTMLSite struct {
@@ -29,6 +30,8 @@ func (h HTMLSite) Get(ctx context.Context, rawURL string) (string, error) {
 	}
 	req.Header.Set("User-Agent", "go-novel-dl/0.1 (+https://github.com/guohuiyuan/go-novel-dl)")
 	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
+	req.Header.Set("Cache-Control", "no-cache")
 	resp, err := h.client.Do(req)
 	if err != nil {
 		return "", err
@@ -40,6 +43,14 @@ func (h HTMLSite) Get(ctx context.Context, rawURL string) (string, error) {
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", err
+	}
+	contentType := resp.Header.Get("Content-Type")
+	reader, err := charsetpkg.NewReader(strings.NewReader(string(data)), contentType)
+	if err == nil {
+		decoded, derr := io.ReadAll(reader)
+		if derr == nil {
+			return string(decoded), nil
+		}
 	}
 	return string(data), nil
 }

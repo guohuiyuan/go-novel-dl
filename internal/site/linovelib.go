@@ -2,6 +2,8 @@ package site
 
 import (
 	"context"
+	_ "embed"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -19,7 +21,13 @@ var (
 	linovelibBookRe    = regexp.MustCompile(`^/novel/(\d+)\.html$`)
 	linovelibVolRe     = regexp.MustCompile(`/novel/\d+/(vol_\d+)\.html`)
 	linovelibChapterRe = regexp.MustCompile(`^/novel/(\d+)/(\d+)(?:_\d+)?\.html$`)
+	linovelibVersionRe = regexp.MustCompile(`/themes/zhpc/js/pctheme\.js\?([a-zA-Z0-9._-]+)|/scripts/chapterlog\.js\?([a-zA-Z0-9._-]+)`)
 )
+
+//go:embed resources/linovelib.json
+var linovelibMapRaw string
+
+var linovelibSubstMap = mustLoadLinovelibMap()
 
 type LinovelibSite struct {
 	cfg      config.ResolvedSiteConfig
@@ -79,7 +87,7 @@ func (s *LinovelibSite) Download(ctx context.Context, ref model.BookRef) (*model
 }
 
 func (s *LinovelibSite) DownloadPlan(ctx context.Context, ref model.BookRef) (*model.Book, error) {
-	infoMarkup, err := s.html.Get(ctx, fmt.Sprintf("https://www.linovelib.com/novel/%s.html", ref.BookID))
+	infoMarkup, err := s.getWithRetry(ctx, fmt.Sprintf("https://www.linovelib.com/novel/%s.html", ref.BookID))
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +99,7 @@ func (s *LinovelibSite) DownloadPlan(ctx context.Context, ref model.BookRef) (*m
 		}
 	}
 	if len(volMap) == 0 {
-		catalogMarkup, err := s.html.Get(ctx, fmt.Sprintf("https://www.linovelib.com/novel/%s/catalog", ref.BookID))
+		catalogMarkup, err := s.getWithRetry(ctx, fmt.Sprintf("https://www.linovelib.com/novel/%s/catalog", ref.BookID))
 		if err != nil {
 			return nil, err
 		}
@@ -130,7 +138,7 @@ func (s *LinovelibSite) DownloadPlan(ctx context.Context, ref model.BookRef) (*m
 	}
 	chapters := make([]model.Chapter, 0)
 	for _, volID := range volumes {
-		volMarkup, err := s.html.Get(ctx, fmt.Sprintf("https://www.linovelib.com/novel/%s/%s.html", ref.BookID, volID))
+		volMarkup, err := s.getWithRetry(ctx, fmt.Sprintf("https://www.linovelib.com/novel/%s/%s.html", ref.BookID, volID))
 		if err != nil {
 			return nil, err
 		}
@@ -166,7 +174,7 @@ func (s *LinovelibSite) FetchChapter(ctx context.Context, bookID string, chapter
 		if idx > 1 {
 			url = fmt.Sprintf("https://www.linovelib.com/novel/%s/%s_%d.html", bookID, chapter.ID, idx)
 		}
-		markup, err := s.html.Get(ctx, url)
+		markup, err := s.getWithRetry(ctx, url)
 		if err != nil {
 			if idx == 1 {
 				return chapter, err
@@ -189,9 +197,7 @@ func (s *LinovelibSite) FetchChapter(ctx context.Context, bookID string, chapter
 				chapter.Title = cleanText(nodeText(node))
 			}
 		}
-		paragraphs = append(paragraphs, cleanContentParagraphs(findAll(doc, func(n *html.Node) bool {
-			return n.Type == html.ElementNode && (n.Data == "p" || n.Data == "img") && hasAncestorByID(n, "TextContent")
-		}), nil)...)
+		paragraphs = append(paragraphs, s.parseChapterPage(page, doc, chapter.ID)...)
 	}
 	if len(paragraphs) == 0 {
 		return chapter, fmt.Errorf("linovelib chapter content not found")
@@ -199,6 +205,135 @@ func (s *LinovelibSite) FetchChapter(ctx context.Context, bookID string, chapter
 	chapter.Content = strings.Join(paragraphs, "\n")
 	chapter.Downloaded = true
 	return chapter, nil
+}
+
+func (s *LinovelibSite) getWithRetry(ctx context.Context, rawURL string) (string, error) {
+	var lastErr error
+	for attempt := 0; attempt < 4; attempt++ {
+		markup, err := s.html.Get(ctx, rawURL)
+		if err == nil {
+			if attempt > 0 {
+				time.Sleep(500 * time.Millisecond)
+			}
+			return markup, nil
+		}
+		lastErr = err
+		if !strings.Contains(err.Error(), "http 429") {
+			return "", err
+		}
+		time.Sleep(time.Duration(attempt+1) * 2 * time.Second)
+	}
+	return "", lastErr
+}
+
+func (s *LinovelibSite) parseChapterPage(markup string, doc *html.Node, chapterID string) []string {
+	container := findFirstByID(doc, "TextContent")
+	if container == nil {
+		return nil
+	}
+	useSubst := strings.Contains(markup, "yuedu()") && strings.Contains(markup, "/themes/zhpc/js/pctheme.js")
+	useShuffle := strings.Contains(markup, "/scripts/chapterlog.js")
+	paragraphs := make([]string, 0)
+	for child := container.FirstChild; child != nil; child = child.NextSibling {
+		if child.Type != html.ElementNode {
+			continue
+		}
+		switch child.Data {
+		case "p":
+			text := ""
+			for node := child.FirstChild; node != nil; node = node.NextSibling {
+				if node.Type == html.TextNode {
+					text += node.Data
+				} else {
+					text += nodeText(node)
+				}
+			}
+			if compactWhitespace(text) == "" {
+				continue
+			}
+			if useSubst {
+				text = applyLinovelibSubst(text)
+			}
+			text = cleanText(text)
+			if text != "" {
+				paragraphs = append(paragraphs, text)
+			}
+		case "img":
+			src := attrValue(child, "data-src")
+			if src == "" {
+				src = attrValue(child, "src")
+			}
+			if src != "" {
+				paragraphs = append(paragraphs, "[图片] "+absolutizeURL("https://www.linovelib.com", src))
+			}
+		}
+	}
+	if useShuffle {
+		cid := 0
+		fmt.Sscanf(chapterID, "%d", &cid)
+		paragraphs = reorderLinovelibParagraphs(paragraphs, cid)
+	}
+	return paragraphs
+}
+
+func mustLoadLinovelibMap() map[string]string {
+	result := make(map[string]string)
+	_ = json.Unmarshal([]byte(linovelibMapRaw), &result)
+	return result
+}
+
+func applyLinovelibSubst(text string) string {
+	var b strings.Builder
+	for _, r := range text {
+		if repl, ok := linovelibSubstMap[string(r)]; ok {
+			b.WriteString(repl)
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func reorderLinovelibParagraphs(paragraphs []string, chapterID int) []string {
+	n := len(paragraphs)
+	if n <= 20 || chapterID == 0 {
+		return paragraphs
+	}
+	order := chapterlogOrder(n, chapterID)
+	reordered := make([]string, n)
+	for i, p := range paragraphs {
+		reordered[order[i]] = p
+	}
+	return reordered
+}
+
+func chapterlogOrder(n, cid int) []int {
+	if n <= 0 {
+		return nil
+	}
+	if n <= 20 {
+		order := make([]int, n)
+		for i := range order {
+			order[i] = i
+		}
+		return order
+	}
+	fixed := make([]int, 20)
+	for i := range fixed {
+		fixed[i] = i
+	}
+	rest := make([]int, n-20)
+	for i := range rest {
+		rest[i] = i + 20
+	}
+	m, a, c := 233280, 9302, 49397
+	s := cid*127 + 235
+	for i := len(rest) - 1; i > 0; i-- {
+		s = (s*a + c) % m
+		j := (s * (i + 1)) / m
+		rest[i], rest[j] = rest[j], rest[i]
+	}
+	return append(fixed, rest...)
 }
 
 func (s *LinovelibSite) Search(ctx context.Context, keyword string, limit int) ([]model.SearchResult, error) {

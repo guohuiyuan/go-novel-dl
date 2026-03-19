@@ -99,6 +99,24 @@ func DefaultConfig() Config {
 			"n23qb": {
 				BookIDs: []model.BookRef{{BookID: "12282"}},
 			},
+			"biquge345": {
+				BookIDs: []model.BookRef{{BookID: "151120"}},
+			},
+			"biquge5": {
+				BookIDs: []model.BookRef{{BookID: "9_9194"}},
+			},
+			"fsshu": {
+				BookIDs: []model.BookRef{{BookID: "100_100256"}},
+			},
+			"n69shuba": {
+				BookIDs: []model.BookRef{{BookID: "54065"}},
+			},
+			"piaotia": {
+				BookIDs: []model.BookRef{{BookID: "1-1705"}},
+			},
+			"ixdzs8": {
+				BookIDs: []model.BookRef{{BookID: "15918"}},
+			},
 		},
 		Plugins: PluginsConfig{
 			EnableLocalPlugins: false,
