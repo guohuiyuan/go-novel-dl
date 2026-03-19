@@ -1,0 +1,80 @@
+# go-novel-dl starter configuration.
+#
+# This file mirrors the command surface and config style of novel-downloader.
+#
+# The current implementation is focused on ESJ Zone first and supports
+# canonical plus mirror hosts.
+
+[general]
+raw_data_dir = "./data/raw_data"
+output_dir = "./data/downloads"
+cache_dir = "./data/novel_cache"
+
+request_interval = 0.5
+workers = 4
+max_connections = 10
+max_rps = 5.0
+
+retry_times = 3
+backoff_factor = 2.0
+timeout = 10.0
+storage_batch_size = 1
+
+cache_book_info = true
+cache_chapter = true
+fetch_inaccessible = false
+
+backend = "nethttp"
+locale_style = "simplified"
+login_required = false
+
+[general.output]
+formats = ["txt", "epub"]
+append_timestamp = true
+render_missing_chapter = true
+filename_template = "{title}_{author}"
+include_picture = true
+
+[general.parser]
+enable_ocr = false
+batch_size = 32
+remove_watermark = false
+model_name = "PP-OCRv5_mobile_rec"
+
+[general.debug]
+save_html = false
+log_dir = "./data/logs"
+log_level = "INFO"
+
+[[general.processors]]
+name = "cleaner"
+overwrite = false
+remove_invisible = true
+
+[sites.esjzone]
+book_ids = ["1660702902"]
+login_required = true
+mirror_hosts = ["https://www.esjzone.me", "https://esjzone.me"]
+username = "xxxxx"
+password = "xxxxx"
+# cookie = "optional pre-exported cookie string"
+
+[sites.westnovel]
+book_ids = ["wuxia-ynyh"]
+
+[sites.yibige]
+book_ids = ["6238"]
+
+[sites.yodu]
+book_ids = ["1"]
+
+[sites.linovelib]
+book_ids = ["8"]
+
+[sites.n23qb]
+book_ids = ["12282"]
+
+[plugins]
+enable_local_plugins = false
+override_builtins = false
+local_plugins_path = "./novel_plugins"
