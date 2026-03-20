@@ -1,6 +1,7 @@
 package site
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -45,7 +46,7 @@ func (h HTMLSite) Get(ctx context.Context, rawURL string) (string, error) {
 		return "", err
 	}
 	contentType := resp.Header.Get("Content-Type")
-	reader, err := charsetpkg.NewReader(strings.NewReader(string(data)), contentType)
+	reader, err := charsetpkg.NewReader(bytes.NewReader(data), contentType)
 	if err == nil {
 		decoded, derr := io.ReadAll(reader)
 		if derr == nil {

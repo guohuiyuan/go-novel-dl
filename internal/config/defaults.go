@@ -117,6 +117,25 @@ func DefaultConfig() Config {
 			"ixdzs8": {
 				BookIDs: []model.BookRef{{BookID: "15918"}},
 			},
+			"novalpie": {
+				BookIDs:       []model.BookRef{{BookID: "353245"}},
+				LoginRequired: boolPtr(true),
+			},
+			"ruochu": {
+				BookIDs: []model.BookRef{{BookID: "121261"}},
+			},
+			"n17k": {
+				BookIDs: []model.BookRef{{BookID: "3374595"}},
+			},
+			"hongxiuzhao": {
+				BookIDs: []model.BookRef{{BookID: "ZG6rmWO"}},
+			},
+			"fanqienovel": {
+				BookIDs: []model.BookRef{{BookID: "7276384138653862966"}},
+			},
+			"faloo": {
+				BookIDs: []model.BookRef{{BookID: "1482723"}},
+			},
 		},
 		Plugins: PluginsConfig{
 			EnableLocalPlugins: false,

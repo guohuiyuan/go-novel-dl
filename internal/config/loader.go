@@ -136,6 +136,7 @@ func parseSite(raw map[string]any) (SiteConfig, error) {
 
 	optionalBoolField(raw, "login_required", &site.LoginRequired)
 	stringField(raw, "username", &site.Username)
+	stringField(raw, "email", &site.Email)
 	stringField(raw, "password", &site.Password)
 	stringField(raw, "cookie", &site.Cookie)
 	site.MirrorHosts = stringSliceValue(raw["mirror_hosts"])

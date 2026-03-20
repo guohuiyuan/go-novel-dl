@@ -95,6 +95,7 @@ type SiteConfig struct {
 	LoginRequired     *bool
 	Username          string
 	Password          string
+	Email             string
 	Cookie            string
 	MirrorHosts       []string
 	RequestInterval   *float64
@@ -121,6 +122,7 @@ type ResolvedSiteConfig struct {
 	BookIDs     []model.BookRef
 	Username    string
 	Password    string
+	Email       string
 	Cookie      string
 	MirrorHosts []string
 }
@@ -150,6 +152,7 @@ func (c Config) ResolveSiteConfig(site string) ResolvedSiteConfig {
 	resolved.BookIDs = cloneBookRefs(siteCfg.BookIDs)
 	resolved.Username = siteCfg.Username
 	resolved.Password = siteCfg.Password
+	resolved.Email = siteCfg.Email
 	resolved.Cookie = siteCfg.Cookie
 	resolved.MirrorHosts = cloneStrings(siteCfg.MirrorHosts)
 

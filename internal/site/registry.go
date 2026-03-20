@@ -103,6 +103,24 @@ func NewDefaultRegistry() *Registry {
 	registry.Register("ixdzs8", func(cfg config.ResolvedSiteConfig) Site {
 		return NewIxdzs8Site(cfg)
 	})
+	registry.Register("novalpie", func(cfg config.ResolvedSiteConfig) Site {
+		return NewNovalpieSite(cfg)
+	})
+	registry.Register("ruochu", func(cfg config.ResolvedSiteConfig) Site {
+		return NewRuochuSite(cfg)
+	})
+	registry.Register("n17k", func(cfg config.ResolvedSiteConfig) Site {
+		return NewN17KSite(cfg)
+	})
+	registry.Register("hongxiuzhao", func(cfg config.ResolvedSiteConfig) Site {
+		return NewHongxiuzhaoSite(cfg)
+	})
+	registry.Register("fanqienovel", func(cfg config.ResolvedSiteConfig) Site {
+		return NewFanqieNovelSite(cfg)
+	})
+	registry.Register("faloo", func(cfg config.ResolvedSiteConfig) Site {
+		return NewFalooSite(cfg)
+	})
 	return registry
 }
 

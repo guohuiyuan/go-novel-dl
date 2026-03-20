@@ -92,6 +92,28 @@ book_ids = ["1-1705"]
 [sites.ixdzs8]
 book_ids = ["15918"]
 
+[sites.novalpie]
+book_ids = ["353245"]
+login_required = true
+# email = "your_email@example.com"
+# password = "your_password"
+# cookie = "Bearer <browser_token>"
+
+[sites.ruochu]
+book_ids = ["121261"]
+
+[sites.n17k]
+book_ids = ["3374595"]
+
+[sites.hongxiuzhao]
+book_ids = ["ZG6rmWO"]
+
+[sites.fanqienovel]
+book_ids = ["7276384138653862966"]
+
+[sites.faloo]
+book_ids = ["1482723"]
+
 [plugins]
 enable_local_plugins = false
 override_builtins = false
