@@ -121,6 +121,21 @@ func NewDefaultRegistry() *Registry {
 	registry.Register("faloo", func(cfg config.ResolvedSiteConfig) Site {
 		return NewFalooSite(cfg)
 	})
+	registry.Register("wenku8", func(cfg config.ResolvedSiteConfig) Site {
+		return NewWenku8Site(cfg)
+	})
+	registry.Register("sfacg", func(cfg config.ResolvedSiteConfig) Site {
+		return NewSfacgSite(cfg)
+	})
+	registry.Register("ciyuanji", func(cfg config.ResolvedSiteConfig) Site {
+		return NewCiyuanjiSite(cfg)
+	})
+	registry.Register("qbtr", func(cfg config.ResolvedSiteConfig) Site {
+		return NewQBTRSite(cfg)
+	})
+	registry.Register("ciweimao", func(cfg config.ResolvedSiteConfig) Site {
+		return NewCiweimaoSite(cfg)
+	})
 	return registry
 }
 

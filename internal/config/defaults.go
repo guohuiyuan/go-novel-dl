@@ -136,6 +136,21 @@ func DefaultConfig() Config {
 			"faloo": {
 				BookIDs: []model.BookRef{{BookID: "1482723"}},
 			},
+			"wenku8": {
+				BookIDs: []model.BookRef{{BookID: "2835"}},
+			},
+			"sfacg": {
+				BookIDs: []model.BookRef{{BookID: "456123"}},
+			},
+			"ciyuanji": {
+				BookIDs: []model.BookRef{{BookID: "12030"}},
+			},
+			"qbtr": {
+				BookIDs: []model.BookRef{{BookID: "tongren-8978"}},
+			},
+			"ciweimao": {
+				BookIDs: []model.BookRef{{BookID: "100011781"}},
+			},
 		},
 		Plugins: PluginsConfig{
 			EnableLocalPlugins: false,
