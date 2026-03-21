@@ -114,6 +114,21 @@ book_ids = ["7276384138653862966"]
 [sites.faloo]
 book_ids = ["1482723"]
 
+[sites.wenku8]
+book_ids = ["2835"]
+
+[sites.sfacg]
+book_ids = ["456123"]
+
+[sites.ciyuanji]
+book_ids = ["12030"]
+
+[sites.qbtr]
+book_ids = ["tongren-8978"]
+
+[sites.ciweimao]
+book_ids = ["100011781"]
+
 [plugins]
 enable_local_plugins = false
 override_builtins = false
