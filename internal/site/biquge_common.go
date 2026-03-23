@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -38,7 +39,7 @@ func NewBiqugePagedSite(key, displayName, baseURL, bookPrefix string, cfg config
 func (s *BiqugePagedSite) Key() string         { return s.key }
 func (s *BiqugePagedSite) DisplayName() string { return s.displayName }
 func (s *BiqugePagedSite) Capabilities() Capabilities {
-	return Capabilities{Download: true, Search: false, Login: false}
+	return Capabilities{Download: true, Search: true, Login: false}
 }
 
 func (s *BiqugePagedSite) ResolveURL(rawURL string) (*ResolvedURL, bool) {
@@ -222,10 +223,149 @@ func (s *BiqugePagedSite) getWithRetry(ctx context.Context, rawURL string) (stri
 }
 
 func (s *BiqugePagedSite) Search(ctx context.Context, keyword string, limit int) ([]model.SearchResult, error) {
-	_ = ctx
-	_ = keyword
-	_ = limit
-	return nil, fmt.Errorf("%s search is not implemented yet", s.key)
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" {
+		return nil, nil
+	}
+
+	markup, err := s.getWithRetry(ctx, fmt.Sprintf("%s/search.php?q=%s&p=1", s.baseURL, url.QueryEscape(keyword)))
+	if err != nil {
+		return nil, err
+	}
+	results, err := parseBiqugePagedSearchResults(markup, s.baseURL, s.key, s.ResolveURL)
+	if err != nil {
+		return nil, err
+	}
+	if limit > 0 && len(results) > limit {
+		results = results[:limit]
+	}
+	enrichSearchResultsParallel(ctx, results, 6, s.populateSearchDetail)
+	return results, nil
+}
+
+func parseBiqugePagedSearchResults(markup, baseURL, siteKey string, resolve func(string) (*ResolvedURL, bool)) ([]model.SearchResult, error) {
+	doc, err := parseHTML(markup)
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]model.SearchResult, 0)
+	seen := map[string]struct{}{}
+	for _, card := range findAll(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "dl" && findFirst(n, func(child *html.Node) bool {
+			return child.Type == html.ElementNode && child.Data == "dt"
+		}) != nil
+	}) {
+		titleLink := findFirst(card, func(n *html.Node) bool {
+			if n.Type != html.ElementNode || n.Data != "a" || !hasAncestorTag(n, "h3") {
+				return false
+			}
+			href := absolutizeURL(baseURL, attrValue(n, "href"))
+			resolved, ok := resolve(href)
+			return ok && resolved != nil && resolved.BookID != ""
+		})
+		if titleLink == nil {
+			continue
+		}
+		rawURL := absolutizeURL(baseURL, attrValue(titleLink, "href"))
+		resolved, ok := resolve(rawURL)
+		if !ok || resolved == nil || resolved.BookID == "" {
+			continue
+		}
+		if _, exists := seen[resolved.BookID]; exists {
+			continue
+		}
+		seen[resolved.BookID] = struct{}{}
+
+		latest := ""
+		for _, item := range findAll(card, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "dd" && hasClass(n, "book_other")
+		}) {
+			text := cleanText(nodeText(item))
+			if !strings.HasPrefix(text, "最新章节：") {
+				continue
+			}
+			latest = strings.TrimSpace(strings.TrimPrefix(text, "最新章节："))
+			if latestLink := findFirst(item, func(n *html.Node) bool { return n.Type == html.ElementNode && n.Data == "a" }); latestLink != nil {
+				latest = cleanText(nodeText(latestLink))
+			}
+			break
+		}
+
+		results = append(results, model.SearchResult{
+			Site:          siteKey,
+			BookID:        resolved.BookID,
+			Title:         trimSearchCategoryPrefix(cleanText(nodeText(titleLink))),
+			Author:        biqugeSearchField(card, "作者："),
+			URL:           rawURL,
+			LatestChapter: latest,
+			CoverURL:      absolutizeURL(baseURL, attrValue(findFirst(card, func(n *html.Node) bool { return n.Type == html.ElementNode && n.Data == "img" }), "src")),
+		})
+	}
+	return results, nil
+}
+
+func (s *BiqugePagedSite) populateSearchDetail(ctx context.Context, item *model.SearchResult) error {
+	if item == nil || item.BookID == "" {
+		return nil
+	}
+
+	bookURL := fmt.Sprintf("%s/%s/%s/", s.baseURL, s.bookPrefix, item.BookID)
+	if s.bookPrefix == "" {
+		bookURL = fmt.Sprintf("%s/%s/", s.baseURL, item.BookID)
+	}
+	markup, err := s.getWithRetry(ctx, bookURL)
+	if err != nil {
+		return err
+	}
+	doc, err := parseHTML(markup)
+	if err != nil {
+		return err
+	}
+
+	if title := fallback(metaProperty(doc, "og:novel:book_name"), metaProperty(doc, "og:title")); title != "" {
+		item.Title = trimSearchCategoryPrefix(title)
+	}
+	if author := fallback(metaProperty(doc, "og:novel:author"), biqugeSearchField(doc, "作者：")); author != "" {
+		item.Author = author
+	}
+	if description := fallback(metaProperty(doc, "og:description"), cleanText(nodeText(findFirstByID(doc, "intro_pc")))); description != "" {
+		item.Description = description
+	}
+	if cover := normalizeMaybeProtocol(metaProperty(doc, "og:image")); cover != "" {
+		item.CoverURL = cover
+	}
+	item.URL = bookURL
+	return nil
+}
+
+func biqugeSearchField(node *html.Node, prefix string) string {
+	for _, item := range findAll(node, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "dd" && hasClass(n, "book_other")
+	}) {
+		text := cleanText(nodeText(item))
+		if !strings.HasPrefix(text, prefix) {
+			continue
+		}
+		text = strings.TrimSpace(strings.TrimPrefix(text, prefix))
+		if span := findFirst(item, func(n *html.Node) bool { return n.Type == html.ElementNode && n.Data == "span" }); span != nil {
+			if value := cleanText(nodeText(span)); value != "" {
+				return value
+			}
+		}
+		return text
+	}
+	return ""
+}
+
+func trimSearchCategoryPrefix(title string) string {
+	title = strings.TrimSpace(title)
+	if strings.HasPrefix(title, "[") {
+		if idx := strings.Index(title, "]"); idx >= 0 {
+			return strings.TrimSpace(title[idx+1:])
+		}
+	}
+	return title
 }
 
 func dedupChapters(chapters []model.Chapter) []model.Chapter {

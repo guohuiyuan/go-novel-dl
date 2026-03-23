@@ -41,7 +41,7 @@ func NewIxdzs8Site(cfg config.ResolvedSiteConfig) *Ixdzs8Site {
 func (s *Ixdzs8Site) Key() string         { return "ixdzs8" }
 func (s *Ixdzs8Site) DisplayName() string { return "Ixdzs8" }
 func (s *Ixdzs8Site) Capabilities() Capabilities {
-	return Capabilities{Download: true, Search: false, Login: false}
+	return Capabilities{Download: true, Search: true, Login: false}
 }
 
 func (s *Ixdzs8Site) ResolveURL(rawURL string) (*ResolvedURL, bool) {
@@ -200,10 +200,92 @@ func (s *Ixdzs8Site) FetchChapter(ctx context.Context, bookID string, chapter mo
 }
 
 func (s *Ixdzs8Site) Search(ctx context.Context, keyword string, limit int) ([]model.SearchResult, error) {
-	_ = ctx
-	_ = keyword
-	_ = limit
-	return nil, fmt.Errorf("ixdzs8 search is not implemented yet")
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" {
+		return nil, nil
+	}
+
+	markup, err := s.fetchVerifiedHTML(ctx, "https://ixdzs8.com/bsearch?q="+url.QueryEscape(keyword))
+	if err != nil {
+		return nil, err
+	}
+	results, err := parseIxdzsSearchResults(markup)
+	if err != nil {
+		return nil, err
+	}
+	if limit > 0 && len(results) > limit {
+		results = results[:limit]
+	}
+	return results, nil
+}
+
+func parseIxdzsSearchResults(markup string) ([]model.SearchResult, error) {
+	doc, err := parseHTML(markup)
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]model.SearchResult, 0)
+	seen := map[string]struct{}{}
+	for _, item := range findAll(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "li" && hasClass(n, "burl")
+	}) {
+		titleLink := findFirst(item, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "a" && hasAncestorClass(n, "bname")
+		})
+		bookID := ixdzsSearchBookID(attrValue(titleLink, "href"))
+		if bookID == "" {
+			bookID = ixdzsSearchBookID(attrValue(item, "data-url"))
+		}
+		if bookID == "" {
+			continue
+		}
+		if _, exists := seen[bookID]; exists {
+			continue
+		}
+		seen[bookID] = struct{}{}
+
+		description := cleanIxdzsSummary(cleanText(nodeText(findFirst(item, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "p" && hasClass(n, "l-p2")
+		}))))
+
+		results = append(results, model.SearchResult{
+			Site:   "ixdzs8",
+			BookID: bookID,
+			Title:  cleanText(nodeText(titleLink)),
+			Author: cleanText(nodeText(findFirst(item, func(n *html.Node) bool {
+				return n.Type == html.ElementNode && n.Data == "a" && hasAncestorClass(n, "bauthor")
+			}))),
+			Description: description,
+			URL:         fmt.Sprintf("https://ixdzs8.com/read/%s/", bookID),
+			LatestChapter: cleanText(nodeText(findFirst(item, func(n *html.Node) bool {
+				return n.Type == html.ElementNode && n.Data == "span" && hasClass(n, "l-chapter")
+			}))),
+			CoverURL: attrValue(findFirst(item, func(n *html.Node) bool { return n.Type == html.ElementNode && n.Data == "img" }), "src"),
+		})
+	}
+	return results, nil
+}
+
+func ixdzsSearchBookID(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if strings.HasPrefix(raw, "//") {
+		raw = "https:" + raw
+	}
+	if strings.HasPrefix(raw, "http://") || strings.HasPrefix(raw, "https://") {
+		parsed, err := normalizeURL(raw)
+		if err == nil {
+			raw = parsed.Path
+		}
+	}
+	match := ixdzsBookRe.FindStringSubmatch(raw)
+	if len(match) != 2 {
+		return ""
+	}
+	return match[1]
 }
 
 func (s *Ixdzs8Site) fetchVerifiedHTML(ctx context.Context, rawURL string) (string, error) {

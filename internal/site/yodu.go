@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -31,14 +32,19 @@ func NewYoduSite(cfg config.ResolvedSiteConfig) *YoduSite {
 	if cfg.General.Timeout > 0 {
 		timeout = time.Duration(cfg.General.Timeout * float64(time.Second))
 	}
-	client := &http.Client{Timeout: timeout}
+	client := &http.Client{
+		Timeout: timeout,
+		Transport: &http.Transport{
+			ForceAttemptHTTP2: false,
+		},
+	}
 	return &YoduSite{cfg: cfg, html: NewHTMLSite(client), client: client}
 }
 
 func (s *YoduSite) Key() string         { return "yodu" }
 func (s *YoduSite) DisplayName() string { return "Yodu" }
 func (s *YoduSite) Capabilities() Capabilities {
-	return Capabilities{Download: true, Search: false, Login: false}
+	return Capabilities{Download: true, Search: true, Login: false}
 }
 
 func (s *YoduSite) ResolveURL(rawURL string) (*ResolvedURL, bool) {
@@ -178,8 +184,108 @@ func (s *YoduSite) FetchChapter(ctx context.Context, bookID string, chapter mode
 }
 
 func (s *YoduSite) Search(ctx context.Context, keyword string, limit int) ([]model.SearchResult, error) {
-	_ = ctx
-	_ = keyword
-	_ = limit
-	return nil, fmt.Errorf("yodu search is not implemented yet")
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" {
+		return nil, nil
+	}
+
+	form := url.Values{}
+	form.Set("searchkey", keyword)
+	form.Set("searchtype", "all")
+	markup, err := postFormHTML(ctx, s.client, "https://www.yodu.org/sa", form, nil)
+	if err != nil {
+		return nil, err
+	}
+	results, err := parseYoduSearchResults(markup)
+	if err != nil {
+		return nil, err
+	}
+	if limit > 0 && len(results) > limit {
+		results = results[:limit]
+	}
+	return results, nil
+}
+
+func parseYoduSearchResults(markup string) ([]model.SearchResult, error) {
+	doc, err := parseHTML(markup)
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]model.SearchResult, 0)
+	seen := map[string]struct{}{}
+	for _, list := range findAll(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "ul" && hasClass(n, "ser-ret")
+	}) {
+		for _, item := range directChildElements(list, "li") {
+			titleLink := findFirst(item, func(n *html.Node) bool {
+				return n.Type == html.ElementNode && n.Data == "a" && hasAncestorTag(n, "h3")
+			})
+			if titleLink == nil {
+				continue
+			}
+			resolved, ok := normalizeYoduSearchURL(attrValue(titleLink, "href"))
+			if !ok || resolved.BookID == "" {
+				continue
+			}
+			if _, exists := seen[resolved.BookID]; exists {
+				continue
+			}
+			seen[resolved.BookID] = struct{}{}
+
+			results = append(results, model.SearchResult{
+				Site:        "yodu",
+				BookID:      resolved.BookID,
+				Title:       cleanText(nodeText(titleLink)),
+				Author:      yoduSearchAuthor(item),
+				Description: cleanText(nodeText(findFirst(item, func(n *html.Node) bool { return n.Type == html.ElementNode && n.Data == "p" && hasClass(n, "g_ells") }))),
+				URL:         fmt.Sprintf("https://www.yodu.org/book/%s/", resolved.BookID),
+				LatestChapter: cleanText(nodeText(findFirst(item, func(n *html.Node) bool {
+					return n.Type == html.ElementNode && n.Data == "a" && hasAncestorTag(n, "p") && strings.Contains(attrValue(n, "href"), "/book/")
+				}))),
+				CoverURL: attrValue(findFirst(item, func(n *html.Node) bool { return n.Type == html.ElementNode && n.Data == "img" }), "_src"),
+			})
+		}
+	}
+	return results, nil
+}
+
+func normalizeYoduSearchURL(raw string) (*ResolvedURL, bool) {
+	if raw == "" {
+		return nil, false
+	}
+	raw = absolutizeURL("https://www.yodu.org", raw)
+	parsed, err := normalizeURL(raw)
+	if err != nil {
+		return nil, false
+	}
+	match := yoduBookRe.FindStringSubmatch(parsed.Path)
+	if len(match) != 2 {
+		return nil, false
+	}
+	return &ResolvedURL{
+		SiteKey:   "yodu",
+		BookID:    match[1],
+		Canonical: "https://www.yodu.org/book/" + match[1] + "/",
+	}, true
+}
+
+func yoduSearchAuthor(item *html.Node) string {
+	meta := findFirst(item, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "em"
+	})
+	if meta == nil {
+		return ""
+	}
+	values := make([]string, 0, 3)
+	for _, span := range directChildElements(meta, "span") {
+		text := cleanText(nodeText(span))
+		if text != "" {
+			values = append(values, text)
+		}
+	}
+	if len(values) >= 2 {
+		return values[1]
+	}
+	return ""
 }

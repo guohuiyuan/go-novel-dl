@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -37,7 +38,7 @@ func NewBiquge345Site(cfg config.ResolvedSiteConfig) *Biquge345Site {
 func (s *Biquge345Site) Key() string         { return "biquge345" }
 func (s *Biquge345Site) DisplayName() string { return "Biquge345" }
 func (s *Biquge345Site) Capabilities() Capabilities {
-	return Capabilities{Download: true, Search: false, Login: false}
+	return Capabilities{Download: true, Search: true, Login: false}
 }
 
 func (s *Biquge345Site) ResolveURL(rawURL string) (*ResolvedURL, bool) {
@@ -135,10 +136,109 @@ func (s *Biquge345Site) FetchChapter(ctx context.Context, bookID string, chapter
 }
 
 func (s *Biquge345Site) Search(ctx context.Context, keyword string, limit int) ([]model.SearchResult, error) {
-	_ = ctx
-	_ = keyword
-	_ = limit
-	return nil, fmt.Errorf("biquge345 search is not implemented yet")
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" {
+		return nil, nil
+	}
+
+	form := url.Values{}
+	form.Set("type", "articlename")
+	form.Set("s", keyword)
+	markup, err := postFormHTML(ctx, s.client, "https://www.biquge345.com/s.php", form, nil)
+	if err != nil {
+		return nil, err
+	}
+	results, err := parseBiquge345SearchResults(markup)
+	if err != nil {
+		return nil, err
+	}
+	if limit > 0 && len(results) > limit {
+		results = results[:limit]
+	}
+	enrichSearchResultsParallel(ctx, results, 6, s.populateSearchDetail)
+	return results, nil
+}
+
+func parseBiquge345SearchResults(markup string) ([]model.SearchResult, error) {
+	doc, err := parseHTML(markup)
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]model.SearchResult, 0)
+	seen := map[string]struct{}{}
+	for _, list := range findAll(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "ul" && hasClass(n, "search")
+	}) {
+		for _, item := range directChildElements(list, "li") {
+			if hasClass(item, "fen") {
+				continue
+			}
+			titleLink := findFirst(item, func(n *html.Node) bool {
+				return n.Type == html.ElementNode && n.Data == "a" && hasAncestorClass(n, "name")
+			})
+			match := biquge345BookRe.FindStringSubmatch(normalizeESJPath(attrValue(titleLink, "href")))
+			if len(match) != 2 {
+				continue
+			}
+			bookID := match[1]
+			if _, exists := seen[bookID]; exists {
+				continue
+			}
+			seen[bookID] = struct{}{}
+
+			results = append(results, model.SearchResult{
+				Site:   "biquge345",
+				BookID: bookID,
+				Title:  cleanText(nodeText(titleLink)),
+				Author: cleanText(nodeText(findFirst(item, func(n *html.Node) bool {
+					return n.Type == html.ElementNode && n.Data == "a" && hasAncestorClass(n, "zuo")
+				}))),
+				URL: fmt.Sprintf("https://www.biquge345.com/book/%s/", bookID),
+				LatestChapter: cleanText(nodeText(findFirst(item, func(n *html.Node) bool {
+					return n.Type == html.ElementNode && n.Data == "a" && hasAncestorClass(n, "jie")
+				}))),
+			})
+		}
+	}
+	return results, nil
+}
+
+func (s *Biquge345Site) populateSearchDetail(ctx context.Context, item *model.SearchResult) error {
+	if item == nil || item.BookID == "" {
+		return nil
+	}
+	markup, err := s.html.Get(ctx, fmt.Sprintf("https://www.biquge345.com/book/%s/", item.BookID))
+	if err != nil {
+		return err
+	}
+	doc, err := parseHTML(markup)
+	if err != nil {
+		return err
+	}
+
+	if title := cleanText(nodeText(findFirst(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "h1" && hasAncestorClass(n, "right_border")
+	}))); title != "" {
+		item.Title = title
+	}
+	if author := cleanText(nodeText(findFirst(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "a" && hasAncestorClass(n, "x1")
+	}))); author != "" {
+		item.Author = author
+	}
+	if description := cleanText(nodeText(findFirst(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "div" && hasClass(n, "x3")
+	}))); description != "" {
+		item.Description = description
+	}
+	if cover := absolutizeURL("https://www.biquge345.com", attrValue(findFirst(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "img" && hasAncestorClass(n, "zhutu")
+	}), "src")); cover != "" {
+		item.CoverURL = cover
+	}
+	item.URL = fmt.Sprintf("https://www.biquge345.com/book/%s/", item.BookID)
+	return nil
 }
 
 func isBiquge345Ad(line string) bool {

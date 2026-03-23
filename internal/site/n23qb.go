@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -30,14 +31,19 @@ func NewN23QBSite(cfg config.ResolvedSiteConfig) *N23QBSite {
 	if cfg.General.Timeout > 0 {
 		timeout = time.Duration(cfg.General.Timeout * float64(time.Second))
 	}
-	client := &http.Client{Timeout: timeout}
+	client := &http.Client{
+		Timeout: timeout,
+		Transport: &http.Transport{
+			ForceAttemptHTTP2: false,
+		},
+	}
 	return &N23QBSite{cfg: cfg, html: NewHTMLSite(client), client: client}
 }
 
 func (s *N23QBSite) Key() string         { return "n23qb" }
 func (s *N23QBSite) DisplayName() string { return "23QB" }
 func (s *N23QBSite) Capabilities() Capabilities {
-	return Capabilities{Download: true, Search: false, Login: false}
+	return Capabilities{Download: true, Search: true, Login: false}
 }
 
 func (s *N23QBSite) ResolveURL(rawURL string) (*ResolvedURL, bool) {
@@ -179,8 +185,99 @@ func (s *N23QBSite) FetchChapter(ctx context.Context, bookID string, chapter mod
 }
 
 func (s *N23QBSite) Search(ctx context.Context, keyword string, limit int) ([]model.SearchResult, error) {
-	_ = ctx
-	_ = keyword
-	_ = limit
-	return nil, fmt.Errorf("n23qb search is not implemented yet")
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" {
+		return nil, nil
+	}
+
+	markup, err := s.html.Get(ctx, "https://www.23qb.com/search.html?searchkey="+url.QueryEscape(keyword))
+	if err != nil {
+		return nil, err
+	}
+	results, err := parseN23QBSearchResults(markup)
+	if err != nil {
+		return nil, err
+	}
+	if limit > 0 && len(results) > limit {
+		results = results[:limit]
+	}
+	enrichSearchResultsParallel(ctx, results, 6, s.populateSearchDetail)
+	return results, nil
+}
+
+func parseN23QBSearchResults(markup string) ([]model.SearchResult, error) {
+	doc, err := parseHTML(markup)
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]model.SearchResult, 0)
+	seen := map[string]struct{}{}
+	for _, item := range findAll(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "div" && hasClass(n, "module-search-item")
+	}) {
+		titleLink := findFirst(item, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "a" && hasAncestorTag(n, "h3")
+		})
+		match := n23qbBookRe.FindStringSubmatch(normalizeESJPath(attrValue(titleLink, "href")))
+		if len(match) != 2 {
+			continue
+		}
+		bookID := match[1]
+		if _, exists := seen[bookID]; exists {
+			continue
+		}
+		seen[bookID] = struct{}{}
+
+		results = append(results, model.SearchResult{
+			Site:   "n23qb",
+			BookID: bookID,
+			Title:  cleanText(nodeText(titleLink)),
+			Description: cleanText(nodeText(findFirst(item, func(n *html.Node) bool {
+				return n.Type == html.ElementNode && n.Data == "div" && hasClass(n, "novel-info-item")
+			}))),
+			URL: fmt.Sprintf("https://www.23qb.com/book/%s/", bookID),
+			CoverURL: attrValue(findFirst(item, func(n *html.Node) bool {
+				return n.Type == html.ElementNode && n.Data == "img" && hasAncestorClass(n, "module-item-pic")
+			}), "data-src"),
+		})
+	}
+	return results, nil
+}
+
+func (s *N23QBSite) populateSearchDetail(ctx context.Context, item *model.SearchResult) error {
+	if item == nil || item.BookID == "" {
+		return nil
+	}
+	markup, err := s.html.Get(ctx, fmt.Sprintf("https://www.23qb.com/book/%s/", item.BookID))
+	if err != nil {
+		return err
+	}
+	doc, err := parseHTML(markup)
+	if err != nil {
+		return err
+	}
+
+	if title := cleanText(nodeText(findFirst(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "h1" && hasClass(n, "page-title")
+	}))); title != "" {
+		item.Title = title
+	}
+	if author := attrValue(findFirst(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "a" && strings.Contains(attrValue(n, "href"), "/author/")
+	}), "title"); author != "" {
+		item.Author = author
+	}
+	if description := cleanText(nodeText(findFirst(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "span" && hasAncestorClass(n, "novel-info-content")
+	}))); description != "" {
+		item.Description = description
+	}
+	if cover := attrValue(findFirst(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "img" && hasAncestorClass(n, "novel-cover")
+	}), "data-src"); cover != "" {
+		item.CoverURL = cover
+	}
+	item.URL = fmt.Sprintf("https://www.23qb.com/book/%s/", item.BookID)
+	return nil
 }
