@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=NovelDL
+Comment=A desktop shell for novel-dl
+Exec=novel-dl-desktop
+Terminal=false
+Categories=Office;

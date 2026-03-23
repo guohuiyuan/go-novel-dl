@@ -3,3 +3,6 @@ dist/
 data/
 *.exe
 desktop/target/
+novel-dl
+novel-cli
+novel-dl-desktop

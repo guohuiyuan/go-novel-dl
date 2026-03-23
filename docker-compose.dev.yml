@@ -1,0 +1,14 @@
+services:
+  novel-dl:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: novel-dl-dev
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/home/appuser/data
+    environment:
+      - TZ=Asia/Shanghai
+    command: ["./novel-dl", "web", "--port", "8080", "--no-browser"]

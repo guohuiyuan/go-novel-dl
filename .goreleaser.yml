@@ -1,0 +1,65 @@
+version: 2
+
+project_name: go-novel-dl
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: novel-dl
+    env:
+      - CGO_ENABLED=0
+      - GO111MODULE=on
+    main: ./cmd/novel-dl
+    binary: novel-dl
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+
+checksum:
+  name_template: "go-novel-dl_checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - fix typo
+      - Merge pull request
+      - Merge branch
+      - Merge remote-tracking
+      - go mod tidy
+
+archives:
+  - id: cli
+    ids:
+      - novel-dl
+    name_template: "go-novel-dl_{{ .Os }}_{{ .Arch }}"
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+
+nfpms:
+  - id: cli
+    package_name: go-novel-dl
+    file_name_template: "go-novel-dl_{{ .Os }}_{{ .Arch }}"
+    homepage: https://github.com/guohuiyuan/go-novel-dl
+    maintainer: guohuiyuan
+    license: AGPL-3.0
+    formats:
+      - deb
+      - rpm

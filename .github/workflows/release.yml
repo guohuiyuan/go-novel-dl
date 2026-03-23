@@ -1,0 +1,174 @@
+name: Release CLI And Desktop
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.1"
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-windows-desktop:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            goarch: amd64
+            archive_name: amd64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.1"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+
+      - name: Build Go backend
+        run: go build -ldflags "-s -w" -o novel-dl.exe ./cmd/novel-dl
+        env:
+          CGO_ENABLED: 0
+          GOOS: windows
+          GOARCH: ${{ matrix.goarch }}
+
+      - name: Build Rust desktop
+        run: cargo build --manifest-path desktop/Cargo.toml --release --target ${{ matrix.target }}
+
+      - name: Package desktop archive
+        shell: powershell
+        run: |
+          Compress-Archive -Path desktop/target/${{ matrix.target }}/release/novel-dl-desktop.exe -DestinationPath novel-dl-desktop-windows-${{ matrix.archive_name }}.zip
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: novel-dl-desktop-windows-${{ matrix.archive_name }}.zip
+
+  build-macos-desktop:
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-apple-darwin
+            goarch: amd64
+            archive_name: amd64
+          - target: aarch64-apple-darwin
+            goarch: arm64
+            archive_name: arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.1"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+
+      - name: Build Go backend
+        run: go build -ldflags "-s -w" -o novel-dl ./cmd/novel-dl
+        env:
+          CGO_ENABLED: 0
+          GOOS: darwin
+          GOARCH: ${{ matrix.goarch }}
+
+      - name: Build Rust desktop
+        run: cargo build --manifest-path desktop/Cargo.toml --release --target ${{ matrix.target }}
+
+      - name: Package desktop archive
+        run: |
+          tar -czf novel-dl-desktop-darwin-${{ matrix.archive_name }}.tar.gz -C desktop/target/${{ matrix.target }}/release novel-dl-desktop
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: novel-dl-desktop-darwin-${{ matrix.archive_name }}.tar.gz
+
+  build-linux-desktop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.1"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+          cargo install cargo-deb --locked
+          cargo install cargo-generate-rpm --locked
+
+      - name: Build Go backend
+        run: go build -ldflags "-s -w" -o novel-dl ./cmd/novel-dl
+        env:
+          CGO_ENABLED: 0
+          GOOS: linux
+          GOARCH: amd64
+
+      - name: Build Rust desktop
+        run: cargo build --manifest-path desktop/Cargo.toml --release
+
+      - name: Package desktop artifacts
+        run: |
+          tar -czf novel-dl-desktop-linux-amd64.tar.gz -C desktop/target/release novel-dl-desktop
+          cargo deb --manifest-path desktop/Cargo.toml --no-build --output novel-dl-desktop-linux-amd64.deb
+          cd desktop
+          cargo generate-rpm
+          cd ..
+          mv desktop/target/generate-rpm/*.rpm novel-dl-desktop-linux-amd64.rpm
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            novel-dl-desktop-linux-amd64.tar.gz
+            novel-dl-desktop-linux-amd64.deb
+            novel-dl-desktop-linux-amd64.rpm

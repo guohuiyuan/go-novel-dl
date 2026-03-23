@@ -5,8 +5,26 @@ edition = "2021"
 license = "AGPL-3.0"
 description = "A desktop shell for novel-dl"
 authors = ["guohuiyuan"]
+repository = "https://github.com/guohuiyuan/go-novel-dl"
 
 [dependencies]
 tao = "0.30"
 wry = "0.42"
 open = "3"
+
+[package.metadata.deb]
+maintainer = "guohuiyuan"
+copyright = "2026, guohuiyuan"
+depends = "$auto"
+section = "utility"
+priority = "optional"
+assets = [
+    ["target/release/novel-dl-desktop", "usr/bin/novel-dl-desktop", "755"],
+    ["novel-dl.desktop", "usr/share/applications/novel-dl.desktop", "644"],
+]
+
+[package.metadata.generate-rpm]
+assets = [
+    { source = "target/release/novel-dl-desktop", dest = "/usr/bin/novel-dl-desktop", mode = "755" },
+    { source = "novel-dl.desktop", dest = "/usr/share/applications/novel-dl.desktop", mode = "644" },
+]
