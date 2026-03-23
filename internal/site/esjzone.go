@@ -266,14 +266,14 @@ func (s *ESJZoneSite) fetchChapterContent(ctx context.Context, bookID, chapterID
 				continue
 			}
 		}
-		content, err := parseChapterContent(markup)
+		content, err := parseChapterContent(markup, pageURL)
 		if err != nil {
 			if isEncryptedChapter(markup) {
 				password, perr := s.lookupChapterPassword(markup, bookID, chapterID)
 				if perr == nil && password != "" {
 					unlocked, uerr := s.unlockChapter(ctx, pageURL, password)
 					if uerr == nil {
-						content, err = parseChapterContent(unlocked)
+						content, err = parseChapterContent(unlocked, pageURL)
 						if err == nil {
 							return content, nil
 						}
@@ -634,7 +634,7 @@ func (s *ESJZoneSite) parseSearchPage(markup, baseURL string) ([]model.SearchRes
 	return results, nil
 }
 
-func parseChapterContent(markup string) (string, error) {
+func parseChapterContent(markup, pageURL string) (string, error) {
 	if isLoginPage(markup) {
 		return "", fmt.Errorf("login required for chapter")
 	}
@@ -649,14 +649,14 @@ func parseChapterContent(markup string) (string, error) {
 	container := findFirst(doc, byClass("forum-content"))
 	if container == nil {
 		if body := extractForumContentFromFragment(markup); body != "" {
-			return parseChapterContent(body)
+			return parseChapterContent(body, pageURL)
 		}
 		return "", fmt.Errorf("chapter content container not found")
 	}
 
 	paragraphs := make([]string, 0)
 	for child := container.FirstChild; child != nil; child = child.NextSibling {
-		collectReadableParagraphs(child, &paragraphs, child.Type == html.ElementNode && child.Data == "p")
+		collectReadableParagraphs(child, &paragraphs, pageURL)
 	}
 	if len(paragraphs) == 0 {
 		return "", fmt.Errorf("no readable chapter content found")
@@ -664,33 +664,75 @@ func parseChapterContent(markup string) (string, error) {
 	return strings.Join(paragraphs, "\n\n"), nil
 }
 
-func collectReadableParagraphs(node *html.Node, paragraphs *[]string, allowImagesOnly bool) {
+func collectReadableParagraphs(node *html.Node, paragraphs *[]string, pageURL string) {
 	if node == nil {
 		return
 	}
 	if node.Type == html.ElementNode {
 		switch node.Data {
 		case "p":
-			if allowImagesOnly && hasElementDescendant(node, "img") {
-				*paragraphs = append(*paragraphs, "[插图]")
-				return
-			}
-			text := cleanText(nodeTextPreserveLineBreaks(node))
-			if text != "" {
-				*paragraphs = append(*paragraphs, text)
-			}
+			appendReadableNode(node, paragraphs, pageURL)
 			return
 		case "div", "section", "article", "blockquote":
-			text := cleanText(nodeTextPreserveLineBreaks(node))
-			if text != "" && !hasElementDescendant(node, "p") {
-				*paragraphs = append(*paragraphs, text)
+			if !hasElementDescendant(node, "p") {
+				appendReadableNode(node, paragraphs, pageURL)
 				return
 			}
 		}
 	}
 	for child := node.FirstChild; child != nil; child = child.NextSibling {
-		collectReadableParagraphs(child, paragraphs, allowImagesOnly || (node.Type == html.ElementNode && node.Data == "p"))
+		collectReadableParagraphs(child, paragraphs, pageURL)
 	}
+}
+
+func appendReadableNode(node *html.Node, paragraphs *[]string, pageURL string) {
+	text := cleanText(nodeTextPreserveLineBreaks(node))
+	if text != "" {
+		*paragraphs = append(*paragraphs, text)
+	}
+	for _, imageURL := range collectImageSources(node, pageURL) {
+		*paragraphs = append(*paragraphs, formatImagePlaceholder(imageURL))
+	}
+}
+
+func collectImageSources(node *html.Node, pageURL string) []string {
+	if node == nil {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	images := make([]string, 0)
+	var walk func(*html.Node)
+	walk = func(current *html.Node) {
+		if current == nil {
+			return
+		}
+		if current.Type == html.ElementNode && current.Data == "img" {
+			src := attrValue(current, "src")
+			if src == "" {
+				src = attrValue(current, "data-src")
+			}
+			src = absolutizeURL(pageURL, src)
+			if src != "" {
+				if _, ok := seen[src]; !ok {
+					seen[src] = struct{}{}
+					images = append(images, src)
+				}
+			}
+		}
+		for child := current.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+	walk(node)
+	return images
+}
+
+func formatImagePlaceholder(rawURL string) string {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return "[\u56fe\u7247]"
+	}
+	return "[\u56fe\u7247] " + rawURL
 }
 
 func extractForumContentFromFragment(markup string) string {
@@ -943,6 +985,11 @@ func absolutizeURL(base, raw string) string {
 	}
 	if strings.HasPrefix(raw, "//") {
 		return "https:" + raw
+	}
+	if parsedBase, err := url.Parse(strings.TrimSpace(base)); err == nil && parsedBase != nil {
+		if ref, rerr := url.Parse(raw); rerr == nil {
+			return parsedBase.ResolveReference(ref).String()
+		}
 	}
 	if strings.HasPrefix(raw, "/") {
 		return strings.TrimRight(base, "/") + raw

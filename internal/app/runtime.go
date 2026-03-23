@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/guohuiyuan/go-novel-dl/internal/config"
@@ -188,7 +189,7 @@ func mergeExistingChapters(target *model.Book, existing *model.Book) {
 	}
 	byID := make(map[string]model.Chapter, len(existing.Chapters))
 	for _, chapter := range existing.Chapters {
-		if chapter.Downloaded || chapter.Content != "" {
+		if (chapter.Downloaded || chapter.Content != "") && canReuseChapterContent(chapter.Content) {
 			byID[chapter.ID] = chapter
 		}
 	}
@@ -201,6 +202,21 @@ func mergeExistingChapters(target *model.Book, existing *model.Book) {
 			}
 		}
 	}
+}
+
+func canReuseChapterContent(content string) bool {
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		switch trimmed {
+		case "[\u63d2\u56fe]", "[\u63d2\u5716]", "[\u56fe\u7247]", "[\u5716\u7247]", "[??]":
+			return false
+		}
+		if strings.HasPrefix(trimmed, "[??] ") {
+			return false
+		}
+	}
+	return strings.TrimSpace(content) != ""
 }
 
 func (r *Runtime) Search(ctx context.Context, sites []string, keyword string, overallLimit, perSiteLimit int) ([]model.SearchResult, error) {

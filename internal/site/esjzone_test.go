@@ -120,23 +120,23 @@ func TestExtractForumContentFromFragment(t *testing.T) {
 }
 
 func TestParseChapterContentSupportsSectionOnly(t *testing.T) {
-	markup := `<section class="forum-content mt-3" id=""><section>第一段</section><section>第二段</section></section>`
-	content, err := parseChapterContent(markup)
+	markup := `<section class="forum-content mt-3" id=""><section>???</section><section>???</section></section>`
+	content, err := parseChapterContent(markup, "https://www.esjzone.cc/forum/1/2.html")
 	if err != nil {
 		t.Fatalf("parse chapter content: %v", err)
 	}
-	if !strings.Contains(content, "第一段") || !strings.Contains(content, "第二段") {
+	if !strings.Contains(content, "???") || !strings.Contains(content, "???") {
 		t.Fatalf("unexpected content: %s", content)
 	}
 }
 
 func TestParseChapterContentSupportsImageOnlyParagraph(t *testing.T) {
 	markup := `<div class="forum-content mt-3"><p><img src="a.jpg"></p></div>`
-	content, err := parseChapterContent(markup)
+	content, err := parseChapterContent(markup, "https://www.esjzone.cc/forum/1/2.html")
 	if err != nil {
 		t.Fatalf("parse image-only content: %v", err)
 	}
-	if !strings.Contains(content, "[插图]") {
-		t.Fatalf("expected illustration placeholder, got %s", content)
+	if !strings.Contains(content, "https://www.esjzone.cc/forum/1/a.jpg") {
+		t.Fatalf("expected image placeholder with url, got %s", content)
 	}
 }
