@@ -17,6 +17,8 @@ type HTMLSite struct {
 	client *http.Client
 }
 
+const defaultBrowserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+
 func NewHTMLSite(client *http.Client) HTMLSite {
 	if client == nil {
 		client = &http.Client{}
@@ -25,14 +27,25 @@ func NewHTMLSite(client *http.Client) HTMLSite {
 }
 
 func (h HTMLSite) Get(ctx context.Context, rawURL string) (string, error) {
+	return h.GetWithHeaders(ctx, rawURL, nil)
+}
+
+func (h HTMLSite) GetWithHeaders(ctx context.Context, rawURL string, headers map[string]string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("User-Agent", "go-novel-dl/0.1 (+https://github.com/guohuiyuan/go-novel-dl)")
+	req.Header.Set("User-Agent", defaultBrowserUserAgent)
 	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
 	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("Upgrade-Insecure-Requests", "1")
+	for key, value := range headers {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			req.Header.Set(key, value)
+		}
+	}
 	resp, err := h.client.Do(req)
 	if err != nil {
 		return "", err

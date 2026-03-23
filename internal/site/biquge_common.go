@@ -51,16 +51,26 @@ func (s *BiqugePagedSite) ResolveURL(rawURL string) (*ResolvedURL, bool) {
 		return nil, false
 	}
 	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
-	if len(parts) < 2 {
+	if len(parts) == 0 || parts[0] == "" {
 		return nil, false
 	}
-	bookID := strings.Join(parts[:len(parts)-1], "_")
+	bookParts := parts
+	if s.bookPrefix != "" && len(bookParts) > 0 && bookParts[0] == s.bookPrefix {
+		bookParts = bookParts[1:]
+	}
+	if len(bookParts) == 0 {
+		return nil, false
+	}
+	if len(parts) == 1 || (len(parts) == 2 && s.bookPrefix != "" && parts[0] == s.bookPrefix) {
+		return &ResolvedURL{SiteKey: s.key, BookID: strings.Join(bookParts, "_"), Canonical: rawURL}, true
+	}
+	bookID := strings.Join(bookParts[:len(bookParts)-1], "_")
 	last := parts[len(parts)-1]
 	if strings.HasSuffix(last, ".html") {
 		cid := strings.TrimSuffix(strings.Split(last, "_")[0], ".html")
 		return &ResolvedURL{SiteKey: s.key, BookID: bookID, ChapterID: cid, Canonical: rawURL}, true
 	}
-	return &ResolvedURL{SiteKey: s.key, BookID: strings.Join(parts, "_"), Canonical: rawURL}, true
+	return &ResolvedURL{SiteKey: s.key, BookID: strings.Join(bookParts, "_"), Canonical: rawURL}, true
 }
 
 func (s *BiqugePagedSite) Download(ctx context.Context, ref model.BookRef) (*model.Book, error) {

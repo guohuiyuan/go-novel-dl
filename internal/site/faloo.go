@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -34,6 +33,8 @@ type FalooSite struct {
 	client      *http.Client
 	gateCookies map[string]struct{}
 }
+
+const minFalooRequestInterval = 3 * time.Second
 
 func NewFalooSite(cfg config.ResolvedSiteConfig) *FalooSite {
 	timeout := 15 * time.Second
@@ -77,7 +78,7 @@ func (s *FalooSite) Download(ctx context.Context, ref model.BookRef) (*model.Boo
 	for idx, chapter := range book.Chapters {
 		loaded, err := s.FetchChapter(ctx, ref.BookID, chapter)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("faloo fetch chapter %s: %w", chapter.ID, err)
 		}
 		loaded.Order = idx + 1
 		book.Chapters[idx] = loaded
@@ -113,67 +114,81 @@ func (s *FalooSite) DownloadPlan(ctx context.Context, ref model.BookRef) (*model
 	}
 	book.Tags = falooTags(doc)
 	chapters := make([]model.Chapter, 0)
-	for _, box := range findAll(doc, func(n *html.Node) bool {
-		return n.Type == html.ElementNode && n.Data == "div" && (hasClass(n, "C-Fo-Z-Zuoping") || attrValue(n, "id") == "mulu")
-	}) {
-		for _, a := range findAll(box, func(n *html.Node) bool { return n.Type == html.ElementNode && n.Data == "a" }) {
-			href := strings.TrimSpace(attrValue(a, "href"))
-			match := falooChapterRe.FindStringSubmatch(falooPath(href))
-			if len(match) != 3 {
-				continue
-			}
-			chapters = append(chapters, model.Chapter{ID: match[2], Title: fallback(attrValue(a, "title"), cleanText(nodeText(a))), URL: absolutizeURL("https://b.faloo.com", href), Order: len(chapters) + 1})
-		}
+	if related := findFirst(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "div" && hasClass(n, "C-Fo-Z-Zuoping")
+	}); related != nil {
+		chapters = append(chapters, extractFalooChapters(related, "作品相关")...)
 	}
-	book.Chapters = applyChapterRange(filterFalooPublicChapters(dedupChapters(chapters)), ref)
+	if main := findFirstByID(doc, "mulu"); main != nil {
+		chapters = append(chapters, s.extractFalooMainChapters(main)...)
+	}
+	book.Chapters = applyChapterRange(dedupChapters(chapters), ref)
 	return book, nil
 }
 
 func (s *FalooSite) FetchChapter(ctx context.Context, bookID string, chapter model.Chapter) (model.Chapter, error) {
-	markup, err := s.fetchPage(ctx, fmt.Sprintf("https://b.faloo.com/%s_%s.html", bookID, chapter.ID))
-	if err != nil {
+	if err := s.waitRequestInterval(ctx); err != nil {
 		return chapter, err
 	}
-	if isAnyMarkerContained(markup, falooLockedTexts) || falooVIPImageRe.MatchString(markup) {
-		return chapter, fmt.Errorf("faloo chapter %s is VIP or requires login", chapter.ID)
-	}
-	doc, err := parseHTML(markup)
-	if err != nil {
-		return chapter, err
-	}
-	if title := cleanText(nodeText(findFirst(doc, func(n *html.Node) bool {
-		return n.Type == html.ElementNode && n.Data == "h1" && hasAncestorClass(n, "c_l_title")
-	}))); title != "" {
-		chapter.Title = title
-	}
-	paragraphs := make([]string, 0)
-	for _, p := range findAll(doc, func(n *html.Node) bool {
-		return n.Type == html.ElementNode && n.Data == "p" && hasAncestorClass(n, "noveContent")
-	}) {
-		text := cleanText(nodeText(p))
-		if text != "" {
-			paragraphs = append(paragraphs, text)
+	chapterURL := fmt.Sprintf("https://b.faloo.com/%s_%s.html", bookID, chapter.ID)
+	var lastMarkup string
+	for attempt := 0; attempt < 2; attempt++ {
+		markup, err := s.fetchPage(ctx, chapterURL)
+		if err != nil {
+			return chapter, err
+		}
+		lastMarkup = markup
+		if isAnyMarkerContained(markup, falooLockedTexts) || falooVIPImageRe.MatchString(markup) {
+			return chapter, fmt.Errorf("faloo chapter %s is VIP or requires login", chapter.ID)
+		}
+		doc, err := parseHTML(markup)
+		if err != nil {
+			return chapter, err
+		}
+		if title := cleanText(nodeText(findFirst(doc, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "h1" && hasAncestorClass(n, "c_l_title")
+		}))); title != "" {
+			chapter.Title = title
+		}
+		paragraphs := make([]string, 0)
+		for _, p := range findAll(doc, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "p" && hasAncestorClass(n, "noveContent")
+		}) {
+			text := cleanText(nodeText(p))
+			if text != "" {
+				paragraphs = append(paragraphs, text)
+			}
+		}
+		if len(paragraphs) == 0 {
+			for _, match := range falooPTagRe.FindAllStringSubmatch(markup, -1) {
+				if len(match) != 2 {
+					continue
+				}
+				text := stdhtml.UnescapeString(falooTagRe.ReplaceAllString(match[1], ""))
+				text = cleanText(text)
+				if text == "" || falooPromoRe.MatchString(text) {
+					continue
+				}
+				paragraphs = append(paragraphs, text)
+			}
+		}
+		if len(paragraphs) > 0 {
+			chapter.Content = strings.Join(paragraphs, "\n")
+			chapter.Downloaded = true
+			return chapter, nil
+		}
+		if attempt == 0 {
+			if err := s.waitRequestInterval(ctx); err != nil {
+				return chapter, err
+			}
 		}
 	}
-	if len(paragraphs) == 0 {
-		for _, match := range falooPTagRe.FindAllStringSubmatch(markup, -1) {
-			if len(match) != 2 {
-				continue
-			}
-			text := stdhtml.UnescapeString(falooTagRe.ReplaceAllString(match[1], ""))
-			text = cleanText(text)
-			if text == "" || falooPromoRe.MatchString(text) {
-				continue
-			}
-			paragraphs = append(paragraphs, text)
-		}
-	}
-	if len(paragraphs) == 0 {
-		return chapter, fmt.Errorf("faloo chapter content not found")
-	}
-	chapter.Content = strings.Join(paragraphs, "\n")
-	chapter.Downloaded = true
-	return chapter, nil
+	return chapter, fmt.Errorf(
+		"faloo chapter content not found (has_noveContent=%t p_tags=%d gate=%t)",
+		strings.Contains(lastMarkup, "noveContent"),
+		len(falooPTagRe.FindAllStringSubmatch(lastMarkup, -1)),
+		falooCookieGate.MatchString(lastMarkup),
+	)
 }
 
 func (s *FalooSite) Search(ctx context.Context, keyword string, limit int) ([]model.SearchResult, error) {
@@ -181,6 +196,25 @@ func (s *FalooSite) Search(ctx context.Context, keyword string, limit int) ([]mo
 	_ = keyword
 	_ = limit
 	return nil, fmt.Errorf("faloo search is not implemented yet")
+}
+
+func (s *FalooSite) extractFalooMainChapters(main *html.Node) []model.Chapter {
+	chapters := make([]model.Chapter, 0)
+	inVIPSection := false
+	for child := main.FirstChild; child != nil; child = child.NextSibling {
+		if child.Type == html.ElementNode && hasClass(child, "DivVip") {
+			inVIPSection = true
+		}
+		if inVIPSection && !s.cfg.General.FetchInaccessible {
+			continue
+		}
+		volume := "正文"
+		if inVIPSection {
+			volume = "VIP正文"
+		}
+		chapters = append(chapters, extractFalooChapters(child, volume)...)
+	}
+	return chapters
 }
 
 func (s *FalooSite) fetchPage(ctx context.Context, rawURL string) (string, error) {
@@ -251,24 +285,29 @@ func falooTags(doc *html.Node) []string {
 	return tags
 }
 
-func filterFalooPublicChapters(chapters []model.Chapter) []model.Chapter {
-	result := make([]model.Chapter, 0, len(chapters))
-	for _, chapter := range chapters {
-		cid := strings.TrimSpace(chapter.ID)
-		if cid == "" {
+func extractFalooChapters(root *html.Node, volume string) []model.Chapter {
+	chapters := make([]model.Chapter, 0)
+	for _, a := range findAll(root, func(n *html.Node) bool { return n.Type == html.ElementNode && n.Data == "a" }) {
+		href := strings.TrimSpace(attrValue(a, "href"))
+		match := falooChapterRe.FindStringSubmatch(falooPath(href))
+		if len(match) != 3 {
 			continue
 		}
-		n, err := strconv.Atoi(cid)
-		if err != nil {
-			continue
-		}
-		if n >= 55 {
-			continue
-		}
-		result = append(result, chapter)
+		chapters = append(chapters, model.Chapter{
+			ID:     match[2],
+			Title:  fallback(attrValue(a, "title"), cleanText(nodeText(a))),
+			URL:    absolutizeURL("https://b.faloo.com", href),
+			Volume: volume,
+			Order:  len(chapters) + 1,
+		})
 	}
-	for i := range result {
-		result[i].Order = i + 1
+	return chapters
+}
+
+func (s *FalooSite) waitRequestInterval(ctx context.Context) error {
+	delay := time.Duration(s.cfg.General.RequestInterval * float64(time.Second))
+	if delay < minFalooRequestInterval {
+		delay = minFalooRequestInterval
 	}
-	return result
+	return sleepContext(ctx, delay)
 }

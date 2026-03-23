@@ -28,6 +28,7 @@ import (
 var (
 	novalpieNovelRe   = regexp.MustCompile(`^/(?:novel|book|works|work|novels)/(\d+)$`)
 	novalpieChapterRe = regexp.MustCompile(`^/book/(\d+)/(\d+)$`)
+	novalpieViewerRe  = regexp.MustCompile(`^/viewer/(\d+)$`)
 )
 
 type NovalpieSite struct {
@@ -107,11 +108,14 @@ func (s *NovalpieSite) ResolveURL(rawURL string) (*ResolvedURL, bool) {
 		return nil, false
 	}
 	host := strings.ToLower(strings.TrimPrefix(parsed.Host, "www."))
-	if host != "novalpie.cc" {
+	if host != "novalpie.cc" && host != "novalpie.jp" {
 		return nil, false
 	}
 	if m := novalpieChapterRe.FindStringSubmatch(parsed.Path); len(m) == 3 {
 		return &ResolvedURL{SiteKey: s.Key(), BookID: m[1], ChapterID: m[2], Canonical: "https://novalpie.cc" + parsed.Path}, true
+	}
+	if m := novalpieViewerRe.FindStringSubmatch(parsed.Path); len(m) == 2 {
+		return &ResolvedURL{SiteKey: s.Key(), ChapterID: m[1], Canonical: "https://novalpie.jp" + parsed.Path}, true
 	}
 	if m := novalpieNovelRe.FindStringSubmatch(parsed.Path); len(m) == 2 {
 		return &ResolvedURL{SiteKey: s.Key(), BookID: m[1], Canonical: "https://novalpie.cc/novel/" + m[1]}, true
@@ -153,7 +157,7 @@ func (s *NovalpieSite) DownloadPlan(ctx context.Context, ref model.BookRef) (*mo
 	book := &model.Book{
 		Site:         s.Key(),
 		ID:           ref.BookID,
-		Title:        detail.Title,
+		Title:        fallback(detail.Title, detail.TrueName),
 		Author:       detail.AuthorName,
 		Description:  detail.Description,
 		SourceURL:    fmt.Sprintf("https://novalpie.cc/novel/%s", ref.BookID),

@@ -21,6 +21,8 @@ var (
 	wenku8ChapterRe = regexp.MustCompile(`^/novel/(\d+)/(\d+)/(\d+)\.htm$`)
 )
 
+const minWenku8RequestInterval = 3 * time.Second
+
 type Wenku8Site struct {
 	cfg    config.ResolvedSiteConfig
 	html   HTMLSite
@@ -81,11 +83,16 @@ func (s *Wenku8Site) Download(ctx context.Context, ref model.BookRef) (*model.Bo
 
 func (s *Wenku8Site) DownloadPlan(ctx context.Context, ref model.BookRef) (*model.Book, error) {
 	prefix := wenku8Prefix(ref.BookID)
-	infoMarkup, err := s.html.Get(ctx, fmt.Sprintf("https://www.wenku8.net/book/%s.htm", ref.BookID))
+	infoURL := fmt.Sprintf("https://www.wenku8.net/book/%s.htm", ref.BookID)
+	catalogURL := fmt.Sprintf("https://www.wenku8.net/novel/%s/%s/index.htm", prefix, ref.BookID)
+	infoMarkup, err := s.getWithRetry(ctx, infoURL, "")
 	if err != nil {
 		return nil, err
 	}
-	catalogMarkup, err := s.html.Get(ctx, fmt.Sprintf("https://www.wenku8.net/novel/%s/%s/index.htm", prefix, ref.BookID))
+	if err := s.waitRequestInterval(ctx); err != nil {
+		return nil, err
+	}
+	catalogMarkup, err := s.getWithRetry(ctx, catalogURL, infoURL)
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +117,7 @@ func (s *Wenku8Site) DownloadPlan(ctx context.Context, ref model.BookRef) (*mode
 		Description: cleanText(nodeText(findFirst(infoDoc, func(n *html.Node) bool {
 			return n.Type == html.ElementNode && n.Data == "span" && strings.Contains(nodeText(n.Parent), "内容简介")
 		}))),
-		SourceURL: fmt.Sprintf("https://www.wenku8.net/book/%s.htm", ref.BookID),
+		SourceURL: infoURL,
 		CoverURL: absolutizeURL("https://www.wenku8.net", attrValue(findFirst(infoDoc, func(n *html.Node) bool {
 			return n.Type == html.ElementNode && n.Data == "img" && strings.Contains(attrValue(n, "src"), "/image/")
 		}), "src")),
@@ -142,7 +149,11 @@ func (s *Wenku8Site) DownloadPlan(ctx context.Context, ref model.BookRef) (*mode
 
 func (s *Wenku8Site) FetchChapter(ctx context.Context, bookID string, chapter model.Chapter) (model.Chapter, error) {
 	prefix := wenku8Prefix(bookID)
-	markup, err := s.html.Get(ctx, fmt.Sprintf("https://www.wenku8.net/novel/%s/%s/%s.htm", prefix, bookID, chapter.ID))
+	if err := s.waitRequestInterval(ctx); err != nil {
+		return chapter, err
+	}
+	catalogURL := fmt.Sprintf("https://www.wenku8.net/novel/%s/%s/index.htm", prefix, bookID)
+	markup, err := s.getWithRetry(ctx, fmt.Sprintf("https://www.wenku8.net/novel/%s/%s/%s.htm", prefix, bookID, chapter.ID), catalogURL)
 	if err != nil {
 		return chapter, err
 	}
@@ -155,6 +166,9 @@ func (s *Wenku8Site) FetchChapter(ctx context.Context, bookID string, chapter mo
 	}
 	container := findFirstByID(doc, "content")
 	if container == nil {
+		if isWenku8ChallengePage(markup) {
+			return chapter, fmt.Errorf("wenku8 challenge page returned by Cloudflare")
+		}
 		return chapter, fmt.Errorf("wenku8 chapter content not found")
 	}
 	paragraphs := make([]string, 0)
@@ -170,6 +184,9 @@ func (s *Wenku8Site) FetchChapter(ctx context.Context, bookID string, chapter mo
 	}
 	paragraphs = compactParagraphs(paragraphs)
 	if len(paragraphs) == 0 {
+		if isWenku8ChallengePage(markup) {
+			return chapter, fmt.Errorf("wenku8 challenge page returned by Cloudflare")
+		}
 		return chapter, fmt.Errorf("wenku8 chapter content not found")
 	}
 	chapter.Content = strings.Join(paragraphs, "\n")
@@ -182,6 +199,49 @@ func (s *Wenku8Site) Search(ctx context.Context, keyword string, limit int) ([]m
 	_ = keyword
 	_ = limit
 	return nil, fmt.Errorf("wenku8 search is not implemented yet")
+}
+
+func (s *Wenku8Site) getWithRetry(ctx context.Context, rawURL, referer string) (string, error) {
+	var lastErr error
+	for attempt := 0; attempt < 4; attempt++ {
+		markup, err := s.getPage(ctx, rawURL, referer)
+		if err == nil {
+			return markup, nil
+		}
+		lastErr = err
+		if !strings.Contains(err.Error(), "http 403") && !strings.Contains(err.Error(), "http 429") {
+			return "", err
+		}
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(time.Duration(attempt+1) * time.Second):
+		}
+	}
+	return "", lastErr
+}
+
+func (s *Wenku8Site) getPage(ctx context.Context, rawURL, referer string) (string, error) {
+	headers := map[string]string{}
+	if strings.TrimSpace(referer) != "" {
+		headers["Referer"] = referer
+	}
+	return s.html.GetWithHeaders(ctx, rawURL, headers)
+}
+
+func (s *Wenku8Site) waitRequestInterval(ctx context.Context) error {
+	delay := time.Duration(s.cfg.General.RequestInterval * float64(time.Second))
+	if delay < minWenku8RequestInterval {
+		delay = minWenku8RequestInterval
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func wenku8Prefix(bookID string) string {
@@ -220,4 +280,8 @@ func compactParagraphs(items []string) []string {
 		}
 	}
 	return out
+}
+
+func isWenku8ChallengePage(markup string) bool {
+	return strings.Contains(markup, "Just a moment...") || strings.Contains(markup, "cf-browser-verification") || strings.Contains(markup, "challenge-platform")
 }
