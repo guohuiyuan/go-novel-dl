@@ -42,12 +42,24 @@ type searchRequest struct {
 	Sites     []string `json:"sites"`
 	Limit     int      `json:"limit"`
 	SiteLimit int      `json:"site_limit"`
+	Page      int      `json:"page"`
+	PageSize  int      `json:"page_size"`
 }
 
 type downloadRequest struct {
 	Site    string   `json:"site"`
 	BookID  string   `json:"book_id"`
 	Formats []string `json:"formats"`
+}
+
+type paginatedSearchResponse struct {
+	app.HybridSearchResponse
+	Page       int  `json:"page"`
+	PageSize   int  `json:"page_size"`
+	Total      int  `json:"total"`
+	TotalExact bool `json:"total_exact"`
+	HasPrev    bool `json:"has_prev"`
+	HasNext    bool `json:"has_next"`
 }
 
 func Start(port string, shouldOpenBrowser bool, configPath string) error {
@@ -79,19 +91,8 @@ func newService(configPath string) (*Service, error) {
 	runtime := app.NewRuntime(cfg, console)
 	runtime.Progress = progress.NullReporter{}
 
-	defaultSources := make([]site.SiteDescriptor, 0)
-	for _, descriptor := range runtime.SiteDescriptors() {
-		if descriptor.DefaultAvailable && descriptor.Capabilities.Search {
-			defaultSources = append(defaultSources, descriptor)
-		}
-	}
-
-	allSources := make([]site.SiteDescriptor, 0, len(runtime.SiteDescriptors()))
-	for _, descriptor := range runtime.SiteDescriptors() {
-		if descriptor.Capabilities.Search {
-			allSources = append(allSources, descriptor)
-		}
-	}
+	defaultSources := runtime.Registry.SiteDescriptors(runtime.DefaultDownloadSites())
+	allSources := runtime.Registry.SiteDescriptors(runtime.AllDownloadSites())
 
 	return &Service{
 		Config:         cfg,
@@ -155,10 +156,17 @@ func newRouter(service *Service) *gin.Engine {
 		sites := normalizeSites(req.Sites)
 		if len(sites) == 0 {
 			if strings.EqualFold(strings.TrimSpace(req.Scope), "all") {
-				sites = service.Runtime.AllSearchSites()
+				sites = service.Runtime.AllDownloadSites()
 			} else {
-				sites = service.Runtime.DefaultSearchSites()
+				sites = service.Runtime.DefaultDownloadSites()
 			}
+		}
+		page := clampPositive(req.Page, 1)
+		pageSize := clampPositive(req.PageSize, 12)
+		fetchLimit := page*pageSize + 1
+		siteLimit := req.SiteLimit
+		if siteLimit < fetchLimit {
+			siteLimit = fetchLimit
 		}
 
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 12*time.Second)
@@ -166,15 +174,15 @@ func newRouter(service *Service) *gin.Engine {
 
 		response, err := service.Runtime.HybridSearch(ctx, req.Keyword, app.HybridSearchOptions{
 			Sites:        sites,
-			OverallLimit: req.Limit,
-			PerSiteLimit: req.SiteLimit,
+			OverallLimit: maxInt(req.Limit, fetchLimit),
+			PerSiteLimit: siteLimit,
 		})
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 
-		c.JSON(http.StatusOK, response)
+		c.JSON(http.StatusOK, paginateSearchResponse(response, page, pageSize))
 	})
 	group.POST("/api/download-tasks", func(c *gin.Context) {
 		var req downloadRequest
@@ -292,4 +300,49 @@ func normalizeSites(items []string) []string {
 		sites = append(sites, item)
 	}
 	return sites
+}
+
+func paginateSearchResponse(response app.HybridSearchResponse, page, pageSize int) paginatedSearchResponse {
+	page = clampPositive(page, 1)
+	pageSize = clampPositive(pageSize, 12)
+
+	offset := (page - 1) * pageSize
+	total := len(response.Results)
+	if offset > total {
+		offset = total
+	}
+	end := offset + pageSize
+	if end > total {
+		end = total
+	}
+	hasNext := total > end
+	pageResults := make([]app.HybridSearchResult, 0, end-offset)
+	if offset < end {
+		pageResults = append(pageResults, response.Results[offset:end]...)
+	}
+	response.Results = pageResults
+
+	return paginatedSearchResponse{
+		HybridSearchResponse: response,
+		Page:                 page,
+		PageSize:             pageSize,
+		Total:                total,
+		TotalExact:           !hasNext,
+		HasPrev:              offset > 0,
+		HasNext:              hasNext,
+	}
+}
+
+func clampPositive(value, fallback int) int {
+	if value > 0 {
+		return value
+	}
+	return fallback
+}
+
+func maxInt(left, right int) int {
+	if left > right {
+		return left
+	}
+	return right
 }

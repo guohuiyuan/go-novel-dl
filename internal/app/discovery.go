@@ -65,11 +65,25 @@ func (r *Runtime) DefaultSearchSites() []string {
 	return r.Registry.DefaultSearchKeys()
 }
 
+func (r *Runtime) DefaultDownloadSites() []string {
+	if r == nil || r.Registry == nil {
+		return nil
+	}
+	return r.Registry.DefaultDownloadKeys()
+}
+
 func (r *Runtime) AllSearchSites() []string {
 	if r == nil || r.Registry == nil {
 		return nil
 	}
 	return r.Registry.SearchableKeys()
+}
+
+func (r *Runtime) AllDownloadSites() []string {
+	if r == nil || r.Registry == nil {
+		return nil
+	}
+	return r.Registry.DownloadableKeys()
 }
 
 func (r *Runtime) SiteDescriptors() []site.SiteDescriptor {
@@ -115,6 +129,10 @@ func (r *Runtime) HybridSearch(ctx context.Context, keyword string, opts HybridS
 				return
 			}
 			if !client.Capabilities().Search {
+				siteResults <- siteSearchResponse{
+					siteKey: siteKey,
+					err:     fmt.Errorf("search is not supported for %s", siteKey),
+				}
 				return
 			}
 
@@ -144,6 +162,9 @@ func (r *Runtime) HybridSearch(ctx context.Context, keyword string, opts HybridS
 		}
 		rawResults = append(rawResults, result.items...)
 	}
+	sort.SliceStable(warnings, func(i, j int) bool {
+		return warnings[i].Site < warnings[j].Site
+	})
 
 	aggregated := groupHybridSearchResults(rawResults, keyword, r.Registry.DefaultSearchKeys(), opts.OverallLimit)
 	return HybridSearchResponse{

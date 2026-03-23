@@ -42,6 +42,12 @@ func (r *Registry) SearchableKeys() []string {
 	})
 }
 
+func (r *Registry) DownloadableKeys() []string {
+	return r.filterKeysByCapability(func(capabilities Capabilities) bool {
+		return capabilities.Download
+	})
+}
+
 func (r *Registry) DefaultSearchKeys() []string {
 	set := DefaultAvailableSiteSet()
 	keys := make([]string, 0, len(defaultAvailableSiteKeys))
@@ -51,6 +57,22 @@ func (r *Registry) DefaultSearchKeys() []string {
 		}
 		descriptor, ok := r.SiteDescriptor(key)
 		if !ok || !descriptor.Capabilities.Search {
+			continue
+		}
+		keys = append(keys, key)
+	}
+	return keys
+}
+
+func (r *Registry) DefaultDownloadKeys() []string {
+	set := DefaultAvailableSiteSet()
+	keys := make([]string, 0, len(defaultAvailableSiteKeys))
+	for _, key := range defaultAvailableSiteKeys {
+		if _, ok := set[key]; !ok {
+			continue
+		}
+		descriptor, ok := r.SiteDescriptor(key)
+		if !ok || !descriptor.Capabilities.Download {
 			continue
 		}
 		keys = append(keys, key)

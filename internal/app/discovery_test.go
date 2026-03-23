@@ -19,7 +19,7 @@ func TestHybridSearchUsesDefaultAvailableSourcesAndGroupsVariants(t *testing.T) 
 			key:         "esjzone",
 			displayName: "ESJ Zone",
 			results: []model.SearchResult{
-				{Site: "esjzone", BookID: "100", Title: "三体", Author: "刘慈欣", Description: "科幻小说"},
+				{Site: "esjzone", BookID: "100", Title: "Three Body", Author: "Liu", Description: "Sci-fi"},
 			},
 		}
 	})
@@ -28,7 +28,7 @@ func TestHybridSearchUsesDefaultAvailableSourcesAndGroupsVariants(t *testing.T) 
 			key:         "yodu",
 			displayName: "Yodu",
 			results: []model.SearchResult{
-				{Site: "yodu", BookID: "200", Title: "三体", Author: "刘慈欣", Description: "另一来源"},
+				{Site: "yodu", BookID: "200", Title: "Three Body", Author: "Liu", Description: "Mirror source"},
 			},
 		}
 	})
@@ -37,13 +37,14 @@ func TestHybridSearchUsesDefaultAvailableSourcesAndGroupsVariants(t *testing.T) 
 			key:         "qbtr",
 			displayName: "QBTR",
 			results: []model.SearchResult{
-				{Site: "qbtr", BookID: "300", Title: "三体X", Author: "刘慈欣"},
+				{Site: "qbtr", BookID: "300", Title: "Three Body X", Author: "Liu"},
 			},
+			capabilities: site.Capabilities{Download: true, Search: false},
 		}
 	})
 
 	runtime := newFakeRuntime(registry)
-	response, err := runtime.HybridSearch(context.Background(), "三体", HybridSearchOptions{})
+	response, err := runtime.HybridSearch(context.Background(), "Three Body", HybridSearchOptions{})
 	if err != nil {
 		t.Fatalf("HybridSearch returned error: %v", err)
 	}
@@ -71,7 +72,7 @@ func TestHybridSearchHonorsExplicitSites(t *testing.T) {
 			key:         "esjzone",
 			displayName: "ESJ Zone",
 			results: []model.SearchResult{
-				{Site: "esjzone", BookID: "100", Title: "三体", Author: "刘慈欣"},
+				{Site: "esjzone", BookID: "100", Title: "Three Body", Author: "Liu"},
 			},
 		}
 	})
@@ -80,13 +81,13 @@ func TestHybridSearchHonorsExplicitSites(t *testing.T) {
 			key:         "sfacg",
 			displayName: "SFACG",
 			results: []model.SearchResult{
-				{Site: "sfacg", BookID: "200", Title: "诡秘之主", Author: "爱潜水的乌贼"},
+				{Site: "sfacg", BookID: "200", Title: "Lord of Mysteries", Author: "Cuttlefish"},
 			},
 		}
 	})
 
 	runtime := newFakeRuntime(registry)
-	response, err := runtime.HybridSearch(context.Background(), "诡秘", HybridSearchOptions{
+	response, err := runtime.HybridSearch(context.Background(), "Mysteries", HybridSearchOptions{
 		Sites: []string{"sfacg"},
 	})
 	if err != nil {
@@ -115,13 +116,13 @@ func TestHybridSearchCollectsWarnings(t *testing.T) {
 			key:         "yodu",
 			displayName: "Yodu",
 			results: []model.SearchResult{
-				{Site: "yodu", BookID: "200", Title: "三体", Author: "刘慈欣"},
+				{Site: "yodu", BookID: "200", Title: "Three Body", Author: "Liu"},
 			},
 		}
 	})
 
 	runtime := newFakeRuntime(registry)
-	response, err := runtime.HybridSearch(context.Background(), "三体", HybridSearchOptions{
+	response, err := runtime.HybridSearch(context.Background(), "Three Body", HybridSearchOptions{
 		Sites: []string{"esjzone", "yodu"},
 	})
 	if err != nil {
@@ -136,6 +137,79 @@ func TestHybridSearchCollectsWarnings(t *testing.T) {
 	}
 }
 
+func TestHybridSearchWarnsForUnsupportedSearchSites(t *testing.T) {
+	registry := site.NewRegistry()
+	registry.Register("esjzone", func(cfg config.ResolvedSiteConfig) site.Site {
+		return fakeSearchSite{
+			key:         "esjzone",
+			displayName: "ESJ Zone",
+			results: []model.SearchResult{
+				{Site: "esjzone", BookID: "100", Title: "Three Body", Author: "Liu"},
+			},
+		}
+	})
+	registry.Register("westnovel", func(cfg config.ResolvedSiteConfig) site.Site {
+		return fakeSearchSite{
+			key:         "westnovel",
+			displayName: "WestNovel",
+			capabilities: site.Capabilities{
+				Download: true,
+				Search:   false,
+			},
+		}
+	})
+
+	runtime := newFakeRuntime(registry)
+	response, err := runtime.HybridSearch(context.Background(), "Three Body", HybridSearchOptions{
+		Sites: []string{"esjzone", "westnovel"},
+	})
+	if err != nil {
+		t.Fatalf("HybridSearch returned error: %v", err)
+	}
+
+	if len(response.Results) != 1 {
+		t.Fatalf("expected searchable site result, got %d", len(response.Results))
+	}
+	if len(response.Warnings) != 1 || response.Warnings[0].Site != "westnovel" {
+		t.Fatalf("expected unsupported warning for westnovel, got %+v", response.Warnings)
+	}
+}
+
+func TestRuntimeExposesDownloadSourcesSeparatelyFromSearchSources(t *testing.T) {
+	registry := site.NewRegistry()
+	registry.Register("esjzone", func(cfg config.ResolvedSiteConfig) site.Site {
+		return fakeSearchSite{
+			key:         "esjzone",
+			displayName: "ESJ Zone",
+		}
+	})
+	registry.Register("westnovel", func(cfg config.ResolvedSiteConfig) site.Site {
+		return fakeSearchSite{
+			key:         "westnovel",
+			displayName: "WestNovel",
+			capabilities: site.Capabilities{
+				Download: true,
+				Search:   false,
+			},
+		}
+	})
+
+	runtime := newFakeRuntime(registry)
+	defaultDownload := runtime.DefaultDownloadSites()
+	allDownload := runtime.AllDownloadSites()
+	allSearch := runtime.AllSearchSites()
+
+	if len(defaultDownload) != 2 {
+		t.Fatalf("expected default download sources to include default non-search source, got %v", defaultDownload)
+	}
+	if len(allDownload) != 2 {
+		t.Fatalf("expected all download sources to include both sites, got %v", allDownload)
+	}
+	if len(allSearch) != 1 || allSearch[0] != "esjzone" {
+		t.Fatalf("expected only searchable site in allSearch, got %v", allSearch)
+	}
+}
+
 func newFakeRuntime(registry *site.Registry) *Runtime {
 	cfg := config.DefaultConfig()
 	console := ui.NewConsole(strings.NewReader(""), io.Discard, io.Discard)
@@ -145,10 +219,11 @@ func newFakeRuntime(registry *site.Registry) *Runtime {
 }
 
 type fakeSearchSite struct {
-	key         string
-	displayName string
-	results     []model.SearchResult
-	err         error
+	key          string
+	displayName  string
+	results      []model.SearchResult
+	err          error
+	capabilities site.Capabilities
 }
 
 func (s fakeSearchSite) Key() string {
@@ -163,7 +238,10 @@ func (s fakeSearchSite) DisplayName() string {
 }
 
 func (s fakeSearchSite) Capabilities() site.Capabilities {
-	return site.Capabilities{Download: true, Search: true}
+	if s.capabilities == (site.Capabilities{}) {
+		return site.Capabilities{Download: true, Search: true}
+	}
+	return s.capabilities
 }
 
 func (s fakeSearchSite) DownloadPlan(ctx context.Context, ref model.BookRef) (*model.Book, error) {

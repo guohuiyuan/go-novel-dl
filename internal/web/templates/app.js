@@ -4,8 +4,15 @@ const allSources = window.__NOVEL_DL__.allSources || [];
 
 const appState = {
   scope: "default",
+  page: 1,
+  pageSize: 12,
+  lastKeyword: "",
   results: [],
-  selectedSites: new Set(defaultSources.map((source) => source.key)),
+  total: 0,
+  totalExact: true,
+  hasPrev: false,
+  hasNext: false,
+  selectedSites: new Set(defaultSelectedSites(defaultSources)),
   tasks: new Map(),
   pollers: new Map(),
 };
@@ -16,58 +23,106 @@ const statusNode = document.getElementById("status");
 const warningsNode = document.getElementById("warnings");
 const resultsNode = document.getElementById("results");
 const resultCountNode = document.getElementById("resultCount");
+const resultMetaNode = document.getElementById("resultMeta");
+const pageIndicatorNode = document.getElementById("pageIndicator");
+const prevPageButton = document.getElementById("prevPage");
+const nextPageButton = document.getElementById("nextPage");
 const taskCountNode = document.getElementById("taskCount");
 const selectedCountNode = document.getElementById("selectedCount");
+const sourceSummaryNode = document.getElementById("sourceSummary");
+const defaultSourceCountNode = document.getElementById("defaultSourceCount");
 const defaultSourcesNode = document.getElementById("defaultSources");
 const sourceSelectorNode = document.getElementById("sourceSelector");
 const tasksNode = document.getElementById("tasks");
+const selectSearchableSourcesButton = document.getElementById("selectSearchableSources");
 const selectAllSourcesButton = document.getElementById("selectAllSources");
 const clearSourcesButton = document.getElementById("clearSources");
 
 renderSourceChips(defaultSourcesNode, defaultSources);
 renderSourceSelector();
 renderTasks();
-setStatus("选择搜索源后输入关键字开始搜索。");
+renderPaging();
+defaultSourceCountNode.textContent = String(defaultSources.length);
+setStatus("选择渠道后输入关键词开始搜索。");
 
 document.querySelectorAll(".scope-pill").forEach((button) => {
   button.addEventListener("click", () => {
     appState.scope = button.dataset.scope || "default";
+    appState.selectedSites = new Set(defaultSelectedSites(currentScopeSources()));
     document.querySelectorAll(".scope-pill").forEach((node) => {
       node.classList.toggle("is-active", node === button);
     });
-    appState.selectedSites = new Set(currentScopeSources().map((source) => source.key));
     renderSourceSelector();
-    setStatus(appState.scope === "all" ? "当前范围：全部源" : "当前范围：默认可用源");
+    renderWarnings([]);
+    setStatus(appState.scope === "all" ? "当前范围：全部下载源" : "当前范围：推荐渠道");
   });
+});
+
+selectSearchableSourcesButton.addEventListener("click", () => {
+  appState.selectedSites = new Set(defaultSelectedSites(currentScopeSources()));
+  renderSourceSelector();
+  setStatus(`已选择 ${appState.selectedSites.size} 个可搜索渠道。`);
 });
 
 selectAllSourcesButton.addEventListener("click", () => {
   appState.selectedSites = new Set(currentScopeSources().map((source) => source.key));
   renderSourceSelector();
-  setStatus(`已选择 ${appState.selectedSites.size} 个搜索源`);
+  const unsupported = selectedUnsupportedCount();
+  if (unsupported > 0) {
+    setStatus(`已选择 ${appState.selectedSites.size} 个渠道，其中 ${unsupported} 个仅支持直链下载。`);
+    return;
+  }
+  setStatus(`已选择 ${appState.selectedSites.size} 个渠道。`);
 });
 
 clearSourcesButton.addEventListener("click", () => {
   appState.selectedSites = new Set();
   renderSourceSelector();
-  setStatus("已清空搜索源选择");
+  setStatus("已清空渠道选择。");
+});
+
+prevPageButton.addEventListener("click", () => {
+  if (!appState.hasPrev || !appState.lastKeyword) {
+    return;
+  }
+  appState.page -= 1;
+  performSearch();
+});
+
+nextPageButton.addEventListener("click", () => {
+  if (!appState.hasNext || !appState.lastKeyword) {
+    return;
+  }
+  appState.page += 1;
+  performSearch();
 });
 
 searchForm.addEventListener("submit", async (event) => {
   event.preventDefault();
+  appState.page = 1;
+  await performSearch();
+});
 
+function defaultSelectedSites(sources) {
+  return sources
+    .filter((source) => source.capabilities && source.capabilities.search)
+    .map((source) => source.key);
+}
+
+async function performSearch() {
   const keyword = keywordInput.value.trim();
   if (!keyword) {
-    setStatus("请输入关键字");
+    setStatus("请输入关键词。");
     return;
   }
   if (appState.selectedSites.size === 0) {
-    setStatus("请至少选择一个搜索源");
+    setStatus("请至少选择一个渠道。");
     return;
   }
 
-  setStatus(`正在搜索 “${keyword}”`);
+  appState.lastKeyword = keyword;
   renderWarnings([]);
+  setStatus(`正在搜索“${keyword}”第 ${appState.page} 页...`);
 
   try {
     const response = await fetch(`${root}/api/search`, {
@@ -77,8 +132,8 @@ searchForm.addEventListener("submit", async (event) => {
         keyword,
         scope: appState.scope,
         sites: Array.from(appState.selectedSites),
-        limit: 20,
-        site_limit: 6,
+        page: appState.page,
+        page_size: appState.pageSize,
       }),
     });
     const payload = await response.json();
@@ -87,23 +142,58 @@ searchForm.addEventListener("submit", async (event) => {
     }
 
     appState.results = payload.results || [];
+    appState.total = payload.total || 0;
+    appState.totalExact = payload.total_exact !== false;
+    appState.hasPrev = Boolean(payload.has_prev);
+    appState.hasNext = Boolean(payload.has_next);
+    appState.page = payload.page || appState.page;
+
     renderResults(appState.results);
     renderWarnings(payload.warnings || []);
-    resultCountNode.textContent = String(appState.results.length);
-    setStatus(appState.results.length === 0 ? "没有找到结果" : `找到 ${appState.results.length} 个聚合结果`);
+    renderPaging();
+    renderResultMeta();
+
+    if (!appState.results.length) {
+      setStatus("没有找到结果。");
+      return;
+    }
+    setStatus(`找到 ${appState.totalExact ? appState.total : `${appState.total}+`} 条聚合结果，当前第 ${appState.page} 页。`);
   } catch (error) {
+    appState.results = [];
+    appState.total = 0;
+    appState.totalExact = true;
+    appState.hasPrev = false;
+    appState.hasNext = false;
     renderResults([]);
-    resultCountNode.textContent = "0";
-    setStatus(`搜索失败: ${error.message}`);
+    renderPaging();
+    renderResultMeta();
+    setStatus(`搜索失败：${error.message}`);
   }
-});
+}
 
 function currentScopeSources() {
   return appState.scope === "all" ? allSources : defaultSources;
 }
 
+function selectedUnsupportedCount() {
+  const byKey = new Map(currentScopeSources().map((source) => [source.key, source]));
+  let count = 0;
+  appState.selectedSites.forEach((siteKey) => {
+    const source = byKey.get(siteKey);
+    if (source && !(source.capabilities && source.capabilities.search)) {
+      count += 1;
+    }
+  });
+  return count;
+}
+
 function renderSourceChips(container, sources) {
   container.innerHTML = "";
+  if (!sources.length) {
+    container.innerHTML = '<div class="empty-inline">暂无默认渠道。</div>';
+    return;
+  }
+
   sources.forEach((source) => {
     const node = document.createElement("span");
     node.className = "source-chip";
@@ -123,22 +213,62 @@ function renderSourceSelector() {
     if (appState.selectedSites.has(source.key)) {
       button.classList.add("is-selected");
     }
+    if (!(source.capabilities && source.capabilities.search)) {
+      button.classList.add("is-download-only");
+    }
+
+    const content = document.createElement("div");
+    content.className = "source-option-main";
+
+    const titleRow = document.createElement("div");
+    titleRow.className = "source-option-head";
 
     const title = document.createElement("span");
     title.className = "source-option-title";
     title.textContent = source.display_name || source.key;
 
+    const status = document.createElement("span");
+    status.className = source.capabilities && source.capabilities.search ? "source-status source-status-search" : "source-status source-status-download";
+    status.textContent = source.capabilities && source.capabilities.search ? "可搜索" : "仅下载";
+
+    titleRow.appendChild(title);
+    titleRow.appendChild(status);
+
     const subtitle = document.createElement("span");
     subtitle.className = "source-option-subtitle";
-    subtitle.textContent = source.key;
+    subtitle.textContent = `${source.key} · ${source.default_available ? "默认渠道" : "扩展渠道"}`;
 
-    button.appendChild(title);
-    button.appendChild(subtitle);
+    const note = document.createElement("span");
+    note.className = "source-option-note";
+    note.textContent = source.capabilities && source.capabilities.search
+      ? "可参与 Web 搜索与聚合结果排序。"
+      : "当前站点保留为可下载源，搜索会提示未实现。";
+
+    content.appendChild(titleRow);
+    content.appendChild(subtitle);
+    content.appendChild(note);
+
+    const marker = document.createElement("span");
+    marker.className = "source-option-marker";
+    marker.textContent = appState.selectedSites.has(source.key) ? "已选" : "选择";
+
+    button.appendChild(content);
+    button.appendChild(marker);
     button.addEventListener("click", () => toggleSource(source.key));
     sourceSelectorNode.appendChild(button);
   });
 
   selectedCountNode.textContent = String(appState.selectedSites.size);
+  sourceSummaryNode.textContent = buildSourceSummary(sources);
+}
+
+function buildSourceSummary(sources) {
+  const searchable = sources.filter((source) => source.capabilities && source.capabilities.search).length;
+  const selectedUnsupported = selectedUnsupportedCount();
+  if (selectedUnsupported > 0) {
+    return `当前范围共 ${sources.length} 个渠道，其中 ${searchable} 个可搜索；已选择的渠道里有 ${selectedUnsupported} 个仅支持直链下载。`;
+  }
+  return `当前范围共 ${sources.length} 个渠道，其中 ${searchable} 个可搜索。`;
 }
 
 function toggleSource(siteKey) {
@@ -152,10 +282,15 @@ function toggleSource(siteKey) {
 
 function renderWarnings(warnings) {
   warningsNode.innerHTML = "";
+  if (!warnings.length) {
+    warningsNode.innerHTML = '<div class="warning-item warning-item-success">本次搜索没有渠道警告。</div>';
+    return;
+  }
+
   warnings.forEach((warning) => {
     const node = document.createElement("div");
     node.className = "warning-item";
-    node.textContent = `${warning.site} 搜索失败: ${warning.error}`;
+    node.textContent = `${warning.site}: ${warning.error}`;
     warningsNode.appendChild(node);
   });
 }
@@ -163,7 +298,7 @@ function renderWarnings(warnings) {
 function renderResults(results) {
   resultsNode.innerHTML = "";
   if (!results.length) {
-    resultsNode.innerHTML = '<div class="empty-state">没有可展示的结果。</div>';
+    resultsNode.innerHTML = '<div class="empty-state">当前页没有可展示的结果。</div>';
     return;
   }
 
@@ -171,31 +306,39 @@ function renderResults(results) {
     const card = document.createElement("article");
     card.className = "result-card";
 
+    const media = document.createElement("div");
+    media.className = "result-media";
+    if (result.cover_url) {
+      const image = document.createElement("img");
+      image.className = "result-cover";
+      image.loading = "lazy";
+      image.src = result.cover_url;
+      image.alt = result.title || result.primary.title || result.primary.book_id;
+      media.appendChild(image);
+    } else {
+      const placeholder = document.createElement("div");
+      placeholder.className = "result-cover result-cover-placeholder";
+      placeholder.textContent = (result.title || result.primary.title || "书").slice(0, 1);
+      media.appendChild(placeholder);
+    }
+
+    const body = document.createElement("div");
+    body.className = "result-body";
+
+    const head = document.createElement("div");
+    head.className = "result-head";
+
+    const titleWrap = document.createElement("div");
+
     const title = document.createElement("h3");
     title.textContent = result.title || result.primary.title || result.primary.book_id;
 
-    const meta = document.createElement("div");
-    meta.className = "result-meta";
-    meta.appendChild(badge(result.author || "未知作者"));
-    meta.appendChild(badge(`首选源 ${result.preferred_site}`));
-    meta.appendChild(badge(`${result.source_count} 个来源`));
+    const author = document.createElement("p");
+    author.className = "result-author";
+    author.textContent = result.author || "未知作者";
 
-    const sources = document.createElement("div");
-    sources.className = "result-meta";
-    (result.variants || []).forEach((variant) => {
-      sources.appendChild(badge(variant.site));
-    });
-
-    const desc = document.createElement("p");
-    desc.className = "desc";
-    desc.textContent = result.description || "没有简介。";
-
-    const foot = document.createElement("div");
-    foot.className = "card-foot";
-
-    const info = document.createElement("div");
-    info.className = "desc";
-    info.textContent = `下载目标: ${result.primary.site}/${result.primary.book_id}`;
+    titleWrap.appendChild(title);
+    titleWrap.appendChild(author);
 
     const action = document.createElement("button");
     action.className = "download-button";
@@ -203,16 +346,67 @@ function renderResults(results) {
     action.textContent = "下载并导出";
     action.addEventListener("click", () => startDownloadTask(result, action));
 
-    foot.appendChild(info);
-    foot.appendChild(action);
+    head.appendChild(titleWrap);
+    head.appendChild(action);
 
-    card.appendChild(title);
-    card.appendChild(meta);
-    card.appendChild(sources);
-    card.appendChild(desc);
-    card.appendChild(foot);
+    const meta = document.createElement("div");
+    meta.className = "result-meta";
+    meta.appendChild(badge(`首选 ${result.preferred_site}`));
+    meta.appendChild(badge(`${result.source_count} 个来源`));
+    if (result.latest_chapter) {
+      meta.appendChild(badge(`最新 ${result.latest_chapter}`));
+    }
+
+    const desc = document.createElement("p");
+    desc.className = "desc";
+    desc.textContent = result.description || "暂无简介。";
+
+    const sourceTitle = document.createElement("p");
+    sourceTitle.className = "result-section-title";
+    sourceTitle.textContent = "聚合来源";
+
+    const sources = document.createElement("div");
+    sources.className = "result-meta";
+    (result.variants || []).forEach((variant) => {
+      sources.appendChild(badge(`${variant.site}${variant.book_id ? `/${variant.book_id}` : ""}`));
+    });
+
+    const foot = document.createElement("div");
+    foot.className = "card-foot";
+
+    const info = document.createElement("div");
+    info.className = "result-target";
+    info.textContent = `下载目标：${result.primary.site}/${result.primary.book_id}`;
+
+    foot.appendChild(info);
+
+    body.appendChild(head);
+    body.appendChild(meta);
+    body.appendChild(desc);
+    body.appendChild(sourceTitle);
+    body.appendChild(sources);
+    body.appendChild(foot);
+
+    card.appendChild(media);
+    card.appendChild(body);
     resultsNode.appendChild(card);
   });
+}
+
+function renderPaging() {
+  resultCountNode.textContent = String(appState.results.length);
+  pageIndicatorNode.textContent = `第 ${appState.page} 页`;
+  prevPageButton.disabled = !appState.hasPrev;
+  nextPageButton.disabled = !appState.hasNext;
+}
+
+function renderResultMeta() {
+  if (!appState.lastKeyword) {
+    resultMetaNode.textContent = "输入关键词后开始搜索。";
+    return;
+  }
+  const totalLabel = appState.totalExact ? `${appState.total}` : `${appState.total}+`;
+  resultMetaNode.textContent = `关键词“${appState.lastKeyword}”共返回 ${totalLabel} 条聚合结果，当前显示第 ${appState.page} 页。`;
 }
 
 async function startDownloadTask(result, button) {
@@ -235,9 +429,9 @@ async function startDownloadTask(result, button) {
 
     upsertTask(payload.task);
     startPollingTask(payload.task.id);
-    setStatus(`已创建下载任务 ${payload.task.site}/${payload.task.book_id}`);
+    setStatus(`已创建下载任务：${payload.task.site}/${payload.task.book_id}`);
   } catch (error) {
-    setStatus(`创建下载任务失败: ${error.message}`);
+    setStatus(`创建下载任务失败：${error.message}`);
   } finally {
     button.disabled = false;
     button.textContent = "下载并导出";
@@ -261,15 +455,15 @@ function startPollingTask(taskId) {
       upsertTask(task);
       if (task.status === "completed") {
         stopPollingTask(taskId);
-        setStatus(`下载完成: ${task.site}/${task.book_id}`);
+        setStatus(`下载完成：${task.site}/${task.book_id}`);
       }
       if (task.status === "failed") {
         stopPollingTask(taskId);
-        setStatus(`下载失败: ${task.error}`);
+        setStatus(`下载失败：${task.error}`);
       }
     } catch (error) {
       stopPollingTask(taskId);
-      setStatus(`读取任务状态失败: ${error.message}`);
+      setStatus(`读取任务状态失败：${error.message}`);
     }
   };
 
@@ -354,7 +548,7 @@ function renderTasks() {
     if (task.current_chapter) {
       const current = document.createElement("div");
       current.className = "task-current";
-      current.textContent = `当前章节: ${task.current_chapter}`;
+      current.textContent = `当前章节：${task.current_chapter}`;
       card.appendChild(current);
     }
 
