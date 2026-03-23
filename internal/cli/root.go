@@ -13,16 +13,31 @@ import (
 )
 
 func NewRootCmd() *cobra.Command {
+	var (
+		configPath string
+		sites      []string
+		allSites   bool
+	)
+
 	cmd := &cobra.Command{
-		Use:           "novel-cli",
-		Short:         "CLI-first novel downloader scaffold in Go",
+		Use:           "novel-dl [keyword]",
+		Short:         "Interactive hybrid-search novel downloader",
 		Version:       version.Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		Args:          cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runInteractive(cmd.Context())
+			initialKeyword := ""
+			if len(args) > 0 {
+				initialKeyword = strings.TrimSpace(args[0])
+			}
+			return runInteractive(cmd.Context(), configPath, initialKeyword, sites, allSites)
 		},
 	}
+
+	cmd.Flags().StringVar(&configPath, "config", "", "Path to the configuration file")
+	cmd.Flags().StringSliceVarP(&sites, "site", "s", nil, "Restrict interactive search to specific site key(s)")
+	cmd.Flags().BoolVar(&allSites, "all-sites", false, "Use all searchable sites instead of default available sources")
 
 	cmd.AddCommand(
 		newDownloadCmd(),
@@ -30,104 +45,14 @@ func NewRootCmd() *cobra.Command {
 		newExportCmd(),
 		newConfigCmd(),
 		newCleanCmd(),
+		newWebCmd(),
 	)
 
 	return cmd
 }
 
-func runInteractive(ctx context.Context) error {
-	console := newConsole()
-	runtime, _, err := loadRuntime(console, "")
-	if err != nil {
-		return err
-	}
-	if runtime == nil {
-		return nil
-	}
-
-	options := []string{
-		"download",
-		"search",
-		"export",
-		"config init",
-		"config set-lang",
-		"clean logs",
-		"quit",
-	}
-
-	choice, err := console.Select("Select a command", options)
-	if err != nil {
-		return err
-	}
-
-	switch options[choice] {
-	case "download":
-		siteKey, refs, err := interactiveDownloadInput(runtime)
-		if err != nil {
-			return err
-		}
-		results, err := runtime.Download(ctx, siteKey, refs, nil, false)
-		if err != nil {
-			return err
-		}
-		for _, result := range results {
-			console.Successf("Downloaded %s/%s", result.Book.Site, result.Book.ID)
-			for _, path := range result.Exported {
-				console.Infof("Exported %s", path)
-			}
-		}
-	case "search":
-		keyword, err := console.Prompt("Keyword")
-		if err != nil {
-			return err
-		}
-		results, err := runtime.Search(ctx, nil, keyword, 20, 5)
-		if err != nil {
-			return err
-		}
-		console.PrintSearchResults(results)
-	case "export":
-		siteKey, refs, err := interactiveExportInput(runtime)
-		if err != nil {
-			return err
-		}
-		paths, err := runtime.Export(siteKey, refs, "", nil)
-		if err != nil {
-			return err
-		}
-		for _, path := range paths {
-			console.Successf("Exported %s", path)
-		}
-	case "config init":
-		if err := configInit(runtime, false); err != nil {
-			return err
-		}
-	case "config set-lang":
-		lang, err := console.Prompt("Language (zh, zh_CN, en, en_US)")
-		if err != nil {
-			return err
-		}
-		lang = normalizeLang(lang)
-		if err := runtime.State.SetLanguage(lang); err != nil {
-			return err
-		}
-		console.Successf("Language switched to %s", lang)
-	case "clean logs":
-		removed, err := runtime.CleanLogs(false)
-		if err != nil {
-			return err
-		}
-		if len(removed) == 0 {
-			console.Infof("No log files to clean")
-		}
-		for _, path := range removed {
-			console.Successf("Removed %s", path)
-		}
-	case "quit":
-		console.Infof("Bye")
-	}
-
-	return nil
+func runInteractive(ctx context.Context, configPath string, initialKeyword string, sites []string, allSites bool) error {
+	return StartInteractiveUI(ctx, configPath, initialKeyword, sites, allSites)
 }
 
 func interactiveDownloadInput(runtime *app.Runtime) (string, []model.BookRef, error) {

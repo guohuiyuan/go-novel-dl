@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -20,6 +21,15 @@ func newConsole() *ui.Console {
 }
 
 func loadRuntime(console *ui.Console, configPath string) (*app.Runtime, string, error) {
+	return loadRuntimeWithProgress(console, configPath, true)
+}
+
+func loadRuntimeSilent(configPath string) (*app.Runtime, string, error) {
+	console := ui.NewConsole(strings.NewReader(""), io.Discard, io.Discard)
+	return loadRuntimeWithProgress(console, configPath, false)
+}
+
+func loadRuntimeWithProgress(console *ui.Console, configPath string, withProgress bool) (*app.Runtime, string, error) {
 	cfg, path, err := app.LoadOrInitConfig(console, configPath)
 	if err != nil {
 		return nil, "", err
@@ -28,7 +38,9 @@ func loadRuntime(console *ui.Console, configPath string) (*app.Runtime, string, 
 		return nil, path, nil
 	}
 	runtime := app.NewRuntime(cfg, console)
-	runtime.Progress = progress.NewConsoleBar(os.Stdout)
+	if withProgress {
+		runtime.Progress = progress.NewConsoleBar(os.Stdout)
+	}
 	return runtime, path, nil
 }
 

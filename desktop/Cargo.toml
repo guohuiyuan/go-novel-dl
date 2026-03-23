@@ -1,0 +1,12 @@
+[package]
+name = "novel-dl-desktop"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0"
+description = "A desktop shell for novel-dl"
+authors = ["guohuiyuan"]
+
+[dependencies]
+tao = "0.30"
+wry = "0.42"
+open = "3"

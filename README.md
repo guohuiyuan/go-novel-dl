@@ -1,5 +1,13 @@
 # go-novel-dl
 
+## 2026-03-23 Update
+
+- 主命令已切换为 `novel-dl`
+- `novel-dl [keyword]` 进入交互式混合搜索 CLI
+- `novel-dl web` 启动 Web UI
+- `desktop/` 新增 Rust 桌面版外壳
+- `novel-cli` 当前保留为兼容入口
+
 `go-novel-dl` 是一个参考 `novel-downloader` 架构和命令面实现的 Go 版小说下载器，目前以 CLI 为主，后续再继续补 Web。
 
 整体流程保持为：

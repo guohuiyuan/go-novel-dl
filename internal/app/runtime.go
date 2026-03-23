@@ -70,22 +70,13 @@ func LoadOrInitConfig(console *ui.Console, explicitPath string) (*config.Config,
 		if absErr != nil {
 			absPath = target
 		}
-		console.Warnf("No config found at %s", absPath)
-
-		create, confirmErr := console.Confirm("Create a default config now?", true)
-		if confirmErr != nil {
-			return nil, "", confirmErr
-		}
-		if !create {
-			console.Errorf("Cannot continue without a config file")
-			return nil, "", nil
-		}
+		console.Warnf("No config found at %s; creating a default config", absPath)
 
 		if err := config.WriteDefault(target, false); err != nil {
 			return nil, "", err
 		}
 		console.Successf("Created default config at %s", absPath)
-		return nil, target, nil
+		return config.Load(target)
 	}
 
 	return nil, "", err

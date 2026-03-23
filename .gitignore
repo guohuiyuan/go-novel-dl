@@ -2,3 +2,4 @@ bin/
 dist/
 data/
 *.exe
+desktop/target/

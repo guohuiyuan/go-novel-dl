@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Novel DL</title>
+  <link rel="stylesheet" href="{{ .Root }}/style.css">
+</head>
+<body>
+  <div class="page-shell">
+    <header class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">Novel DL</p>
+        <h1>混合搜索小说下载器</h1>
+        <p class="lead">默认使用当前可用源聚合搜索，支持直接下载并导出为本地文件。桌面版也复用这一套 Web 后端。</p>
+      </div>
+      <div class="hero-panel">
+        <div class="chip-row" id="defaultSources"></div>
+        <p class="panel-note">默认可用源会优先参与搜索和结果排序。需要更广搜索时，可以切到全部源。</p>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section class="search-panel">
+        <form id="searchForm" class="search-form">
+          <input id="keyword" class="search-input" type="text" placeholder="输入书名、作者或关键字" autocomplete="off">
+          <button class="search-button" type="submit">搜索</button>
+        </form>
+        <div class="scope-switch">
+          <button type="button" class="scope-pill is-active" data-scope="default">默认可用源</button>
+          <button type="button" class="scope-pill" data-scope="all">全部源</button>
+        </div>
+        <div id="status" class="status"></div>
+        <div id="warnings" class="warning-list"></div>
+      </section>
+
+      <section class="results-panel">
+        <div class="results-head">
+          <h2>结果</h2>
+          <span id="resultCount" class="count-badge">0</span>
+        </div>
+        <div id="results" class="results-grid">
+          <div class="empty-state">输入关键字后开始搜索。</div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    window.__NOVEL_DL__ = {
+      root: {{ toJSON .Root }},
+      defaultSources: {{ toJSON .DefaultSources }},
+      allSources: {{ toJSON .AllSources }}
+    };
+  </script>
+  <script src="{{ .Root }}/app.js"></script>
+</body>
+</html>
