@@ -40,7 +40,7 @@ func NewRuochuSite(cfg config.ResolvedSiteConfig) *RuochuSite {
 func (s *RuochuSite) Key() string         { return "ruochu" }
 func (s *RuochuSite) DisplayName() string { return "Ruochu" }
 func (s *RuochuSite) Capabilities() Capabilities {
-	return Capabilities{Download: true, Search: false, Login: false}
+	return Capabilities{Download: true, Search: true, Login: false}
 }
 
 func (s *RuochuSite) ResolveURL(rawURL string) (*ResolvedURL, bool) {
@@ -200,10 +200,116 @@ func (s *RuochuSite) FetchChapter(ctx context.Context, bookID string, chapter mo
 }
 
 func (s *RuochuSite) Search(ctx context.Context, keyword string, limit int) ([]model.SearchResult, error) {
-	_ = ctx
-	_ = keyword
-	_ = limit
-	return nil, fmt.Errorf("ruochu search is not implemented yet")
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+
+	results := make([]model.SearchResult, 0, limit)
+	for page := 1; len(results) < limit; page++ {
+		pageResults, hasNext, err := s.searchPage(ctx, keyword, page)
+		if err != nil {
+			return nil, err
+		}
+		if len(pageResults) == 0 {
+			break
+		}
+		remaining := limit - len(results)
+		if len(pageResults) > remaining {
+			pageResults = pageResults[:remaining]
+		}
+		results = append(results, pageResults...)
+		if !hasNext {
+			break
+		}
+	}
+	return results, nil
+}
+
+func (s *RuochuSite) searchPage(ctx context.Context, keyword string, page int) ([]model.SearchResult, bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://search.ruochu.com/web/search", nil)
+	if err != nil {
+		return nil, false, err
+	}
+	query := req.URL.Query()
+	query.Set("queryString", keyword)
+	query.Set("highlight", "false")
+	query.Set("page", fmt.Sprintf("%d", page))
+	query.Set("f", "f")
+	query.Set("objectType", "2")
+	req.URL.RawQuery = query.Encode()
+	req.Header.Set("User-Agent", defaultBrowserUserAgent)
+	req.Header.Set("Accept", "application/json, text/javascript, */*; q=0.01")
+	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+	req.Header.Set("Referer", "https://www.ruochu.com/search?keyword="+query.Get("queryString"))
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, false, fmt.Errorf("ruochu search http %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, false, err
+	}
+	return parseRuochuSearchResults(body)
+}
+
+func parseRuochuSearchResults(body []byte) ([]model.SearchResult, bool, error) {
+	var payload struct {
+		Success bool `json:"success"`
+		Status  bool `json:"status"`
+		Code    int  `json:"code"`
+		Data    struct {
+			Content []struct {
+				ID              int64  `json:"id"`
+				Name            string `json:"name"`
+				Introduce       string `json:"introduce"`
+				AuthorName      string `json:"authorname"`
+				LastChapterName string `json:"lastchaptername"`
+				IconURLSmall    string `json:"iconUrlSmall"`
+			} `json:"content"`
+			Last       bool `json:"last"`
+			TotalPages int  `json:"totalPages"`
+			Number     int  `json:"number"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, false, err
+	}
+	if !payload.Success && !payload.Status && payload.Code != 1 {
+		return nil, false, fmt.Errorf("ruochu search returned unsuccessful response")
+	}
+
+	results := make([]model.SearchResult, 0, len(payload.Data.Content))
+	for _, item := range payload.Data.Content {
+		if item.ID == 0 {
+			continue
+		}
+		bookID := fmt.Sprintf("%d", item.ID)
+		results = append(results, model.SearchResult{
+			Site:          "ruochu",
+			BookID:        bookID,
+			Title:         cleanText(item.Name),
+			Author:        cleanText(item.AuthorName),
+			Description:   cleanText(item.Introduce),
+			URL:           "https://www.ruochu.com/book/" + bookID,
+			LatestChapter: cleanText(item.LastChapterName),
+			CoverURL:      absolutizeURL("https://www.ruochu.com", strings.TrimSpace(item.IconURLSmall)),
+		})
+	}
+
+	hasNext := !payload.Data.Last
+	if payload.Data.TotalPages > 0 && payload.Data.Number >= 0 {
+		hasNext = payload.Data.Number+1 < payload.Data.TotalPages
+	}
+	return results, hasNext, nil
 }
 
 func cleanRuochuAuthor(value string) string {

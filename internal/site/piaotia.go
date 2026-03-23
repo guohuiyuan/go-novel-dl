@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
 
 	"golang.org/x/net/html"
+	"golang.org/x/text/encoding/simplifiedchinese"
 
 	"github.com/guohuiyuan/go-novel-dl/internal/config"
 	"github.com/guohuiyuan/go-novel-dl/internal/model"
@@ -37,7 +39,7 @@ func NewPiaotiaSite(cfg config.ResolvedSiteConfig) *PiaotiaSite {
 func (s *PiaotiaSite) Key() string         { return "piaotia" }
 func (s *PiaotiaSite) DisplayName() string { return "Piaotia" }
 func (s *PiaotiaSite) Capabilities() Capabilities {
-	return Capabilities{Download: true, Search: false, Login: false}
+	return Capabilities{Download: true, Search: true, Login: false}
 }
 
 func (s *PiaotiaSite) ResolveURL(rawURL string) (*ResolvedURL, bool) {
@@ -92,11 +94,17 @@ func (s *PiaotiaSite) DownloadPlan(ctx context.Context, ref model.BookRef) (*mod
 	if err != nil {
 		return nil, err
 	}
-	book := &model.Book{Site: s.Key(), ID: ref.BookID, Title: cleanText(nodeText(findFirst(infoDoc, func(n *html.Node) bool {
-		return n.Type == html.ElementNode && n.Data == "h1" && hasAncestorTag(n, "span")
-	}))), Author: piaotiaExtractAuthor(infoDoc), Description: piaotiaExtractSummary(infoDoc), SourceURL: fmt.Sprintf("https://www.piaotia.com/bookinfo/%s.html", bookPath), CoverURL: attrValue(findFirst(infoDoc, func(n *html.Node) bool {
-		return n.Type == html.ElementNode && n.Data == "img" && hasAncestorTag(n, "td")
-	}), "src"), DownloadedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
+	book := &model.Book{
+		Site:         s.Key(),
+		ID:           ref.BookID,
+		Title:        piaotiaBookTitle(infoDoc),
+		Author:       piaotiaBookAuthor(infoDoc),
+		Description:  piaotiaBookSummary(infoDoc),
+		SourceURL:    fmt.Sprintf("https://www.piaotia.com/bookinfo/%s.html", bookPath),
+		CoverURL:     piaotiaBookCover(infoDoc),
+		DownloadedAt: time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
+	}
 	chapters := make([]model.Chapter, 0)
 	for _, a := range findAll(catalogDoc, func(n *html.Node) bool {
 		return n.Type == html.ElementNode && n.Data == "a" && hasAncestorClass(n, "centent")
@@ -182,10 +190,262 @@ func (s *PiaotiaSite) getWithRetry(ctx context.Context, rawURL string) (string, 
 }
 
 func (s *PiaotiaSite) Search(ctx context.Context, keyword string, limit int) ([]model.SearchResult, error) {
-	_ = ctx
-	_ = keyword
-	_ = limit
-	return nil, fmt.Errorf("piaotia search is not implemented yet")
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 30
+	}
+
+	encodedKeyword, err := piaotiaEncodeKeyword(keyword)
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]model.SearchResult, 0, limit)
+	seen := make(map[string]struct{}, limit)
+	for page := 1; len(results) < limit; page++ {
+		markup, err := s.getWithRetry(ctx, piaotiaSearchURL(encodedKeyword, page))
+		if err != nil {
+			return nil, err
+		}
+		pageResults, hasNext, err := parsePiaotiaSearchResults(markup)
+		if err != nil {
+			return nil, err
+		}
+		if len(pageResults) == 0 {
+			break
+		}
+
+		for _, item := range pageResults {
+			if item.BookID == "" {
+				continue
+			}
+			if _, ok := seen[item.BookID]; ok {
+				continue
+			}
+			seen[item.BookID] = struct{}{}
+			results = append(results, item)
+			if len(results) >= limit {
+				break
+			}
+		}
+		if !hasNext || len(results) >= limit {
+			break
+		}
+	}
+
+	enrichSearchResultsParallel(ctx, results, len(results), s.populateSearchDetail)
+	return results, nil
+}
+
+func piaotiaEncodeKeyword(keyword string) (string, error) {
+	encoded, err := simplifiedchinese.GBK.NewEncoder().String(keyword)
+	if err != nil {
+		return "", err
+	}
+	return url.QueryEscape(encoded), nil
+}
+
+func piaotiaSearchURL(encodedKeyword string, page int) string {
+	return fmt.Sprintf("https://www.piaotia.com/modules/article/search.php?searchtype=articlename&searchkey=%s&page=%d", encodedKeyword, page)
+}
+
+func parsePiaotiaSearchResults(markup string) ([]model.SearchResult, bool, error) {
+	doc, err := parseHTML(markup)
+	if err != nil {
+		return nil, false, err
+	}
+
+	results := make([]model.SearchResult, 0)
+	seen := map[string]struct{}{}
+	for _, row := range findAll(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "tr"
+	}) {
+		cells := directChildElements(row, "td")
+		if len(cells) < 3 {
+			continue
+		}
+		titleLink := findFirst(cells[0], func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "a"
+		})
+		if titleLink == nil {
+			continue
+		}
+		resolved, ok := normalizePiaotiaSearchURL(attrValue(titleLink, "href"))
+		if !ok || resolved == nil || resolved.BookID == "" {
+			continue
+		}
+		if _, exists := seen[resolved.BookID]; exists {
+			continue
+		}
+		seen[resolved.BookID] = struct{}{}
+
+		latest := cleanText(nodeText(findFirst(cells[1], func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "a"
+		})))
+		results = append(results, model.SearchResult{
+			Site:          "piaotia",
+			BookID:        resolved.BookID,
+			Title:         cleanText(nodeText(titleLink)),
+			Author:        cleanText(nodeText(cells[2])),
+			URL:           "https://www.piaotia.com/bookinfo/" + strings.ReplaceAll(resolved.BookID, "-", "/") + ".html",
+			LatestChapter: latest,
+		})
+	}
+
+	hasNext := findFirst(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "a" && hasClass(n, "next")
+	}) != nil
+	return results, hasNext, nil
+}
+
+func normalizePiaotiaSearchURL(raw string) (*ResolvedURL, bool) {
+	raw = absolutizeURL("https://www.piaotia.com", raw)
+	parsed, err := normalizeURL(raw)
+	if err != nil {
+		return nil, false
+	}
+	match := piaotiaBookRe.FindStringSubmatch(parsed.Path)
+	if len(match) != 3 {
+		return nil, false
+	}
+	return &ResolvedURL{
+		SiteKey:   "piaotia",
+		BookID:    match[1] + "-" + match[2],
+		Canonical: "https://www.piaotia.com" + parsed.Path,
+	}, true
+}
+
+func (s *PiaotiaSite) populateSearchDetail(ctx context.Context, item *model.SearchResult) error {
+	if item == nil || item.BookID == "" {
+		return nil
+	}
+
+	bookPath := strings.ReplaceAll(item.BookID, "-", "/")
+	bookURL := fmt.Sprintf("https://www.piaotia.com/bookinfo/%s.html", bookPath)
+	markup, err := s.getWithRetry(ctx, bookURL)
+	if err != nil {
+		return err
+	}
+	doc, err := parseHTML(markup)
+	if err != nil {
+		return err
+	}
+
+	if title := piaotiaBookTitle(doc); title != "" {
+		item.Title = title
+	}
+	if author := piaotiaBookAuthor(doc); author != "" {
+		item.Author = author
+	}
+	if description := piaotiaBookSummary(doc); description != "" {
+		item.Description = description
+	}
+	if cover := piaotiaBookCover(doc); cover != "" {
+		item.CoverURL = cover
+	}
+	item.URL = bookURL
+	return nil
+}
+
+func piaotiaBookTitle(doc *html.Node) string {
+	return cleanText(nodeText(findFirst(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "h1" && hasAncestorTag(n, "span")
+	})))
+}
+
+func piaotiaBookAuthor(doc *html.Node) string {
+	prefixes := []string{"作者：", "作 者：", "浣滆€咃細", "浣滆€?"}
+	for _, td := range findAll(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "td"
+	}) {
+		text := strings.TrimSpace(nodeText(td))
+		text = strings.ReplaceAll(text, string(rune(0xA0)), "")
+		text = strings.ReplaceAll(text, " ", "")
+		for _, prefix := range prefixes {
+			normalizedPrefix := strings.ReplaceAll(prefix, " ", "")
+			if strings.HasPrefix(text, normalizedPrefix) {
+				return strings.TrimSpace(strings.TrimPrefix(text, normalizedPrefix))
+			}
+		}
+	}
+	return ""
+}
+
+func piaotiaBookSummary(doc *html.Node) string {
+	labels := []string{"内容简介：", "内容简介:", "鍐呭绠€浠嬶細"}
+	title := piaotiaBookTitle(doc)
+	for _, span := range findAll(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "span"
+	}) {
+		labelText := cleanText(nodeText(span))
+		label := piaotiaMatchedLabel(labelText, labels)
+		if label == "" {
+			continue
+		}
+		for container := span.Parent; container != nil; container = container.Parent {
+			if container.Type != html.ElementNode {
+				continue
+			}
+			if container.Data != "div" && container.Data != "td" {
+				continue
+			}
+			text := cleanText(nodeTextPreserveLineBreaks(container))
+			if !strings.Contains(text, label) {
+				continue
+			}
+			summary := strings.TrimSpace(strings.SplitN(text, label, 2)[1])
+			summary = piaotiaTrimSummaryTail(summary, title)
+			if summary != "" {
+				return summary
+			}
+		}
+	}
+	return ""
+}
+
+func piaotiaBookCover(doc *html.Node) string {
+	node := findFirst(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "img" && strings.Contains(attrValue(n, "src"), "/files/article/image/")
+	})
+	if node == nil {
+		node = findFirst(doc, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "img" && hasAncestorTag(n, "td")
+		})
+	}
+	return absolutizeURL("https://www.piaotia.com", attrValue(node, "src"))
+}
+
+func piaotiaMatchedLabel(value string, labels []string) string {
+	for _, label := range labels {
+		if value == label || strings.Contains(value, label) {
+			return label
+		}
+	}
+	return ""
+}
+
+func piaotiaTrimSummaryTail(summary, title string) string {
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		return ""
+	}
+	markers := []string{
+		"[最新书评]",
+		"喜欢《",
+		"UBBEditor.Create",
+	}
+	if title != "" {
+		markers = append(markers, "《"+title+"》最新章节预览")
+	}
+	for _, marker := range markers {
+		if idx := strings.Index(summary, marker); idx >= 0 {
+			summary = strings.TrimSpace(summary[:idx])
+		}
+	}
+	return strings.TrimSpace(summary)
 }
 
 func findFirstText(doc *html.Node, contains string) string {

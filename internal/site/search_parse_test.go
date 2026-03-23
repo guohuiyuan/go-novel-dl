@@ -132,3 +132,68 @@ func TestParseBiqugePagedSearchResults(t *testing.T) {
 		t.Fatalf("unexpected biquge paged result: %+v", results[0])
 	}
 }
+
+func TestParseRuochuSearchResults(t *testing.T) {
+	payload := []byte(`{"success":true,"code":1,"status":true,"data":{"content":[{"id":147625,"name":"都市修罗医仙","introduce":"第一段\r\n第二段","authorname":"无敌豆子","lastchaptername":"第一百五十二章 最终结局","iconUrlSmall":"/book/147625.jpg@!bns?1"}],"totalPages":317,"number":0,"last":false}}`)
+	results, hasNext, err := parseRuochuSearchResults(payload)
+	if err != nil {
+		t.Fatalf("parse ruochu results: %v", err)
+	}
+	if !hasNext {
+		t.Fatalf("expected ruochu hasNext to be true")
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].BookID != "147625" || results[0].Author != "无敌豆子" || results[0].Description != "第一段\n第二段" {
+		t.Fatalf("unexpected ruochu result: %+v", results[0])
+	}
+}
+
+func TestParsePiaotiaSearchResults(t *testing.T) {
+	markup := `<html><body><table class="grid"><tr><th>文章名称</th></tr><tr><td class="odd"><a href="https://www.piaotia.com/bookinfo/11/11668.html">从斗罗开始的浪人</a></td><td class="even"><a href="https://www.piaotia.com/html/11/11668/index.html">第七百七十三章</a></td><td class="odd">道然居士</td><td class="even">5179K</td><td class="odd">26-03-19</td><td class="even">连载</td></tr></table><div class="pages"><div class="pagelink"><a href="/modules/article/search.php?page=2" class="next">&gt;</a></div></div></body></html>`
+	results, hasNext, err := parsePiaotiaSearchResults(markup)
+	if err != nil {
+		t.Fatalf("parse piaotia results: %v", err)
+	}
+	if !hasNext {
+		t.Fatalf("expected piaotia hasNext to be true")
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].BookID != "11-11668" || results[0].Author != "道然居士" || results[0].LatestChapter != "第七百七十三章" {
+		t.Fatalf("unexpected piaotia result: %+v", results[0])
+	}
+}
+
+func TestPiaotiaBookDetailExtraction(t *testing.T) {
+	markup := `<html><body><span><h1>从斗罗开始的浪人</h1></span><table><tr><td>作 者：道然居士</td></tr></table><td width="80%"><div><span class="hottext">最新章节：</span><a href="/html/11/11668/index.html">第七百七十三章</a><br/><br/><span class="hottext">内容简介：</span><br/>&nbsp;&nbsp;&nbsp;&nbsp;第一段<br/>&nbsp;&nbsp;&nbsp;&nbsp;第二段<br/></div></td><img src="https://www.piaotia.com/files/article/image/11/11668/11668s.jpg"></body></html>`
+	doc, err := parseHTML(markup)
+	if err != nil {
+		t.Fatalf("parse piaotia detail html: %v", err)
+	}
+	if title := piaotiaBookTitle(doc); title != "从斗罗开始的浪人" {
+		t.Fatalf("unexpected piaotia title: %q", title)
+	}
+	if author := piaotiaBookAuthor(doc); author != "道然居士" {
+		t.Fatalf("unexpected piaotia author: %q", author)
+	}
+	if summary := piaotiaBookSummary(doc); summary != "第一段\n第二段" {
+		t.Fatalf("unexpected piaotia summary: %q", summary)
+	}
+	if cover := piaotiaBookCover(doc); !strings.Contains(cover, "/files/article/image/11/11668/11668s.jpg") {
+		t.Fatalf("unexpected piaotia cover: %q", cover)
+	}
+}
+
+func TestPiaotiaBookDetailExtractionTrimsTail(t *testing.T) {
+	markup := `<html><body><span><h1>凤鸣斗罗</h1></span><td width="80%"><div><span class="hottext">内容简介：</span><br/>第一段<br/>第二段<br/>《凤鸣斗罗》最新章节预览......(查看全部章节)<br/>第1141章 俄罗斯套娃<br/>[最新书评]<br/></div></td></body></html>`
+	doc, err := parseHTML(markup)
+	if err != nil {
+		t.Fatalf("parse piaotia detail html: %v", err)
+	}
+	if summary := piaotiaBookSummary(doc); summary != "第一段\n第二段" {
+		t.Fatalf("unexpected trimmed piaotia summary: %q", summary)
+	}
+}
