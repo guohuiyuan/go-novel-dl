@@ -16,8 +16,10 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/guohuiyuan/go-novel-dl/internal/app"
+	"github.com/guohuiyuan/go-novel-dl/internal/config"
 	"github.com/guohuiyuan/go-novel-dl/internal/model"
 	"github.com/guohuiyuan/go-novel-dl/internal/progress"
+	"github.com/guohuiyuan/go-novel-dl/internal/site"
 	"github.com/guohuiyuan/go-novel-dl/internal/ui"
 )
 
@@ -27,9 +29,11 @@ var templateFS embed.FS
 const RoutePrefix = "/novel"
 
 type Service struct {
+	Config         *config.Config
 	Runtime        *app.Runtime
-	DefaultSources []any
-	AllSources     []any
+	DefaultSources []site.SiteDescriptor
+	AllSources     []site.SiteDescriptor
+	Tasks          *DownloadTaskStore
 }
 
 type searchRequest struct {
@@ -75,22 +79,26 @@ func newService(configPath string) (*Service, error) {
 	runtime := app.NewRuntime(cfg, console)
 	runtime.Progress = progress.NullReporter{}
 
-	defaultSources := make([]any, 0)
+	defaultSources := make([]site.SiteDescriptor, 0)
 	for _, descriptor := range runtime.SiteDescriptors() {
-		if descriptor.DefaultAvailable {
+		if descriptor.DefaultAvailable && descriptor.Capabilities.Search {
 			defaultSources = append(defaultSources, descriptor)
 		}
 	}
 
-	allSources := make([]any, 0, len(runtime.SiteDescriptors()))
+	allSources := make([]site.SiteDescriptor, 0, len(runtime.SiteDescriptors()))
 	for _, descriptor := range runtime.SiteDescriptors() {
-		allSources = append(allSources, descriptor)
+		if descriptor.Capabilities.Search {
+			allSources = append(allSources, descriptor)
+		}
 	}
 
 	return &Service{
+		Config:         cfg,
 		Runtime:        runtime,
 		DefaultSources: defaultSources,
 		AllSources:     allSources,
+		Tasks:          NewDownloadTaskStore(),
 	}, nil
 }
 
@@ -168,7 +176,7 @@ func newRouter(service *Service) *gin.Engine {
 
 		c.JSON(http.StatusOK, response)
 	})
-	group.POST("/api/download", func(c *gin.Context) {
+	group.POST("/api/download-tasks", func(c *gin.Context) {
 		var req downloadRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
@@ -181,32 +189,77 @@ func newRouter(service *Service) *gin.Engine {
 			return
 		}
 
-		results, err := service.Runtime.Download(c.Request.Context(), req.Site, []model.BookRef{{
+		task := service.Tasks.Create(req.Site, req.BookID)
+		service.startDownloadTask(task.ID, req)
+
+		c.JSON(http.StatusAccepted, gin.H{
+			"task": task,
+		})
+	})
+	group.GET("/api/download-tasks/:id", func(c *gin.Context) {
+		task, ok := service.Tasks.Snapshot(c.Param("id"))
+		if !ok {
+			c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"task": task})
+	})
+
+	return router
+}
+
+func (s *Service) startDownloadTask(taskID string, req downloadRequest) {
+	go func() {
+		runtime := s.newTaskRuntime(taskID)
+		results, err := runtime.Download(context.Background(), req.Site, []model.BookRef{{
 			BookID: req.BookID,
 		}}, req.Formats, false)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			s.Tasks.MarkFailed(taskID, err)
 			return
 		}
 		if len(results) == 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "download returned no result"})
+			s.Tasks.MarkFailed(taskID, fmt.Errorf("download returned no result"))
 			return
 		}
 
 		exported := make([]string, 0)
+		title := results[0].Book.Title
 		for _, result := range results {
 			exported = append(exported, result.Exported...)
+			if strings.TrimSpace(title) == "" && result.Book != nil {
+				title = result.Book.Title
+			}
 		}
+		s.Tasks.MarkCompleted(taskID, title, exported)
+	}()
+}
 
-		c.JSON(http.StatusOK, gin.H{
-			"site":     req.Site,
-			"book_id":  req.BookID,
-			"title":    results[0].Book.Title,
-			"exported": exported,
-		})
-	})
+func (s *Service) newTaskRuntime(taskID string) *app.Runtime {
+	console := ui.NewConsole(strings.NewReader(""), io.Discard, io.Discard)
+	runtime := app.NewRuntime(s.Config, console)
+	runtime.Progress = &taskReporter{
+		store:  s.Tasks,
+		taskID: taskID,
+	}
+	return runtime
+}
 
-	return router
+type taskReporter struct {
+	store  *DownloadTaskStore
+	taskID string
+}
+
+func (r *taskReporter) OnBookStart(siteKey, bookID, title string, total int) {
+	r.store.MarkRunning(r.taskID, siteKey, bookID, title, total)
+}
+
+func (r *taskReporter) OnBookProgress(done, total int, chapterTitle string) {
+	r.store.MarkProgress(r.taskID, done, total, chapterTitle)
+}
+
+func (r *taskReporter) OnBookComplete(done, total int) {
+	r.store.MarkExporting(r.taskID, done, total)
 }
 
 func openBrowser(url string) error {
