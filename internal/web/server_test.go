@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/guohuiyuan/go-novel-dl/internal/app"
 	"github.com/guohuiyuan/go-novel-dl/internal/config"
@@ -213,5 +214,14 @@ func TestSearchEndpointRejectsInvalidPayload(t *testing.T) {
 
 	if resp.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", resp.Code)
+	}
+}
+
+func TestSearchTimeoutForSites(t *testing.T) {
+	if got := searchTimeoutForSites([]string{"sfacg", "n17k"}); got != 12*time.Second {
+		t.Fatalf("expected default timeout, got %s", got)
+	}
+	if got := searchTimeoutForSites([]string{"sfacg", "esjzone"}); got != 35*time.Second {
+		t.Fatalf("expected esjzone timeout, got %s", got)
 	}
 }

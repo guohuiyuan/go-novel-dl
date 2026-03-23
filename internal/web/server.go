@@ -169,7 +169,7 @@ func newRouter(service *Service) *gin.Engine {
 			siteLimit = fetchLimit
 		}
 
-		ctx, cancel := context.WithTimeout(c.Request.Context(), 12*time.Second)
+		ctx, cancel := context.WithTimeout(c.Request.Context(), searchTimeoutForSites(sites))
 		defer cancel()
 
 		response, err := service.Runtime.HybridSearch(ctx, req.Keyword, app.HybridSearchOptions{
@@ -345,4 +345,13 @@ func maxInt(left, right int) int {
 		return left
 	}
 	return right
+}
+
+func searchTimeoutForSites(sites []string) time.Duration {
+	for _, site := range sites {
+		if strings.EqualFold(strings.TrimSpace(site), "esjzone") {
+			return 35 * time.Second
+		}
+	}
+	return 12 * time.Second
 }

@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/http/cookiejar"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -46,7 +47,7 @@ func NewN17KSite(cfg config.ResolvedSiteConfig) *N17KSite {
 func (s *N17KSite) Key() string         { return "n17k" }
 func (s *N17KSite) DisplayName() string { return "17K" }
 func (s *N17KSite) Capabilities() Capabilities {
-	return Capabilities{Download: true, Search: false, Login: false}
+	return Capabilities{Download: true, Search: true, Login: false}
 }
 
 func (s *N17KSite) ResolveURL(rawURL string) (*ResolvedURL, bool) {
@@ -189,10 +190,102 @@ func (s *N17KSite) FetchChapter(ctx context.Context, bookID string, chapter mode
 }
 
 func (s *N17KSite) Search(ctx context.Context, keyword string, limit int) ([]model.SearchResult, error) {
-	_ = ctx
-	_ = keyword
-	_ = limit
-	return nil, fmt.Errorf("17k search is not implemented yet")
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" {
+		return nil, nil
+	}
+
+	markup, err := s.fetch(ctx, "https://search.17k.com/search.xhtml?c.st=0&c.q="+url.QueryEscape(keyword))
+	if err != nil {
+		return nil, err
+	}
+	results, err := parseN17KSearchResults(markup)
+	if err != nil {
+		return nil, err
+	}
+	if limit > 0 && len(results) > limit {
+		results = results[:limit]
+	}
+	return results, nil
+}
+
+func parseN17KSearchResults(markup string) ([]model.SearchResult, error) {
+	doc, err := parseHTML(markup)
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]model.SearchResult, 0)
+	seen := map[string]struct{}{}
+	for _, item := range findAll(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "div" && hasClass(n, "textlist")
+	}) {
+		titleLink := findFirst(item, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "a" && hasAncestorTag(n, "dt") && n17KSearchBookID(attrValue(n, "href")) != ""
+		})
+		bookID := n17KSearchBookID(attrValue(titleLink, "href"))
+		if bookID == "" {
+			continue
+		}
+		if _, ok := seen[bookID]; ok {
+			continue
+		}
+		seen[bookID] = struct{}{}
+
+		author := cleanText(nodeText(findFirst(item, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "a" && hasAncestorClass(n, "ls")
+		})))
+		if author == "" {
+			author = strings.TrimSpace(strings.TrimPrefix(cleanText(nodeText(findFirst(item, func(n *html.Node) bool {
+				return n.Type == html.ElementNode && n.Data == "span" && hasClass(n, "ls")
+			}))), "作者："))
+		}
+
+		description := ""
+		if metaList := findFirst(item, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "ul" && hasAncestorClass(n, "textmiddle")
+		}); metaList != nil {
+			if items := directChildElements(metaList, "li"); len(items) >= 3 {
+				description = cleanText(nodeText(findFirst(items[2], func(n *html.Node) bool {
+					return n.Type == html.ElementNode && n.Data == "p"
+				})))
+			}
+		}
+
+		results = append(results, model.SearchResult{
+			Site:        "n17k",
+			BookID:      bookID,
+			Title:       cleanText(nodeText(titleLink)),
+			Author:      author,
+			Description: description,
+			URL:         fmt.Sprintf("https://www.17k.com/book/%s.html", bookID),
+			CoverURL: absolutizeURL("https://www.17k.com", attrValue(findFirst(item, func(n *html.Node) bool {
+				return n.Type == html.ElementNode && n.Data == "img" && hasAncestorClass(n, "textleft")
+			}), "src")),
+		})
+	}
+	return results, nil
+}
+
+func n17KSearchBookID(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if strings.HasPrefix(raw, "//") {
+		raw = "https:" + raw
+	}
+	if strings.HasPrefix(raw, "http://") || strings.HasPrefix(raw, "https://") {
+		parsed, err := normalizeURL(raw)
+		if err == nil {
+			raw = parsed.Path
+		}
+	}
+	match := n17kBookRe.FindStringSubmatch(raw)
+	if len(match) != 2 {
+		return ""
+	}
+	return match[1]
 }
 
 func (s *N17KSite) fetch(ctx context.Context, rawURL string) (string, error) {

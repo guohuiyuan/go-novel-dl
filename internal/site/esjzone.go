@@ -11,8 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/net/html"
@@ -48,7 +48,7 @@ type esjCookie struct {
 }
 
 func NewESJZoneSite(cfg config.ResolvedSiteConfig) *ESJZoneSite {
-	timeout := 15 * time.Second
+	timeout := 30 * time.Second
 	if cfg.General.Timeout > 0 {
 		timeout = time.Duration(cfg.General.Timeout * float64(time.Second))
 	}
@@ -212,6 +212,7 @@ func (s *ESJZoneSite) Search(ctx context.Context, keyword string, limit int) ([]
 		if limit > 0 && len(results) > limit {
 			results = results[:limit]
 		}
+		s.enrichSearchResults(ctx, results)
 		return results, nil
 	}
 
@@ -219,6 +220,59 @@ func (s *ESJZoneSite) Search(ctx context.Context, keyword string, limit int) ([]
 		return nil, lastErr
 	}
 	return nil, fmt.Errorf("search failed for keyword %q", keyword)
+}
+
+func (s *ESJZoneSite) enrichSearchResults(ctx context.Context, results []model.SearchResult) {
+	maxItems := len(results)
+	if maxItems > 6 {
+		maxItems = 6
+	}
+	if maxItems == 0 {
+		return
+	}
+
+	var wg sync.WaitGroup
+	for idx := 0; idx < maxItems; idx++ {
+		item := &results[idx]
+		if item.BookID == "" {
+			continue
+		}
+		if item.Description != "" && item.Author != "" && item.CoverURL != "" {
+			continue
+		}
+		wg.Add(1)
+		go func(item *model.SearchResult) {
+			defer wg.Done()
+			if ctx.Err() != nil {
+				return
+			}
+
+			markup, pageURL, err := s.fetchBookPage(ctx, item.BookID)
+			if err != nil {
+				return
+			}
+			book, err := parseESJSearchDetailPage(markup, pageURL, item.BookID)
+			if err != nil {
+				return
+			}
+			if item.Title == "" {
+				item.Title = book.Title
+			}
+			if item.Author == "" || item.Author == "Unknown" {
+				item.Author = book.Author
+			}
+			if item.Description == "" {
+				item.Description = book.Description
+			}
+			if item.CoverURL == "" {
+				item.CoverURL = book.CoverURL
+			}
+			if item.URL == "" {
+				item.URL = book.SourceURL
+			}
+		}(item)
+	}
+	wg.Wait()
 }
 
 func (s *ESJZoneSite) fetchBookPage(ctx context.Context, bookID string) (string, string, error) {
@@ -627,11 +681,36 @@ func (s *ESJZoneSite) parseSearchPage(markup, baseURL string) ([]model.SearchRes
 			CoverURL:      absolutizeURL(baseURL, cover),
 		})
 	}
-
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].BookID < results[j].BookID
-	})
 	return results, nil
+}
+
+func parseESJSearchDetailPage(markup, bookURL, bookID string) (*model.Book, error) {
+	doc, err := parseHTML(markup)
+	if err != nil {
+		return nil, err
+	}
+
+	title := strings.TrimSpace(firstNodeText(findFirst(doc, hasClassAndTag("h2", "text-normal"))))
+	if title == "" {
+		title = bookID
+	}
+	author := extractDetailAuthor(doc)
+	if author == "" {
+		author = "Unknown"
+	}
+	coverURL := strings.TrimSpace(attrValue(findFirst(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "img" && hasAncestorClass(n, "product-gallery")
+	}), "src"))
+
+	return &model.Book{
+		Site:        "esjzone",
+		ID:          bookID,
+		Title:       title,
+		Author:      author,
+		Description: strings.TrimSpace(joinParagraphs(findFirst(doc, byClass("description")))),
+		SourceURL:   bookURL,
+		CoverURL:    absolutizeURL(bookURL, coverURL),
+	}, nil
 }
 
 func parseChapterContent(markup, pageURL string) (string, error) {

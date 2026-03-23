@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ var (
 	sfacgBookRe    = regexp.MustCompile(`^/b/(\d+)/?$`)
 	sfacgCatalogRe = regexp.MustCompile(`^/i/(\d+)/?$`)
 	sfacgChapterRe = regexp.MustCompile(`^/c/(\d+)/?$`)
+	sfacgNovelRe   = regexp.MustCompile(`^/Novel/(\d+)/?$`)
 )
 
 type SfacgSite struct {
@@ -38,7 +40,7 @@ func NewSfacgSite(cfg config.ResolvedSiteConfig) *SfacgSite {
 func (s *SfacgSite) Key() string         { return "sfacg" }
 func (s *SfacgSite) DisplayName() string { return "Sfacg" }
 func (s *SfacgSite) Capabilities() Capabilities {
-	return Capabilities{Download: true, Search: false, Login: false}
+	return Capabilities{Download: true, Search: true, Login: false}
 }
 
 func (s *SfacgSite) ResolveURL(rawURL string) (*ResolvedURL, bool) {
@@ -47,7 +49,13 @@ func (s *SfacgSite) ResolveURL(rawURL string) (*ResolvedURL, bool) {
 		return nil, false
 	}
 	host := strings.ToLower(strings.TrimPrefix(parsed.Host, "www."))
-	if host != "m.sfacg.com" && host != "sfacg.com" {
+	if host != "m.sfacg.com" && host != "sfacg.com" && host != "book.sfacg.com" {
+		return nil, false
+	}
+	if host == "book.sfacg.com" {
+		if m := sfacgNovelRe.FindStringSubmatch(parsed.Path); len(m) == 2 {
+			return &ResolvedURL{SiteKey: s.Key(), BookID: m[1], Canonical: "https://book.sfacg.com" + parsed.Path}, true
+		}
 		return nil, false
 	}
 	if m := sfacgChapterRe.FindStringSubmatch(parsed.Path); len(m) == 2 {
@@ -192,10 +200,103 @@ func (s *SfacgSite) FetchChapter(ctx context.Context, bookID string, chapter mod
 }
 
 func (s *SfacgSite) Search(ctx context.Context, keyword string, limit int) ([]model.SearchResult, error) {
-	_ = ctx
-	_ = keyword
-	_ = limit
-	return nil, fmt.Errorf("sfacg search is not implemented yet")
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" {
+		return nil, nil
+	}
+
+	markup, err := s.html.Get(ctx, "https://s.sfacg.com/?Key="+url.QueryEscape(keyword)+"&S=1&SS=0")
+	if err != nil {
+		return nil, err
+	}
+	results, err := parseSfacgSearchResults(markup)
+	if err != nil {
+		return nil, err
+	}
+	if limit > 0 && len(results) > limit {
+		results = results[:limit]
+	}
+	return results, nil
+}
+
+func parseSfacgSearchResults(markup string) ([]model.SearchResult, error) {
+	doc, err := parseHTML(markup)
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]model.SearchResult, 0)
+	seen := map[string]struct{}{}
+	for _, item := range findAll(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "ul" && strings.Contains(attrValue(n, "style"), "width:100%")
+	}) {
+		titleLink := findFirst(item, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "a" && sfacgSearchBookID(attrValue(n, "href")) != ""
+		})
+		bookID := sfacgSearchBookID(attrValue(titleLink, "href"))
+		if bookID == "" {
+			continue
+		}
+		if _, ok := seen[bookID]; ok {
+			continue
+		}
+		seen[bookID] = struct{}{}
+
+		infoNode := findFirst(item, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "li" && n.Parent == item && !hasClass(n, "Conjunction")
+		})
+		lines := cleanLooseTexts(infoNode)
+		author := ""
+		if len(lines) > 1 {
+			author = parseSfacgSearchAuthor(lines[1])
+		}
+		description := ""
+		if len(lines) > 2 {
+			description = strings.Join(lines[2:], "\n")
+		}
+
+		results = append(results, model.SearchResult{
+			Site:        "sfacg",
+			BookID:      bookID,
+			Title:       cleanText(nodeText(titleLink)),
+			Author:      author,
+			Description: description,
+			URL:         absolutizeURL("https://book.sfacg.com", attrValue(titleLink, "href")),
+			CoverURL: absolutizeURL("https://book.sfacg.com", attrValue(findFirst(item, func(n *html.Node) bool {
+				return n.Type == html.ElementNode && n.Data == "img" && hasAncestorClass(n, "Conjunction")
+			}), "src")),
+		})
+	}
+	return results, nil
+}
+
+func sfacgSearchBookID(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if strings.HasPrefix(raw, "//") {
+		raw = "https:" + raw
+	}
+	if strings.HasPrefix(raw, "http://") || strings.HasPrefix(raw, "https://") {
+		parsed, err := normalizeURL(raw)
+		if err == nil {
+			raw = parsed.Path
+		}
+	}
+	match := sfacgNovelRe.FindStringSubmatch(raw)
+	if len(match) != 2 {
+		return ""
+	}
+	return match[1]
+}
+
+func parseSfacgSearchAuthor(value string) string {
+	value = strings.TrimSpace(strings.TrimPrefix(value, "综合信息："))
+	if idx := strings.Index(value, "/"); idx >= 0 {
+		value = value[:idx]
+	}
+	return strings.TrimSpace(value)
 }
 
 func nextElementSibling(n *html.Node) *html.Node {
