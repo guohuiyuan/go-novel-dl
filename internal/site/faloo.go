@@ -49,7 +49,7 @@ func NewFalooSite(cfg config.ResolvedSiteConfig) *FalooSite {
 func (s *FalooSite) Key() string         { return "faloo" }
 func (s *FalooSite) DisplayName() string { return "Faloo" }
 func (s *FalooSite) Capabilities() Capabilities {
-	return Capabilities{Download: true, Search: false, Login: false}
+	return Capabilities{Download: true, Search: true, Login: false}
 }
 
 func (s *FalooSite) ResolveURL(rawURL string) (*ResolvedURL, bool) {
@@ -192,10 +192,45 @@ func (s *FalooSite) FetchChapter(ctx context.Context, bookID string, chapter mod
 }
 
 func (s *FalooSite) Search(ctx context.Context, keyword string, limit int) ([]model.SearchResult, error) {
-	_ = ctx
-	_ = keyword
-	_ = limit
-	return nil, fmt.Errorf("faloo search is not implemented yet")
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 30
+	}
+
+	results := make([]model.SearchResult, 0, limit)
+	seen := make(map[string]struct{}, limit)
+	nextURL := falooSearchURL(keyword)
+	for nextURL != "" && len(results) < limit {
+		markup, err := s.fetchPage(ctx, nextURL)
+		if err != nil {
+			return nil, err
+		}
+		pageResults, nextPath, err := parseFalooSearchResults(markup)
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range pageResults {
+			if item.BookID == "" {
+				continue
+			}
+			if _, ok := seen[item.BookID]; ok {
+				continue
+			}
+			seen[item.BookID] = struct{}{}
+			results = append(results, item)
+			if len(results) >= limit {
+				break
+			}
+		}
+		if nextPath == "" || len(results) >= limit {
+			break
+		}
+		nextURL = absolutizeURL("https://b.faloo.com", nextPath)
+	}
+	return results, nil
 }
 
 func (s *FalooSite) extractFalooMainChapters(main *html.Node) []model.Chapter {
@@ -258,6 +293,94 @@ func falooPath(raw string) string {
 		return parsed.Path
 	}
 	return raw
+}
+
+func falooSearchURL(keyword string) string {
+	return "https://b.faloo.com/l/0/1.html?t=1&k=" + falooEscapeKeyword(keyword)
+}
+
+func falooEscapeKeyword(keyword string) string {
+	var b strings.Builder
+	for _, r := range keyword {
+		switch {
+		case falooEscapeSafeRune(r):
+			b.WriteRune(r)
+		case r < 256:
+			fmt.Fprintf(&b, "%%%02X", r)
+		default:
+			fmt.Fprintf(&b, "%%u%04X", r)
+		}
+	}
+	return b.String()
+}
+
+func falooEscapeSafeRune(r rune) bool {
+	return (r >= 'A' && r <= 'Z') ||
+		(r >= 'a' && r <= 'z') ||
+		(r >= '0' && r <= '9') ||
+		r == '*' || r == '+' || r == '-' || r == '.' || r == '/' || r == '@' || r == '_'
+}
+
+func parseFalooSearchResults(markup string) ([]model.SearchResult, string, error) {
+	doc, err := parseHTML(markup)
+	if err != nil {
+		return nil, "", err
+	}
+
+	results := make([]model.SearchResult, 0)
+	seen := map[string]struct{}{}
+	for _, item := range findAll(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "div" && hasClass(n, "TwoBox02_02") && hasAncestorByID(n, "BookContent")
+	}) {
+		titleLink := findFirst(item, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "a" && hasAncestorClass(n, "TwoBox02_08")
+		})
+		if titleLink == nil {
+			titleLink = findFirst(item, func(n *html.Node) bool {
+				return n.Type == html.ElementNode && n.Data == "a" && hasAncestorClass(n, "TwoBox02_03")
+			})
+		}
+		match := falooBookRe.FindStringSubmatch(falooPath(attrValue(titleLink, "href")))
+		if len(match) != 2 {
+			continue
+		}
+		bookID := match[1]
+		if _, ok := seen[bookID]; ok {
+			continue
+		}
+		seen[bookID] = struct{}{}
+
+		img := findFirst(item, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "img" && hasAncestorClass(n, "TwoBox02_03")
+		})
+		results = append(results, model.SearchResult{
+			Site:   "faloo",
+			BookID: bookID,
+			Title:  fallback(attrValue(titleLink, "title"), cleanText(nodeText(titleLink))),
+			Author: cleanText(nodeText(findFirst(item, func(n *html.Node) bool {
+				return n.Type == html.ElementNode && n.Data == "a" && hasAncestorClass(n, "TwoBox02_09")
+			}))),
+			Description: cleanText(nodeText(findFirst(item, func(n *html.Node) bool {
+				return n.Type == html.ElementNode && n.Data == "a" && hasAncestorClass(n, "TwoBox02_06")
+			}))),
+			URL: fmt.Sprintf("https://b.faloo.com/%s.html", bookID),
+			LatestChapter: cleanText(nodeText(findFirst(item, func(n *html.Node) bool {
+				return n.Type == html.ElementNode && n.Data == "a" && hasClass(n, "fontSize14andChen")
+			}))),
+			CoverURL: fallback(attrValue(img, "data-original"), attrValue(img, "src")),
+		})
+	}
+
+	var nextPath string
+	for _, a := range findAll(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "a" && hasAncestorClass(n, "pageliste_body")
+	}) {
+		if cleanText(nodeText(a)) == "下一页" {
+			nextPath = strings.TrimSpace(attrValue(a, "href"))
+			break
+		}
+	}
+	return results, nextPath, nil
 }
 
 func falooTags(doc *html.Node) []string {
