@@ -92,14 +92,14 @@ func NewNovalpieSite(cfg config.ResolvedSiteConfig) *NovalpieSite {
 	if cfg.General.Timeout > 0 {
 		timeout = time.Duration(cfg.General.Timeout * float64(time.Second))
 	}
-	client := &http.Client{Timeout: timeout}
+	client := newSiteHTTPClient(timeout, siteHTTPClientOptions{Direct: true})
 	return &NovalpieSite{cfg: cfg, httpClient: client, html: NewHTMLSite(client)}
 }
 
 func (s *NovalpieSite) Key() string         { return "novalpie" }
 func (s *NovalpieSite) DisplayName() string { return "Novalpie" }
 func (s *NovalpieSite) Capabilities() Capabilities {
-	return Capabilities{Download: true, Search: true, Login: true}
+	return Capabilities{Download: true, Search: false, Login: true}
 }
 
 func (s *NovalpieSite) ResolveURL(rawURL string) (*ResolvedURL, bool) {

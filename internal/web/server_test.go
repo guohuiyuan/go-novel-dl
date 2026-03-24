@@ -242,8 +242,14 @@ func TestSearchTimeoutForSites(t *testing.T) {
 	if got := searchTimeoutForSites([]string{"sfacg", "n17k"}); got != 12*time.Second {
 		t.Fatalf("expected default timeout, got %s", got)
 	}
-	if got := searchTimeoutForSites([]string{"sfacg", "esjzone"}); got != 35*time.Second {
+	if got := searchTimeoutForSites([]string{"sfacg", "esjzone"}); got != 50*time.Second {
 		t.Fatalf("expected esjzone timeout, got %s", got)
+	}
+	if got := searchTimeoutForSites([]string{"biquge5", "piaotia"}); got != 45*time.Second {
+		t.Fatalf("expected slow-site timeout, got %s", got)
+	}
+	if got := searchTimeoutForSites([]string{"linovelib", "esjzone"}); got != 3*time.Minute {
+		t.Fatalf("expected max timeout, got %s", got)
 	}
 	if got := searchTimeoutForSites([]string{"linovelib"}); got != 3*time.Minute {
 		t.Fatalf("expected linovelib timeout, got %s", got)

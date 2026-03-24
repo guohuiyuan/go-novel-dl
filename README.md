@@ -188,7 +188,7 @@ go run ./cmd/novel-dl --help
 | `n17k` | 是 | 是 | 否 |
 | `n23qb` | 是 | 是 | 否 |
 | `n69shuba` | 是 | 否 | 否 |
-| `novalpie` | 是 | 是 | 是 |
+| `novalpie` | 是 | 否 | 是 |
 | `piaotia` | 是 | 是 | 否 |
 | `qbtr` | 是 | 是 | 否 |
 | `ruochu` | 是 | 是 | 否 |
@@ -200,15 +200,15 @@ go run ./cmd/novel-dl --help
 
 ### 当前可搜索且可下载的源
 
-共 18 个：
+共 17 个：
 
-`biquge345`、`biquge5`、`ciweimao`、`ciyuanji`、`esjzone`、`faloo`、`fsshu`、`ixdzs8`、`linovelib`、`n17k`、`n23qb`、`novalpie`、`piaotia`、`qbtr`、`ruochu`、`sfacg`、`westnovel`、`yodu`
+`biquge345`、`biquge5`、`ciweimao`、`ciyuanji`、`esjzone`、`faloo`、`fsshu`、`ixdzs8`、`linovelib`、`n17k`、`n23qb`、`piaotia`、`qbtr`、`ruochu`、`sfacg`、`westnovel`、`yodu`
 
 ### 当前仅下载、不支持搜索的源
 
-共 5 个：
+共 6 个：
 
-`fanqienovel`、`hongxiuzhao`、`n69shuba`、`wenku8`、`yibige`
+`fanqienovel`、`hongxiuzhao`、`n69shuba`、`novalpie`、`wenku8`、`yibige`
 
 ### Web 默认搜索源
 
@@ -298,4 +298,4 @@ go build ./...
 
 - 站点能力矩阵来自当前代码里的 `Capabilities()`，不是实时联网健康检查结论。
 - 某些站点会受到 Cloudflare、限流、登录态或反爬策略影响，真实可用性会波动。
-- `esjzone` 和 `novalpie` 当前带有登录能力标记；如果要稳定使用，建议先正确配置站点登录信息。
+- `esjzone` 和 `novalpie` 当前带有登录能力标记；其中 `novalpie` 已保留为“可下载但不可搜索”。

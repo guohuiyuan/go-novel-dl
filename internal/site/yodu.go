@@ -28,16 +28,14 @@ type YoduSite struct {
 }
 
 func NewYoduSite(cfg config.ResolvedSiteConfig) *YoduSite {
-	timeout := 15 * time.Second
+	timeout := 45 * time.Second
 	if cfg.General.Timeout > 0 {
 		timeout = time.Duration(cfg.General.Timeout * float64(time.Second))
 	}
-	client := &http.Client{
-		Timeout: timeout,
-		Transport: &http.Transport{
-			ForceAttemptHTTP2: false,
-		},
-	}
+	client := newSiteHTTPClient(timeout, siteHTTPClientOptions{
+		Direct:       true,
+		DisableHTTP2: true,
+	})
 	return &YoduSite{cfg: cfg, html: NewHTMLSite(client), client: client}
 }
 
@@ -188,28 +186,69 @@ func (s *YoduSite) Search(ctx context.Context, keyword string, limit int) ([]mod
 	if keyword == "" {
 		return nil, nil
 	}
+	if limit <= 0 {
+		limit = 30
+	}
 
-	form := url.Values{}
-	form.Set("searchkey", keyword)
-	form.Set("searchtype", "all")
-	markup, err := postFormHTML(ctx, s.client, "https://www.yodu.org/sa", form, nil)
-	if err != nil {
-		return nil, err
-	}
-	results, err := parseYoduSearchResults(markup)
-	if err != nil {
-		return nil, err
-	}
-	if limit > 0 && len(results) > limit {
-		results = results[:limit]
+	results := make([]model.SearchResult, 0, limit)
+	seen := make(map[string]struct{}, limit)
+	headers := map[string]string{"Referer": "https://www.yodu.org/sa"}
+	for page := 1; len(results) < limit; page++ {
+		pageURL := yoduSearchPageURL(keyword, page)
+		var (
+			markup string
+			err    error
+		)
+		for attempt := 0; attempt < 4; attempt++ {
+			markup, err = s.html.GetWithHeaders(ctx, pageURL, headers)
+			if err == nil {
+				break
+			}
+			if !shouldRetrySiteRequest(err) || ctx.Err() != nil || attempt == 3 {
+				return nil, err
+			}
+			if err := sleepWithContext(ctx, siteRetryDelay(attempt)); err != nil {
+				return nil, err
+			}
+		}
+		pageResults, hasNext, err := parseYoduSearchResults(markup)
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range pageResults {
+			if item.BookID == "" {
+				continue
+			}
+			if _, ok := seen[item.BookID]; ok {
+				continue
+			}
+			seen[item.BookID] = struct{}{}
+			results = append(results, item)
+			if len(results) >= limit {
+				break
+			}
+		}
+		if !hasNext || len(results) >= limit {
+			break
+		}
 	}
 	return results, nil
 }
 
-func parseYoduSearchResults(markup string) ([]model.SearchResult, error) {
+func yoduSearchPageURL(keyword string, page int) string {
+	if page <= 1 {
+		values := url.Values{}
+		values.Set("searchkey", keyword)
+		values.Set("searchtype", "all")
+		return "https://www.yodu.org/sa?" + values.Encode()
+	}
+	return fmt.Sprintf("https://www.yodu.org/sa/all-%s-%d.html", url.PathEscape(keyword), page)
+}
+
+func parseYoduSearchResults(markup string) ([]model.SearchResult, bool, error) {
 	doc, err := parseHTML(markup)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	results := make([]model.SearchResult, 0)
@@ -247,7 +286,10 @@ func parseYoduSearchResults(markup string) ([]model.SearchResult, error) {
 			})
 		}
 	}
-	return results, nil
+	hasNext := findFirst(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "a" && hasClass(n, "next")
+	}) != nil
+	return results, hasNext, nil
 }
 
 func normalizeYoduSearchURL(raw string) (*ResolvedURL, bool) {

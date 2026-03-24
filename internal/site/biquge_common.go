@@ -32,7 +32,7 @@ func NewBiqugePagedSite(key, displayName, baseURL, bookPrefix string, cfg config
 			timeout = base
 		}
 	}
-	client := &http.Client{Timeout: timeout}
+	client := newSiteHTTPClient(timeout, siteHTTPClientOptions{Direct: true})
 	return &BiqugePagedSite{key: key, displayName: displayName, baseURL: baseURL, bookPrefix: strings.Trim(bookPrefix, "/"), cfg: cfg, html: NewHTMLSite(client), client: client}
 }
 
@@ -210,14 +210,23 @@ func (s *BiqugePagedSite) FetchChapter(ctx context.Context, bookID string, chapt
 }
 
 func (s *BiqugePagedSite) getWithRetry(ctx context.Context, rawURL string) (string, error) {
+	return s.getWithRetryHeaders(ctx, rawURL, nil)
+}
+
+func (s *BiqugePagedSite) getWithRetryHeaders(ctx context.Context, rawURL string, headers map[string]string) (string, error) {
 	var lastErr error
 	for attempt := 0; attempt < 4; attempt++ {
-		markup, err := s.html.Get(ctx, rawURL)
+		markup, err := s.html.GetWithHeaders(ctx, rawURL, headers)
 		if err == nil {
 			return markup, nil
 		}
 		lastErr = err
-		time.Sleep(time.Duration(attempt+1) * time.Second)
+		if !shouldRetrySiteRequest(err) || ctx.Err() != nil || attempt == 3 {
+			return "", err
+		}
+		if err := sleepWithContext(ctx, siteRetryDelay(attempt)); err != nil {
+			return "", err
+		}
 	}
 	return "", lastErr
 }
@@ -228,7 +237,9 @@ func (s *BiqugePagedSite) Search(ctx context.Context, keyword string, limit int)
 		return nil, nil
 	}
 
-	markup, err := s.getWithRetry(ctx, fmt.Sprintf("%s/search.php?q=%s&p=1", s.baseURL, url.QueryEscape(keyword)))
+	markup, err := s.getWithRetryHeaders(ctx, fmt.Sprintf("%s/search.php?q=%s&p=1", s.baseURL, url.QueryEscape(keyword)), map[string]string{
+		"Referer": strings.TrimRight(s.baseURL, "/") + "/",
+	})
 	if err != nil {
 		return nil, err
 	}

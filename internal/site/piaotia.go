@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"regexp"
 	"strings"
@@ -28,11 +29,15 @@ type PiaotiaSite struct {
 }
 
 func NewPiaotiaSite(cfg config.ResolvedSiteConfig) *PiaotiaSite {
-	timeout := 15 * time.Second
+	timeout := 45 * time.Second
 	if cfg.General.Timeout > 0 {
 		timeout = time.Duration(cfg.General.Timeout * float64(time.Second))
 	}
-	client := &http.Client{Timeout: timeout}
+	jar, _ := cookiejar.New(nil)
+	client := newSiteHTTPClient(timeout, siteHTTPClientOptions{
+		Jar:    jar,
+		Direct: true,
+	})
 	return &PiaotiaSite{cfg: cfg, html: NewHTMLSite(client), client: client}
 }
 
@@ -171,20 +176,23 @@ func (s *PiaotiaSite) FetchChapter(ctx context.Context, bookID string, chapter m
 }
 
 func (s *PiaotiaSite) getWithRetry(ctx context.Context, rawURL string) (string, error) {
+	return s.getWithRetryHeaders(ctx, rawURL, nil)
+}
+
+func (s *PiaotiaSite) getWithRetryHeaders(ctx context.Context, rawURL string, headers map[string]string) (string, error) {
 	var lastErr error
 	for attempt := 0; attempt < 4; attempt++ {
-		markup, err := s.html.Get(ctx, rawURL)
+		markup, err := s.html.GetWithHeaders(ctx, rawURL, headers)
 		if err == nil {
-			if attempt > 0 {
-				time.Sleep(300 * time.Millisecond)
-			}
 			return markup, nil
 		}
 		lastErr = err
-		if !strings.Contains(err.Error(), "http 429") {
+		if !shouldRetrySiteRequest(err) || ctx.Err() != nil || attempt == 3 {
 			return "", err
 		}
-		time.Sleep(time.Duration(attempt+1) * time.Second)
+		if err := sleepWithContext(ctx, siteRetryDelay(attempt)); err != nil {
+			return "", err
+		}
 	}
 	return "", lastErr
 }
@@ -206,7 +214,7 @@ func (s *PiaotiaSite) Search(ctx context.Context, keyword string, limit int) ([]
 	results := make([]model.SearchResult, 0, limit)
 	seen := make(map[string]struct{}, limit)
 	for page := 1; len(results) < limit; page++ {
-		markup, err := s.getWithRetry(ctx, piaotiaSearchURL(encodedKeyword, page))
+		markup, err := s.searchPage(ctx, encodedKeyword, page)
 		if err != nil {
 			return nil, err
 		}
@@ -238,6 +246,35 @@ func (s *PiaotiaSite) Search(ctx context.Context, keyword string, limit int) ([]
 
 	enrichSearchResultsParallel(ctx, results, len(results), s.populateSearchDetail)
 	return results, nil
+}
+
+func (s *PiaotiaSite) searchPage(ctx context.Context, encodedKeyword string, page int) (string, error) {
+	headers := map[string]string{
+		"Referer": "https://www.piaotia.com/",
+	}
+	if page <= 1 {
+		return s.postSearchPage(ctx, encodedKeyword, headers)
+	}
+	return s.getWithRetryHeaders(ctx, piaotiaSearchURL(encodedKeyword, page), headers)
+}
+
+func (s *PiaotiaSite) postSearchPage(ctx context.Context, encodedKeyword string, headers map[string]string) (string, error) {
+	body := fmt.Sprintf("searchtype=articlename&searchkey=%s", encodedKeyword)
+	var lastErr error
+	for attempt := 0; attempt < 4; attempt++ {
+		markup, err := postEncodedFormHTML(ctx, s.client, "https://www.piaotia.com/modules/article/search.php", body, headers)
+		if err == nil {
+			return markup, nil
+		}
+		lastErr = err
+		if !shouldRetrySiteRequest(err) || ctx.Err() != nil || attempt == 3 {
+			return "", err
+		}
+		if err := sleepWithContext(ctx, siteRetryDelay(attempt)); err != nil {
+			return "", err
+		}
+	}
+	return "", lastErr
 }
 
 func piaotiaEncodeKeyword(keyword string) (string, error) {

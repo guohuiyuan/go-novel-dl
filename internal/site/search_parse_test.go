@@ -87,10 +87,13 @@ func TestParseN23QBSearchResults(t *testing.T) {
 }
 
 func TestParseYoduSearchResults(t *testing.T) {
-	markup := `<html><body><ul class="ser-ret lh1d5"><li class="pr pb20 mb20"><a href="/book/19106/?for-search" class="g_thumb"><img _src="https://www.yodu.org/files/article/image/19/19106/19106s.jpg"></a><h3><a href="/book/19106/?for-search" class="c_strong">Example Yodu</a></h3><em><span>Fantasy</span><span>Author Name</span><span>tag1 tag2</span></em><p class="g_ells">Example description</p><p><span>Latest chapter: <a href="/book/19106/4755334.html">Ending</a></span></p></li></ul></body></html>`
-	results, err := parseYoduSearchResults(markup)
+	markup := `<html><body><ul class="ser-ret lh1d5"><li class="pr pb20 mb20"><a href="/book/19106/?for-search" class="g_thumb"><img _src="https://www.yodu.org/files/article/image/19/19106/19106s.jpg"></a><h3><a href="/book/19106/?for-search" class="c_strong">Example Yodu</a></h3><em><span>Fantasy</span><span>Author Name</span><span>tag1 tag2</span></em><p class="g_ells">Example description</p><p><span>Latest chapter: <a href="/book/19106/4755334.html">Ending</a></span></p></li></ul><div class="pages"><a href="/sa/all-example-2.html" class="next">下一页</a></div></body></html>`
+	results, hasNext, err := parseYoduSearchResults(markup)
 	if err != nil {
 		t.Fatalf("parse yodu results: %v", err)
+	}
+	if !hasNext {
+		t.Fatalf("expected yodu hasNext to be true")
 	}
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))

@@ -48,13 +48,13 @@ type esjCookie struct {
 }
 
 func NewESJZoneSite(cfg config.ResolvedSiteConfig) *ESJZoneSite {
-	timeout := 30 * time.Second
+	timeout := 50 * time.Second
 	if cfg.General.Timeout > 0 {
 		timeout = time.Duration(cfg.General.Timeout * float64(time.Second))
 	}
 
-	bookAliases := []string{"https://www.esjzone.cc", "https://esjzone.cc", "https://www.esjzone.me", "https://esjzone.me"}
-	searchAliases := []string{"https://www.esjzone.cc", "https://esjzone.cc"}
+	bookAliases := []string{"https://www.esjzone.cc", "https://www.esjzone.me"}
+	searchAliases := []string{"https://www.esjzone.cc", "https://www.esjzone.me"}
 	for _, mirror := range cfg.MirrorHosts {
 		mirror = strings.TrimSpace(strings.TrimRight(mirror, "/"))
 		if mirror == "" {
@@ -64,7 +64,10 @@ func NewESJZoneSite(cfg config.ResolvedSiteConfig) *ESJZoneSite {
 	}
 	jar, _ := cookiejar.New(nil)
 	cookieFile := filepath.Join(cfg.General.CacheDir, "esjzone", "esjzone.cookies.json")
-	httpClient := &http.Client{Timeout: timeout, Jar: jar}
+	httpClient := newSiteHTTPClient(timeout, siteHTTPClientOptions{
+		Jar:    jar,
+		Direct: true,
+	})
 	site := &ESJZoneSite{
 		cfg:           cfg,
 		html:          NewHTMLSite(httpClient),

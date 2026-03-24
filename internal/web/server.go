@@ -410,13 +410,23 @@ func maxInt(left, right int) int {
 }
 
 func searchTimeoutForSites(sites []string) time.Duration {
+	timeout := 12 * time.Second
 	for _, site := range sites {
 		switch strings.ToLower(strings.TrimSpace(site)) {
 		case "esjzone":
-			return 35 * time.Second
+			timeout = maxDuration(timeout, 50*time.Second)
+		case "biquge345", "biquge5", "fsshu", "piaotia", "yodu":
+			timeout = maxDuration(timeout, 45*time.Second)
 		case "linovelib":
-			return 3 * time.Minute
+			timeout = maxDuration(timeout, 3*time.Minute)
 		}
 	}
-	return 12 * time.Second
+	return timeout
+}
+
+func maxDuration(left, right time.Duration) time.Duration {
+	if left > right {
+		return left
+	}
+	return right
 }
