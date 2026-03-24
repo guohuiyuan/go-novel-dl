@@ -91,8 +91,8 @@ func newService(configPath string) (*Service, error) {
 	runtime := app.NewRuntime(cfg, console)
 	runtime.Progress = progress.NullReporter{}
 
-	defaultSources := runtime.Registry.SiteDescriptors(runtime.DefaultDownloadSites())
-	allSources := runtime.Registry.SiteDescriptors(runtime.AllDownloadSites())
+	defaultSources := searchableDownloadDescriptors(runtime.Registry.SiteDescriptors(runtime.DefaultSearchSites()))
+	allSources := searchableDownloadDescriptors(runtime.Registry.SiteDescriptors(runtime.AllSearchSites()))
 
 	return &Service{
 		Config:         cfg,
@@ -154,12 +154,24 @@ func newRouter(service *Service) *gin.Engine {
 		}
 
 		sites := normalizeSites(req.Sites)
+		allowedSites := descriptorKeySet(service.AllSources)
+		if len(sites) > 0 {
+			sites = filterAllowedSites(sites, allowedSites)
+			if len(sites) == 0 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "selected sites must support both search and download"})
+				return
+			}
+		}
 		if len(sites) == 0 {
 			if strings.EqualFold(strings.TrimSpace(req.Scope), "all") {
-				sites = service.Runtime.AllDownloadSites()
+				sites = descriptorKeys(service.AllSources)
 			} else {
-				sites = service.Runtime.DefaultDownloadSites()
+				sites = descriptorKeys(service.DefaultSources)
 			}
+		}
+		if len(sites) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "no searchable download sources available"})
+			return
 		}
 		page := clampPositive(req.Page, 1)
 		pageSize := clampPositive(req.PageSize, 12)
@@ -300,6 +312,56 @@ func normalizeSites(items []string) []string {
 		sites = append(sites, item)
 	}
 	return sites
+}
+
+func searchableDownloadDescriptors(items []site.SiteDescriptor) []site.SiteDescriptor {
+	if len(items) == 0 {
+		return nil
+	}
+
+	filtered := make([]site.SiteDescriptor, 0, len(items))
+	for _, item := range items {
+		if !item.Capabilities.Search || !item.Capabilities.Download {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	return filtered
+}
+
+func descriptorKeys(items []site.SiteDescriptor) []string {
+	if len(items) == 0 {
+		return nil
+	}
+
+	keys := make([]string, 0, len(items))
+	for _, item := range items {
+		keys = append(keys, item.Key)
+	}
+	return keys
+}
+
+func descriptorKeySet(items []site.SiteDescriptor) map[string]struct{} {
+	set := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		set[item.Key] = struct{}{}
+	}
+	return set
+}
+
+func filterAllowedSites(items []string, allowed map[string]struct{}) []string {
+	if len(items) == 0 || len(allowed) == 0 {
+		return nil
+	}
+
+	filtered := make([]string, 0, len(items))
+	for _, item := range items {
+		if _, ok := allowed[item]; !ok {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	return filtered
 }
 
 func paginateSearchResponse(response app.HybridSearchResponse, page, pageSize int) paginatedSearchResponse {

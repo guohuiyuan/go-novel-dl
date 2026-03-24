@@ -18,7 +18,7 @@ import (
 	"github.com/guohuiyuan/go-novel-dl/internal/ui"
 )
 
-func TestMetaIncludesAllDownloadSources(t *testing.T) {
+func TestMetaIncludesSearchableDownloadSources(t *testing.T) {
 	service := newTestService()
 	router := newRouter(service)
 
@@ -38,29 +38,26 @@ func TestMetaIncludesAllDownloadSources(t *testing.T) {
 		t.Fatalf("decode meta payload: %v", err)
 	}
 
-	if len(payload.DefaultSources) != 3 {
-		t.Fatalf("expected 3 default download sources, got %d", len(payload.DefaultSources))
+	if len(payload.DefaultSources) != 2 {
+		t.Fatalf("expected 2 default searchable download sources, got %d", len(payload.DefaultSources))
 	}
-	if len(payload.AllSources) != 3 {
-		t.Fatalf("expected 3 all download sources, got %d", len(payload.AllSources))
+	if len(payload.AllSources) != 2 {
+		t.Fatalf("expected 2 all searchable download sources, got %d", len(payload.AllSources))
 	}
 
 	westnovel := findDescriptor(payload.AllSources, "westnovel")
-	if westnovel == nil {
-		t.Fatalf("expected westnovel in all sources")
-	}
-	if westnovel.Capabilities.Search {
-		t.Fatalf("expected westnovel search capability to remain false")
+	if westnovel != nil {
+		t.Fatalf("did not expect westnovel in searchable web sources")
 	}
 }
 
-func TestSearchEndpointPaginatesAndWarnsForUnsupportedSources(t *testing.T) {
+func TestSearchEndpointPaginatesMixedSearchableSources(t *testing.T) {
 	service := newTestService()
 	router := newRouter(service)
 
 	body := strings.NewReader(`{
 		"keyword":"Alpha",
-		"sites":["esjzone","westnovel"],
+		"sites":["esjzone","yodu"],
 		"page":2,
 		"page_size":2
 	}`)
@@ -93,8 +90,29 @@ func TestSearchEndpointPaginatesAndWarnsForUnsupportedSources(t *testing.T) {
 	if payload.Results[0].Primary.BookID != "003" || payload.Results[1].Primary.BookID != "004" {
 		t.Fatalf("unexpected paginated results: %+v", payload.Results)
 	}
-	if len(payload.Warnings) != 1 || payload.Warnings[0].Site != "westnovel" {
-		t.Fatalf("expected unsupported warning for westnovel, got %+v", payload.Warnings)
+	if len(payload.Warnings) != 0 {
+		t.Fatalf("expected no warnings for mixed searchable sources, got %+v", payload.Warnings)
+	}
+}
+
+func TestSearchEndpointRejectsUnsupportedSelectedSources(t *testing.T) {
+	service := newTestService()
+	router := newRouter(service)
+
+	body := strings.NewReader(`{
+		"keyword":"Alpha",
+		"sites":["westnovel"]
+	}`)
+	req := httptest.NewRequest(http.MethodPost, RoutePrefix+"/api/search", body)
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d with body %s", resp.Code, resp.Body.String())
+	}
+	if !strings.Contains(resp.Body.String(), "support both search and download") {
+		t.Fatalf("expected unsupported site error, got %s", resp.Body.String())
 	}
 }
 
@@ -138,6 +156,9 @@ func newTestService() *Service {
 				Download: true,
 				Search:   true,
 			},
+			results: []model.SearchResult{
+				{Site: "yodu", BookID: "101", Title: "Alpha 99", Author: "Author", Description: "Yodu Desc"},
+			},
 		}
 	})
 	runtime.Registry = registry
@@ -145,8 +166,8 @@ func newTestService() *Service {
 	return &Service{
 		Config:         &cfg,
 		Runtime:        runtime,
-		DefaultSources: runtime.Registry.SiteDescriptors(runtime.DefaultDownloadSites()),
-		AllSources:     runtime.Registry.SiteDescriptors(runtime.AllDownloadSites()),
+		DefaultSources: searchableDownloadDescriptors(runtime.Registry.SiteDescriptors(runtime.DefaultSearchSites())),
+		AllSources:     searchableDownloadDescriptors(runtime.Registry.SiteDescriptors(runtime.AllSearchSites())),
 		Tasks:          NewDownloadTaskStore(),
 	}
 }

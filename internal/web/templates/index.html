@@ -11,16 +11,16 @@
     <header class="hero">
       <div class="hero-copy">
         <p class="eyebrow">Novel DL Web</p>
-        <h1>聚合搜索与下载管理</h1>
-        <p class="lead">统一查看所有可下载渠道，按渠道组合搜索小说，翻页浏览结果，并直接发起下载任务。</p>
+        <h1>聚合搜索与下载</h1>
+        <p class="lead">Web 端现在只展示支持搜索且可下载的小说源。你可以按渠道混合搜索、翻页浏览结果，并直接发起下载任务。</p>
       </div>
       <div class="hero-panel">
         <div class="section-head">
-          <h2>默认渠道</h2>
+          <h2>默认搜索源</h2>
           <span id="defaultSourceCount" class="count-badge">0</span>
         </div>
         <div class="chip-row" id="defaultSources"></div>
-        <p class="panel-note">“推荐渠道”展示默认可用下载源，“全部下载源”展示当前内置的全部可下载站点。未实现搜索的站点会保留在列表中，并明确标记状态。</p>
+        <p class="panel-note">“推荐渠道”会展示默认启用的搜索下载源，“全部渠道”会展示当前内置的全部可搜索下载源。结果支持跨渠道混合搜索和聚合排序。</p>
       </div>
     </header>
 
@@ -28,7 +28,7 @@
       <form id="searchForm" class="search-form">
         <label class="search-field">
           <span class="field-label">关键词</span>
-          <input id="keyword" class="search-input" type="text" placeholder="输入书名、作者或关键字" autocomplete="off">
+          <input id="keyword" class="search-input" type="text" placeholder="输入书名、作者或关键词" autocomplete="off">
         </label>
         <button class="search-button" type="submit">搜索</button>
       </form>
@@ -36,12 +36,12 @@
       <div class="search-toolbar">
         <div class="scope-switch">
           <button type="button" class="scope-pill is-active" data-scope="default">推荐渠道</button>
-          <button type="button" class="scope-pill" data-scope="all">全部下载源</button>
+          <button type="button" class="scope-pill" data-scope="all">全部渠道</button>
         </div>
         <div class="tool-row">
-          <button type="button" id="selectSearchableSources" class="tool-button">仅选可搜索</button>
-          <button type="button" id="selectAllSources" class="tool-button">全选</button>
-          <button type="button" id="clearSources" class="tool-button">清空</button>
+          <button type="button" id="selectSearchableSources" class="tool-button">恢复默认勾选</button>
+          <button type="button" id="selectAllSources" class="tool-button">全选当前范围</button>
+          <button type="button" id="clearSources" class="tool-button">清空选择</button>
         </div>
       </div>
 
@@ -49,7 +49,7 @@
         <div class="section-head">
           <div>
             <h2>渠道选择</h2>
-            <p id="sourceSummary" class="panel-note">从渠道列表中选择要参与搜索的站点。</p>
+            <p id="sourceSummary" class="panel-note">从渠道列表中勾选要参与搜索的站点。</p>
           </div>
           <span id="selectedCount" class="count-badge">0</span>
         </div>

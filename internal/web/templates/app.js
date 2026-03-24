@@ -59,9 +59,9 @@ document.querySelectorAll(".scope-pill").forEach((button) => {
 });
 
 selectSearchableSourcesButton.addEventListener("click", () => {
-  appState.selectedSites = new Set(defaultSelectedSites(currentScopeSources()));
+  appState.selectedSites = new Set(defaultSelectedSites(defaultSources));
   renderSourceSelector();
-  setStatus(`已选择 ${appState.selectedSites.size} 个可搜索渠道。`);
+  setStatus(`已恢复默认勾选，共 ${appState.selectedSites.size} 个渠道。`);
 });
 
 selectAllSourcesButton.addEventListener("click", () => {
