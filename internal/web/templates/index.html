@@ -10,86 +10,93 @@
 <body>
   <div class="page-shell">
     <header class="hero">
-      <div class="hero-copy">
+      <div class="hero-copy panel-card">
         <p class="eyebrow">Novel DL Web</p>
         <h1>聚合搜索与下载</h1>
-        <p class="lead">Web 端现在只展示支持搜索且可下载的小说源。你可以按渠道混合搜索、翻页浏览结果，并直接发起下载任务。</p>
-      </div>
-      <div class="hero-panel">
-        <div class="section-head">
-          <h2>推荐搜索源</h2>
-          <span id="defaultSourceCount" class="count-badge">0</span>
-        </div>
-        <div class="chip-row" id="defaultSources"></div>
-        <p class="panel-note">面板中展示了当前内置的全部渠道，系统已为你默认勾选了推荐渠道。结果支持跨渠道混合搜索和聚合排序。</p>
+        <p class="lead">勾选多个渠道混合搜索，先看简介和封面，再决定要不要下载。</p>
       </div>
     </header>
 
-    <section class="search-panel">
-      <form id="searchForm" class="search-form">
-        <label class="search-field">
-          <span class="field-label">关键词</span>
-          <input id="keyword" class="search-input" type="text" placeholder="输入书名、作者或关键词" autocomplete="off">
-        </label>
-        <button class="search-button" type="submit">搜索</button>
-      </form>
+    <nav class="tab-bar" aria-label="主视图">
+      <button type="button" id="searchTabButton" class="tab-button is-active" data-tab="search">
+        搜索
+      </button>
+      <button type="button" id="tasksTabButton" class="tab-button" data-tab="tasks">
+        下载任务
+        <span id="taskTabCount" class="tab-count">0</span>
+      </button>
+    </nav>
 
-      <div class="search-toolbar">
-        <div class="tool-row">
-          <button type="button" id="selectSearchableSources" class="tool-button">恢复默认勾选</button>
-          <button type="button" id="selectAllSources" class="tool-button">全选所有渠道</button>
-          <button type="button" id="clearSources" class="tool-button">清空选择</button>
-        </div>
-      </div>
+    <section id="searchTabPanel" class="tab-panel is-active">
+      <div class="search-layout">
+        <section class="panel-card control-panel">
+          <form id="searchForm" class="search-form">
+            <label class="search-field" for="keyword">
+              <span class="field-label">关键词</span>
+              <input id="keyword" class="search-input" type="text" placeholder="输入书名、作者或关键词" autocomplete="off">
+            </label>
+            <button class="search-button" type="submit">开始搜索</button>
+          </form>
 
-      <div class="source-tools">
-        <div class="section-head">
-          <div>
-            <h2>渠道选择</h2>
-            <p id="sourceSummary" class="panel-note">从渠道列表中勾选要参与搜索的站点。</p>
+          <div class="selection-toolbar">
+            <button type="button" id="selectSearchableSources" class="tool-button is-soft">恢复默认</button>
+            <button type="button" id="selectAllSources" class="tool-button">全选全部</button>
+            <button type="button" id="clearSources" class="tool-button is-ghost">清空</button>
           </div>
-          <span id="selectedCount" class="count-badge">0</span>
-        </div>
-        <div id="sourceSelector" class="source-selector"></div>
-      </div>
 
-      <div class="feedback-grid">
-        <div id="status" class="status-card">选择渠道后输入关键词开始搜索。</div>
-        <div id="warnings" class="warning-list"></div>
+          <div class="panel-header">
+            <div>
+              <h2>渠道</h2>
+              <p id="sourceSummary" class="panel-hint">从下方勾选要参与搜索的渠道。</p>
+            </div>
+          </div>
+
+          <div id="sourceSelector" class="source-selector"></div>
+        </section>
+
+        <section class="panel-card results-panel">
+          <div class="feedback-stack">
+            <div id="status" class="status-card">选择渠道后输入关键词开始搜索。</div>
+            <div id="warnings" class="warning-list"></div>
+          </div>
+
+          <div class="results-head">
+            <div>
+              <h2>搜索结果</h2>
+              <p id="resultMeta" class="panel-hint">输入关键词后开始搜索。</p>
+            </div>
+            <div class="results-tools">
+              <span id="resultCount" class="count-badge">0</span>
+              <div class="pagination">
+                <button type="button" id="prevPage" class="page-button">上一页</button>
+                <span id="pageIndicator" class="page-indicator">第 1 页</span>
+                <button type="button" id="nextPage" class="page-button">下一页</button>
+              </div>
+            </div>
+          </div>
+
+          <div id="results" class="results-grid">
+            <div class="empty-state">输入关键词后开始搜索。</div>
+          </div>
+        </section>
       </div>
     </section>
 
-    <main class="workspace">
-      <section class="results-panel">
-        <div class="results-head">
+    <section id="tasksTabPanel" class="tab-panel">
+      <section class="panel-card tasks-panel">
+        <div class="panel-header">
           <div>
-            <h2>搜索结果</h2>
-            <p id="resultMeta" class="panel-note">输入关键词后开始搜索。</p>
+            <h2>下载任务</h2>
+            <p class="panel-hint">这里会展示当前会话创建的下载任务与导出结果。</p>
           </div>
-          <div class="results-tools">
-            <span id="resultCount" class="count-badge">0</span>
-            <div class="pagination">
-              <button type="button" id="prevPage" class="tool-button">上一页</button>
-              <span id="pageIndicator" class="page-indicator">第 1 页</span>
-              <button type="button" id="nextPage" class="tool-button">下一页</button>
-            </div>
-          </div>
-        </div>
-        <div id="results" class="results-grid">
-          <div class="empty-state">输入关键词后开始搜索。</div>
-        </div>
-      </section>
-
-      <aside class="tasks-panel">
-        <div class="section-head">
-          <h2>下载任务</h2>
           <span id="taskCount" class="count-badge">0</span>
         </div>
+
         <div id="tasks" class="task-list">
           <div class="empty-state empty-state-compact">还没有下载任务。</div>
         </div>
-      </aside>
-    </main>
+      </section>
+    </section>
   </div>
 
   <script>
