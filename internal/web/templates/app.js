@@ -203,7 +203,7 @@ function renderSourceSelector() {
       tags.appendChild(sourceTag("需登录"));
     }
     if (!tags.childElementCount) {
-      tags.appendChild(sourceTag("可混搜"));
+      tags.appendChild(sourceTag("可搜索"));
     }
 
     const marker = document.createElement("span");
@@ -217,7 +217,7 @@ function renderSourceSelector() {
     sourceSelectorNode.appendChild(button);
   });
 
-  sourceSummaryNode.textContent = `已勾选 ${appState.selectedSites.size} / ${allSources.length} 个渠道，可混合搜索。恢复默认会回到推荐渠道。`;
+  sourceSummaryNode.textContent = `已勾选 ${appState.selectedSites.size} / ${allSources.length} 个渠道，搜索时会并发请求这些站点。恢复默认会回到推荐渠道。`;
 }
 
 function sourceTag(text) {
