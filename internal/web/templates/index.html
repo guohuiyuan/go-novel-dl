@@ -17,11 +17,11 @@
       </div>
       <div class="hero-panel">
         <div class="section-head">
-          <h2>默认搜索源</h2>
+          <h2>推荐搜索源</h2>
           <span id="defaultSourceCount" class="count-badge">0</span>
         </div>
         <div class="chip-row" id="defaultSources"></div>
-        <p class="panel-note">“推荐渠道”会展示默认启用的搜索下载源，“全部渠道”会展示当前内置的全部可搜索下载源。结果支持跨渠道混合搜索和聚合排序。</p>
+        <p class="panel-note">面板中展示了当前内置的全部渠道，系统已为你默认勾选了推荐渠道。结果支持跨渠道混合搜索和聚合排序。</p>
       </div>
     </header>
 
@@ -35,13 +35,9 @@
       </form>
 
       <div class="search-toolbar">
-        <div class="scope-switch">
-          <button type="button" class="scope-pill is-active" data-scope="default">推荐渠道</button>
-          <button type="button" class="scope-pill" data-scope="all">全部渠道</button>
-        </div>
         <div class="tool-row">
           <button type="button" id="selectSearchableSources" class="tool-button">恢复默认勾选</button>
-          <button type="button" id="selectAllSources" class="tool-button">全选当前范围</button>
+          <button type="button" id="selectAllSources" class="tool-button">全选所有渠道</button>
           <button type="button" id="clearSources" class="tool-button">清空选择</button>
         </div>
       </div>

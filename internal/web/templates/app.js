@@ -2,8 +2,11 @@ const root = window.__NOVEL_DL__.root;
 const defaultSources = window.__NOVEL_DL__.defaultSources || [];
 const allSources = window.__NOVEL_DL__.allSources || [];
 
+// 🔥 修复：直接提取 defaultSources 里的所有 key 作为默认选中集合
+// 因为后端传过来的 defaultSources 已经是过滤过、推荐可用的源了
+const initialSelectedSites = defaultSources.map(source => source.key);
+
 const appState = {
-  scope: "default",
   page: 1,
   pageSize: 12,
   lastKeyword: "",
@@ -12,7 +15,7 @@ const appState = {
   totalExact: true,
   hasPrev: false,
   hasNext: false,
-  selectedSites: new Set(defaultSelectedSites(defaultSources)),
+  selectedSites: new Set(initialSelectedSites),
   tasks: new Map(),
   pollers: new Map(),
 };
@@ -45,36 +48,26 @@ renderPaging();
 defaultSourceCountNode.textContent = String(defaultSources.length);
 setStatus("选择渠道后输入关键词开始搜索。");
 
-document.querySelectorAll(".scope-pill").forEach((button) => {
-  button.addEventListener("click", () => {
-    appState.scope = button.dataset.scope || "default";
-    appState.selectedSites = new Set(defaultSelectedSites(currentScopeSources()));
-    document.querySelectorAll(".scope-pill").forEach((node) => {
-      node.classList.toggle("is-active", node === button);
-    });
-    renderSourceSelector();
-    renderWarnings([]);
-    setStatus(appState.scope === "all" ? "当前范围：全部下载源" : "当前范围：推荐渠道");
-  });
-});
-
+// 恢复默认勾选
 selectSearchableSourcesButton.addEventListener("click", () => {
-  appState.selectedSites = new Set(defaultSelectedSites(defaultSources));
+  appState.selectedSites = new Set(defaultSources.map(source => source.key));
   renderSourceSelector();
-  setStatus(`已恢复默认勾选，共 ${appState.selectedSites.size} 个渠道。`);
+  setStatus(`已恢复默认勾选，共 ${appState.selectedSites.size} 个推荐渠道。`);
 });
 
+// 全选所有渠道
 selectAllSourcesButton.addEventListener("click", () => {
-  appState.selectedSites = new Set(currentScopeSources().map((source) => source.key));
+  appState.selectedSites = new Set(allSources.map(source => source.key));
   renderSourceSelector();
   const unsupported = selectedUnsupportedCount();
   if (unsupported > 0) {
-    setStatus(`已选择 ${appState.selectedSites.size} 个渠道，其中 ${unsupported} 个仅支持直链下载。`);
+    setStatus(`已选择所有 ${appState.selectedSites.size} 个渠道，其中 ${unsupported} 个仅支持直链下载。`);
     return;
   }
-  setStatus(`已选择 ${appState.selectedSites.size} 个渠道。`);
+  setStatus(`已选择所有 ${appState.selectedSites.size} 个渠道。`);
 });
 
+// 清空选择
 clearSourcesButton.addEventListener("click", () => {
   appState.selectedSites = new Set();
   renderSourceSelector();
@@ -103,12 +96,6 @@ searchForm.addEventListener("submit", async (event) => {
   await performSearch();
 });
 
-function defaultSelectedSites(sources) {
-  return sources
-    .filter((source) => source.capabilities && source.capabilities.search)
-    .map((source) => source.key);
-}
-
 async function performSearch() {
   const keyword = keywordInput.value.trim();
   if (!keyword) {
@@ -130,7 +117,7 @@ async function performSearch() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         keyword,
-        scope: appState.scope,
+        scope: "all", // 后端逻辑兼容，直接传 all 即可
         sites: Array.from(appState.selectedSites),
         page: appState.page,
         page_size: appState.pageSize,
@@ -171,12 +158,8 @@ async function performSearch() {
   }
 }
 
-function currentScopeSources() {
-  return appState.scope === "all" ? allSources : defaultSources;
-}
-
 function selectedUnsupportedCount() {
-  const byKey = new Map(currentScopeSources().map((source) => [source.key, source]));
+  const byKey = new Map(allSources.map((source) => [source.key, source]));
   let count = 0;
   appState.selectedSites.forEach((siteKey) => {
     const source = byKey.get(siteKey);
@@ -190,7 +173,7 @@ function selectedUnsupportedCount() {
 function renderSourceChips(container, sources) {
   container.innerHTML = "";
   if (!sources.length) {
-    container.innerHTML = '<div class="empty-inline">暂无默认渠道。</div>';
+    container.innerHTML = '<div class="empty-inline">暂无推荐渠道。</div>';
     return;
   }
 
@@ -203,16 +186,19 @@ function renderSourceChips(container, sources) {
 }
 
 function renderSourceSelector() {
-  const sources = currentScopeSources();
+  const sources = allSources;
   sourceSelectorNode.innerHTML = "";
 
   sources.forEach((source) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "source-option";
+    
+    // 如果当前渠道存在于选中集合中，则添加高亮样式
     if (appState.selectedSites.has(source.key)) {
       button.classList.add("is-selected");
     }
+    
     if (!(source.capabilities && source.capabilities.search)) {
       button.classList.add("is-download-only");
     }
@@ -266,9 +252,9 @@ function buildSourceSummary(sources) {
   const searchable = sources.filter((source) => source.capabilities && source.capabilities.search).length;
   const selectedUnsupported = selectedUnsupportedCount();
   if (selectedUnsupported > 0) {
-    return `当前范围共 ${sources.length} 个渠道，其中 ${searchable} 个可搜索；已选择的渠道里有 ${selectedUnsupported} 个仅支持直链下载。`;
+    return `共 ${sources.length} 个渠道，其中 ${searchable} 个可搜索；已选择的渠道里有 ${selectedUnsupported} 个仅支持直链下载。`;
   }
-  return `当前范围共 ${sources.length} 个渠道，其中 ${searchable} 个可搜索。`;
+  return `共 ${sources.length} 个渠道，其中 ${searchable} 个可搜索。`;
 }
 
 function toggleSource(siteKey) {
