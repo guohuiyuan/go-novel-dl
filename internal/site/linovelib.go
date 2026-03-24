@@ -22,6 +22,7 @@ var (
 	linovelibVolRe     = regexp.MustCompile(`/novel/\d+/(vol_\d+)\.html`)
 	linovelibChapterRe = regexp.MustCompile(`^/novel/(\d+)/(\d+)(?:_\d+)?\.html$`)
 	linovelibVersionRe = regexp.MustCompile(`/themes/zhpc/js/pctheme\.js\?([a-zA-Z0-9._-]+)|/scripts/chapterlog\.js\?([a-zA-Z0-9._-]+)`)
+	linovelibStoreRe   = regexp.MustCompile(`_(\d+)_0\.html$`)
 )
 
 //go:embed resources/linovelib.json
@@ -49,7 +50,7 @@ func NewLinovelibSite(cfg config.ResolvedSiteConfig) *LinovelibSite {
 func (s *LinovelibSite) Key() string         { return "linovelib" }
 func (s *LinovelibSite) DisplayName() string { return "Linovelib" }
 func (s *LinovelibSite) Capabilities() Capabilities {
-	return Capabilities{Download: true, Search: false, Login: false}
+	return Capabilities{Download: true, Search: true, Login: false}
 }
 
 func (s *LinovelibSite) ResolveURL(rawURL string) (*ResolvedURL, bool) {
@@ -337,8 +338,206 @@ func chapterlogOrder(n, cid int) []int {
 }
 
 func (s *LinovelibSite) Search(ctx context.Context, keyword string, limit int) ([]model.SearchResult, error) {
-	_ = ctx
-	_ = keyword
-	_ = limit
-	return nil, fmt.Errorf("linovelib search is not implemented yet")
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 30
+	}
+
+	items, err := cachedSearchResults(ctx, s.cfg.General.CacheDir, s.Key(), defaultSearchIndexTTL, s.buildSearchIndex)
+	if err != nil {
+		return nil, err
+	}
+	return searchCachedResults(items, keyword, limit), nil
+}
+
+func (s *LinovelibSite) buildSearchIndex(ctx context.Context) ([]model.SearchResult, error) {
+	firstPage, err := s.getWithRetry(ctx, "https://www.linovelib.com/wenku/")
+	if err != nil {
+		return nil, err
+	}
+
+	pageItems, totalPages, pageTemplate, err := parseLinovelibStorePage(firstPage)
+	if err != nil {
+		return nil, err
+	}
+	if totalPages <= 1 {
+		return dedupeSearchResults(pageItems), nil
+	}
+
+	results := make([]model.SearchResult, 0, totalPages*len(pageItems))
+	results = append(results, pageItems...)
+
+	type pageResult struct {
+		items []model.SearchResult
+		err   error
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	jobs := make(chan int)
+	collected := make(chan pageResult, totalPages-1)
+	workers := 4
+	if workers > totalPages-1 {
+		workers = totalPages - 1
+	}
+	if workers < 1 {
+		workers = 1
+	}
+
+	for worker := 0; worker < workers; worker++ {
+		go func() {
+			for page := range jobs {
+				if ctx.Err() != nil {
+					return
+				}
+				markup, err := s.getWithRetry(ctx, linovelibStorePageURL(pageTemplate, page))
+				if err != nil {
+					collected <- pageResult{err: err}
+					cancel()
+					return
+				}
+				items, _, _, err := parseLinovelibStorePage(markup)
+				if err != nil {
+					collected <- pageResult{err: err}
+					cancel()
+					return
+				}
+				collected <- pageResult{items: items}
+			}
+		}()
+	}
+
+	go func() {
+		defer close(jobs)
+		for page := 2; page <= totalPages; page++ {
+			select {
+			case <-ctx.Done():
+				return
+			case jobs <- page:
+			}
+		}
+	}()
+
+	for page := 2; page <= totalPages; page++ {
+		select {
+		case <-ctx.Done():
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+		case result := <-collected:
+			if result.err != nil {
+				return nil, result.err
+			}
+			results = append(results, result.items...)
+		}
+	}
+
+	return dedupeSearchResults(results), nil
+}
+
+func parseLinovelibStorePage(markup string) ([]model.SearchResult, int, string, error) {
+	doc, err := parseHTML(markup)
+	if err != nil {
+		return nil, 0, "", err
+	}
+
+	results := make([]model.SearchResult, 0)
+	for _, box := range findAll(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "div" && hasClass(n, "bookbox")
+	}) {
+		titleLink := findFirst(box, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "a" && hasAncestorClass(n, "bookname")
+		})
+		match := linovelibBookRe.FindStringSubmatch(normalizeESJPath(attrValue(titleLink, "href")))
+		if len(match) != 2 {
+			continue
+		}
+
+		infoLine := findFirst(box, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "div" && hasClass(n, "bookilnk")
+		})
+		spans := findAll(infoLine, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "span"
+		})
+		author := ""
+		if len(spans) > 0 {
+			author = cleanText(nodeText(spans[0]))
+		}
+
+		coverNode := findFirst(box, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "img" && hasAncestorClass(n, "bookimg")
+		})
+		coverURL := strings.TrimSpace(attrValue(coverNode, "data-original"))
+		if coverURL == "" {
+			coverURL = strings.TrimSpace(attrValue(coverNode, "src"))
+		}
+
+		results = append(results, model.SearchResult{
+			Site:   "linovelib",
+			BookID: match[1],
+			Title:  cleanText(nodeText(titleLink)),
+			Author: author,
+			Description: cleanText(nodeTextPreserveLineBreaks(findFirst(box, func(n *html.Node) bool {
+				return n.Type == html.ElementNode && n.Data == "div" && hasClass(n, "bookintro")
+			}))),
+			URL:      absolutizeURL("https://www.linovelib.com", attrValue(titleLink, "href")),
+			CoverURL: absolutizeURL("https://www.linovelib.com", coverURL),
+		})
+	}
+
+	totalPages, pageTemplate := parseLinovelibStorePagination(doc)
+	return results, totalPages, pageTemplate, nil
+}
+
+func parseLinovelibStorePagination(doc *html.Node) (int, string) {
+	totalPages := 1
+	if stats := cleanText(nodeText(findFirstByID(doc, "pagestats"))); stats != "" {
+		fmt.Sscanf(stats, "%d/%d", new(int), &totalPages)
+	}
+
+	lastPath := strings.TrimSpace(attrValue(findFirst(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "a" && hasClass(n, "last")
+	}), "href"))
+	if lastPath == "" {
+		lastPath = strings.TrimSpace(attrValue(findFirst(doc, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "a" && hasClass(n, "next")
+		}), "href"))
+	}
+	if lastPath == "" {
+		lastPath = "/wenku/lastupdate_0_0_0_0_0_0_0_1_0.html"
+	}
+	if totalPages < 1 {
+		totalPages = linovelibPageNumber(lastPath)
+	}
+	if totalPages < 1 {
+		totalPages = 1
+	}
+	return totalPages, lastPath
+}
+
+func linovelibStorePageURL(path string, page int) string {
+	if page <= 1 {
+		return "https://www.linovelib.com/wenku/"
+	}
+	if strings.TrimSpace(path) == "" {
+		path = "/wenku/lastupdate_0_0_0_0_0_0_0_1_0.html"
+	}
+	if linovelibStoreRe.MatchString(path) {
+		path = linovelibStoreRe.ReplaceAllString(path, fmt.Sprintf("_%d_0.html", page))
+	}
+	return absolutizeURL("https://www.linovelib.com", path)
+}
+
+func linovelibPageNumber(path string) int {
+	matches := linovelibStoreRe.FindStringSubmatch(path)
+	if len(matches) != 2 {
+		return 0
+	}
+	page := 0
+	fmt.Sscanf(matches[1], "%d", &page)
+	return page
 }

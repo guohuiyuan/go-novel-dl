@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/cookiejar"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -48,7 +49,7 @@ func NewCiweimaoSite(cfg config.ResolvedSiteConfig) *CiweimaoSite {
 func (s *CiweimaoSite) Key() string         { return "ciweimao" }
 func (s *CiweimaoSite) DisplayName() string { return "Ciweimao" }
 func (s *CiweimaoSite) Capabilities() Capabilities {
-	return Capabilities{Download: true, Search: false, Login: false}
+	return Capabilities{Download: true, Search: true, Login: false}
 }
 
 func (s *CiweimaoSite) ResolveURL(rawURL string) (*ResolvedURL, bool) {
@@ -189,10 +190,33 @@ func (s *CiweimaoSite) FetchChapter(ctx context.Context, bookID string, chapter 
 }
 
 func (s *CiweimaoSite) Search(ctx context.Context, keyword string, limit int) ([]model.SearchResult, error) {
-	_ = ctx
-	_ = keyword
-	_ = limit
-	return nil, fmt.Errorf("ciweimao search is not implemented yet")
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 30
+	}
+
+	results := make([]model.SearchResult, 0, limit)
+	for page := 1; len(results) < limit; page++ {
+		pageResults, hasNext, err := s.searchPage(ctx, keyword, page)
+		if err != nil {
+			return nil, err
+		}
+		if len(pageResults) == 0 {
+			break
+		}
+		remaining := limit - len(results)
+		if len(pageResults) > remaining {
+			pageResults = pageResults[:remaining]
+		}
+		results = append(results, pageResults...)
+		if !hasNext {
+			break
+		}
+	}
+	return results, nil
 }
 
 type ciweimaoSessionResp struct {
@@ -283,6 +307,82 @@ func (s *CiweimaoSite) fetchCiweimaoDetail(ctx context.Context, chapterID, acces
 		return nil, fmt.Errorf("ciweimao encrypted chapter payload missing")
 	}
 	return &result, nil
+}
+
+func (s *CiweimaoSite) searchPage(ctx context.Context, keyword string, page int) ([]model.SearchResult, bool, error) {
+	if page < 1 {
+		page = 1
+	}
+	markup, err := s.html.Get(ctx, fmt.Sprintf(
+		"https://www.ciweimao.com/get-search-book-list/0-0-0-0-0-0/%s/%d",
+		url.PathEscape(keyword),
+		page,
+	))
+	if err != nil {
+		return nil, false, err
+	}
+	return parseCiweimaoSearchResults(markup)
+}
+
+func parseCiweimaoSearchResults(markup string) ([]model.SearchResult, bool, error) {
+	doc, err := parseHTML(markup)
+	if err != nil {
+		return nil, false, err
+	}
+
+	results := make([]model.SearchResult, 0)
+	for _, item := range findAll(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "li" && strings.TrimSpace(attrValue(n, "data-book-id")) != ""
+	}) {
+		bookID := strings.TrimSpace(attrValue(item, "data-book-id"))
+		if bookID == "" {
+			continue
+		}
+
+		titleLink := findFirst(item, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "a" && hasAncestorClass(n, "tit")
+		})
+		if titleLink == nil {
+			titleLink = findFirst(item, func(n *html.Node) bool {
+				return n.Type == html.ElementNode && n.Data == "a" && hasClass(n, "cover")
+			})
+		}
+
+		var author, latest string
+		for _, p := range findAll(item, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "p"
+		}) {
+			text := cleanText(nodeText(p))
+			switch {
+			case strings.HasPrefix(text, "小说作者："):
+				author = strings.TrimSpace(strings.TrimPrefix(text, "小说作者："))
+			case strings.HasPrefix(text, "最近更新："):
+				text = strings.TrimSpace(strings.TrimPrefix(text, "最近更新："))
+				if idx := strings.Index(text, "/"); idx >= 0 {
+					text = strings.TrimSpace(text[idx+1:])
+				}
+				latest = text
+			}
+		}
+
+		results = append(results, model.SearchResult{
+			Site:          "ciweimao",
+			BookID:        bookID,
+			Title:         fallback(attrValue(titleLink, "title"), cleanText(nodeText(titleLink))),
+			Author:        author,
+			Description:   cleanText(nodeTextPreserveLineBreaks(findFirst(item, func(n *html.Node) bool { return n.Type == html.ElementNode && n.Data == "div" && hasClass(n, "desc") }))),
+			URL:           absolutizeURL("https://www.ciweimao.com", attrValue(titleLink, "href")),
+			LatestChapter: latest,
+			CoverURL: absolutizeURL("https://www.ciweimao.com", attrValue(findFirst(item, func(n *html.Node) bool {
+				return n.Type == html.ElementNode && n.Data == "img" && hasAncestorClass(n, "cover")
+			}), "src")),
+		})
+	}
+
+	hasNext := findFirst(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "a" && strings.EqualFold(strings.TrimSpace(attrValue(n, "rel")), "next")
+	}) != nil
+	return results, hasNext, nil
 }
 
 func decryptCiweimao(content string, keys []string, accessKey string) (string, error) {

@@ -4,8 +4,11 @@ import (
 	"context"
 	"crypto/des"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"sort"
 	"strings"
@@ -45,7 +48,7 @@ func NewCiyuanjiSite(cfg config.ResolvedSiteConfig) *CiyuanjiSite {
 func (s *CiyuanjiSite) Key() string         { return "ciyuanji" }
 func (s *CiyuanjiSite) DisplayName() string { return "Ciyuanji" }
 func (s *CiyuanjiSite) Capabilities() Capabilities {
-	return Capabilities{Download: true, Search: false, Login: false}
+	return Capabilities{Download: true, Search: true, Login: false}
 }
 
 func (s *CiyuanjiSite) ResolveURL(rawURL string) (*ResolvedURL, bool) {
@@ -168,10 +171,67 @@ func (s *CiyuanjiSite) FetchChapter(ctx context.Context, bookID string, chapter 
 }
 
 func (s *CiyuanjiSite) Search(ctx context.Context, keyword string, limit int) ([]model.SearchResult, error) {
-	_ = ctx
-	_ = keyword
-	_ = limit
-	return nil, fmt.Errorf("ciyuanji search is not implemented yet")
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 30
+	}
+
+	markup, err := s.getPage(ctx, ciyuanjiSearchPageURL(keyword), "https://www.ciyuanji.com/")
+	if err != nil {
+		return nil, err
+	}
+
+	pageResults, hasNext, buildID, err := parseCiyuanjiSearchFirstPage(markup)
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]model.SearchResult, 0, limit)
+	seen := make(map[string]struct{}, limit)
+	appendPage := func(items []model.SearchResult) {
+		for _, item := range items {
+			if item.BookID == "" {
+				continue
+			}
+			if _, ok := seen[item.BookID]; ok {
+				continue
+			}
+			seen[item.BookID] = struct{}{}
+			results = append(results, item)
+			if len(results) >= limit {
+				return
+			}
+		}
+	}
+	appendPage(pageResults)
+	if len(results) >= limit || !hasNext || buildID == "" {
+		if len(results) > limit {
+			results = results[:limit]
+		}
+		return results, nil
+	}
+
+	for page := 2; len(results) < limit; page++ {
+		pageResults, totalCount, err := s.searchJSONPage(ctx, buildID, keyword, page)
+		if err != nil {
+			return nil, err
+		}
+		if len(pageResults) == 0 {
+			break
+		}
+		appendPage(pageResults)
+		if page*10 >= totalCount {
+			break
+		}
+	}
+
+	if len(results) > limit {
+		results = results[:limit]
+	}
+	return results, nil
 }
 
 func (s *CiyuanjiSite) getPage(ctx context.Context, rawURL, referer string) (string, error) {
@@ -478,4 +538,147 @@ func sleepContext(ctx context.Context, delay time.Duration) error {
 	case <-timer.C:
 		return nil
 	}
+}
+
+func (s *CiyuanjiSite) searchJSONPage(ctx context.Context, buildID, keyword string, page int) ([]model.SearchResult, int, error) {
+	rawURL := fmt.Sprintf(
+		"https://www.ciyuanji.com/_next/data/%s/library/card/0_0_0_0_1_%d_10.json?search=%s",
+		url.PathEscape(strings.TrimSpace(buildID)),
+		page,
+		url.QueryEscape(keyword),
+	)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	req.Header.Set("User-Agent", defaultBrowserUserAgent)
+	req.Header.Set("Accept", "application/json, text/plain, */*")
+	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+	req.Header.Set("Referer", ciyuanjiSearchPageURL(keyword))
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, 0, fmt.Errorf("ciyuanji search http %d", resp.StatusCode)
+	}
+	return parseCiyuanjiSearchJSONPage(resp.Body)
+}
+
+func ciyuanjiSearchPageURL(keyword string) string {
+	return "https://www.ciyuanji.com/l_c_0_0_0_0_1?search=" + url.QueryEscape(keyword)
+}
+
+func parseCiyuanjiSearchFirstPage(markup string) ([]model.SearchResult, bool, string, error) {
+	doc, err := parseHTML(markup)
+	if err != nil {
+		return nil, false, "", err
+	}
+
+	results := make([]model.SearchResult, 0)
+	seen := map[string]struct{}{}
+	for _, item := range findAll(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "li" && hasClassContains(n, "card_item__")
+	}) {
+		titleLink := findFirst(item, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "a" && ciyuanjiBookRe.MatchString(strings.TrimSpace(attrValue(n, "href")))
+		})
+		if titleLink == nil {
+			continue
+		}
+		match := ciyuanjiBookRe.FindStringSubmatch(strings.TrimSpace(attrValue(titleLink, "href")))
+		if len(match) != 2 {
+			continue
+		}
+		bookID := match[1]
+		if _, ok := seen[bookID]; ok {
+			continue
+		}
+		seen[bookID] = struct{}{}
+
+		authorLine := findFirst(item, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "p" && hasClassContains(n, "BookCard_author__")
+		})
+		chapterLine := findFirst(item, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "p" && hasClassContains(n, "BookCard_chapter__")
+		})
+		latest := cleanText(nodeText(findFirst(chapterLine, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "a"
+		})))
+		latest = strings.TrimSpace(strings.TrimPrefix(latest, "最新："))
+
+		cover := findFirst(item, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "img"
+		})
+		results = append(results, model.SearchResult{
+			Site:   "ciyuanji",
+			BookID: bookID,
+			Title: cleanText(nodeText(findFirst(item, func(n *html.Node) bool {
+				return n.Type == html.ElementNode && n.Data == "p" && hasClassContains(n, "BookCard_title__")
+			}))),
+			Author: cleanText(nodeText(findFirst(authorLine, func(n *html.Node) bool {
+				return n.Type == html.ElementNode && n.Data == "a"
+			}))),
+			Description: cleanText(nodeTextPreserveLineBreaks(findFirst(item, func(n *html.Node) bool {
+				return n.Type == html.ElementNode && n.Data == "p" && hasClassContains(n, "BookCard_desc__")
+			}))),
+			URL:           absolutizeURL("https://www.ciyuanji.com", attrValue(titleLink, "href")),
+			LatestChapter: latest,
+			CoverURL:      absolutizeURL("https://www.ciyuanji.com", fallback(attrValue(cover, "data-src"), attrValue(cover, "src"))),
+		})
+	}
+
+	data, err := extractJSONScript(markup, ciyuanjiNextRe)
+	buildID := ""
+	if err == nil {
+		buildID = stringValue(data["buildId"])
+	}
+
+	hasNext := findFirst(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "a" && strings.EqualFold(strings.TrimSpace(attrValue(n, "aria-label")), "Go to next page")
+	}) != nil
+	return results, hasNext, buildID, nil
+}
+
+func parseCiyuanjiSearchJSONPage(r io.Reader) ([]model.SearchResult, int, error) {
+	var payload map[string]any
+	if err := json.NewDecoder(r).Decode(&payload); err != nil {
+		return nil, 0, err
+	}
+
+	pageProps := mapPath(payload, "pageProps")
+	if pageProps == nil {
+		return nil, 0, fmt.Errorf("ciyuanji search pageProps not found")
+	}
+	listData := mapValue(pageProps["libraryListData"])
+	if listData == nil {
+		return nil, 0, nil
+	}
+
+	totalCount := int(int64Value(listData["totalCount"]))
+	rawList := sliceValue(listData["list"])
+	results := make([]model.SearchResult, 0, len(rawList))
+	for _, item := range rawList {
+		book := mapValue(item)
+		if book == nil {
+			continue
+		}
+		bookID := stringValue(book["bookId"])
+		if bookID == "" {
+			continue
+		}
+		results = append(results, model.SearchResult{
+			Site:          "ciyuanji",
+			BookID:        bookID,
+			Title:         cleanText(stringValue(book["bookName"])),
+			Author:        cleanText(stringValue(book["authorName"])),
+			Description:   cleanText(stringValue(book["notes"])),
+			URL:           fmt.Sprintf("https://www.ciyuanji.com/b_d_%s.html", bookID),
+			LatestChapter: cleanText(stringValue(book["latestChapterName"])),
+			CoverURL:      absolutizeURL("https://www.ciyuanji.com", stringValue(book["imgUrl"])),
+		})
+	}
+	return results, totalCount, nil
 }

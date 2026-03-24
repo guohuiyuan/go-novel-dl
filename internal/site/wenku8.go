@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/net/html"
 
@@ -19,6 +20,7 @@ var (
 	wenku8BookRe    = regexp.MustCompile(`^/book/(\d+)\.htm$`)
 	wenku8CatalogRe = regexp.MustCompile(`^/novel/(\d+)/(\d+)/index\.htm$`)
 	wenku8ChapterRe = regexp.MustCompile(`^/novel/(\d+)/(\d+)/(\d+)\.htm$`)
+	wenku8SitemapRe = regexp.MustCompile(`modules/article/articleinfo\.php\?id=(\d+)`)
 )
 
 const minWenku8RequestInterval = 3 * time.Second
@@ -198,7 +200,7 @@ func (s *Wenku8Site) Search(ctx context.Context, keyword string, limit int) ([]m
 	_ = ctx
 	_ = keyword
 	_ = limit
-	return nil, fmt.Errorf("wenku8 search is not implemented yet")
+	return nil, fmt.Errorf("wenku8 search is blocked by Cloudflare challenge")
 }
 
 func (s *Wenku8Site) getWithRetry(ctx context.Context, rawURL, referer string) (string, error) {
@@ -284,4 +286,258 @@ func compactParagraphs(items []string) []string {
 
 func isWenku8ChallengePage(markup string) bool {
 	return strings.Contains(markup, "Just a moment...") || strings.Contains(markup, "cf-browser-verification") || strings.Contains(markup, "challenge-platform")
+}
+
+func (s *Wenku8Site) buildSearchIndex(ctx context.Context) ([]model.SearchResult, error) {
+	sitemap, err := s.getWithRetry(ctx, "https://www.wenku8.net/sitemap.xml", "https://www.wenku8.net/")
+	if err != nil {
+		return nil, err
+	}
+
+	bookIDs := parseWenku8SitemapBookIDs(sitemap)
+	if len(bookIDs) == 0 {
+		return nil, fmt.Errorf("wenku8 sitemap did not contain any book ids")
+	}
+
+	type pageResult struct {
+		item model.SearchResult
+		err  error
+	}
+
+	jobs := make(chan string)
+	collected := make(chan pageResult, len(bookIDs))
+	workers := s.cfg.General.Workers * 3
+	if workers > len(bookIDs) {
+		workers = len(bookIDs)
+	}
+	if workers > 16 {
+		workers = 16
+	}
+	if workers < 8 {
+		workers = 8
+	}
+	if workers < 1 {
+		workers = 1
+	}
+
+	for worker := 0; worker < workers; worker++ {
+		go func() {
+			for bookID := range jobs {
+				if ctx.Err() != nil {
+					return
+				}
+				markup, err := s.getWithRetry(ctx, fmt.Sprintf("https://www.wenku8.net/book/%s.htm", bookID), "https://www.wenku8.net/")
+				if err != nil {
+					collected <- pageResult{err: err}
+					continue
+				}
+				item, err := parseWenku8BookInfo(markup, bookID)
+				if err != nil {
+					collected <- pageResult{err: err}
+					continue
+				}
+				collected <- pageResult{item: item}
+			}
+		}()
+	}
+
+	go func() {
+		defer close(jobs)
+		for _, bookID := range bookIDs {
+			select {
+			case <-ctx.Done():
+				return
+			case jobs <- bookID:
+			}
+		}
+	}()
+
+	results := make([]model.SearchResult, 0, len(bookIDs))
+	var firstErr error
+	for range bookIDs {
+		select {
+		case <-ctx.Done():
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+		case result := <-collected:
+			if result.err != nil {
+				if firstErr == nil {
+					firstErr = result.err
+				}
+				continue
+			}
+			results = append(results, result.item)
+		}
+	}
+	if len(results) == 0 {
+		if firstErr != nil {
+			return nil, firstErr
+		}
+		return nil, fmt.Errorf("wenku8 search index build returned no items")
+	}
+
+	return dedupeSearchResults(results), nil
+}
+
+func parseWenku8SitemapBookIDs(markup string) []string {
+	matches := wenku8SitemapRe.FindAllStringSubmatch(markup, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(matches))
+	ids := make([]string, 0, len(matches))
+	for _, match := range matches {
+		if len(match) != 2 {
+			continue
+		}
+		bookID := strings.TrimSpace(match[1])
+		if bookID == "" {
+			continue
+		}
+		if _, ok := seen[bookID]; ok {
+			continue
+		}
+		seen[bookID] = struct{}{}
+		ids = append(ids, bookID)
+	}
+	return ids
+}
+
+func parseWenku8BookInfo(markup, bookID string) (model.SearchResult, error) {
+	if isWenku8ChallengePage(markup) {
+		return model.SearchResult{}, fmt.Errorf("wenku8 challenge page returned by Cloudflare")
+	}
+
+	doc, err := parseHTML(markup)
+	if err != nil {
+		return model.SearchResult{}, err
+	}
+
+	title := wenku8BookTitle(doc)
+	if title == "" {
+		return model.SearchResult{}, fmt.Errorf("wenku8 book title not found")
+	}
+
+	return model.SearchResult{
+		Site:          "wenku8",
+		BookID:        bookID,
+		Title:         title,
+		Author:        wenku8BookAuthor(doc),
+		Description:   wenku8BookDescription(doc),
+		URL:           fmt.Sprintf("https://www.wenku8.net/book/%s.htm", bookID),
+		LatestChapter: wenku8BookLatestChapter(doc),
+		CoverURL:      wenku8BookCover(doc),
+	}, nil
+}
+
+func wenku8BookTitle(doc *html.Node) string {
+	for _, td := range findAll(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "td" && attrValue(n, "width") == "90%"
+	}) {
+		if title := cleanText(nodeText(findFirst(td, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "b"
+		}))); title != "" {
+			return title
+		}
+	}
+	title := cleanText(nodeText(findFirst(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "title"
+	})))
+	if idx := strings.Index(title, " - "); idx >= 0 {
+		title = strings.TrimSpace(title[:idx])
+	}
+	return title
+}
+
+func wenku8BookAuthor(doc *html.Node) string {
+	row := wenku8BookMetaRow(doc)
+	if row == nil {
+		return ""
+	}
+	cells := directChildElements(row, "td")
+	if len(cells) < 2 {
+		return ""
+	}
+	return trimLabeledValue(cleanText(nodeText(cells[1])))
+}
+
+func wenku8BookDescription(doc *html.Node) string {
+	cell := wenku8BookDetailCell(doc)
+	if cell == nil {
+		return ""
+	}
+
+	best := ""
+	for _, span := range findAll(cell, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "span"
+	}) {
+		if hasClass(span, "hottext") {
+			continue
+		}
+		if findFirst(span, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "a"
+		}) != nil {
+			continue
+		}
+		text := cleanText(nodeTextPreserveLineBreaks(span))
+		if len([]rune(text)) > len([]rune(best)) {
+			best = text
+		}
+	}
+	return best
+}
+
+func wenku8BookLatestChapter(doc *html.Node) string {
+	cell := wenku8BookDetailCell(doc)
+	if cell == nil {
+		return ""
+	}
+	link := findFirst(cell, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "a" && wenku8ChapterRe.MatchString(normalizeESJPath(attrValue(n, "href")))
+	})
+	return cleanText(nodeText(link))
+}
+
+func wenku8BookCover(doc *html.Node) string {
+	return absolutizeURL("https://www.wenku8.net", attrValue(findFirst(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "img" && strings.Contains(attrValue(n, "src"), "/image/")
+	}), "src"))
+}
+
+func wenku8BookMetaRow(doc *html.Node) *html.Node {
+	for _, tr := range findAll(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "tr"
+	}) {
+		cells := directChildElements(tr, "td")
+		if len(cells) < 4 {
+			continue
+		}
+		if attrValue(cells[0], "width") == "19%" && attrValue(cells[1], "width") == "24%" {
+			return tr
+		}
+	}
+	return nil
+}
+
+func wenku8BookDetailCell(doc *html.Node) *html.Node {
+	return findFirst(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "td" && attrValue(n, "width") == "48%"
+	})
+}
+
+func trimLabeledValue(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if idx := strings.IndexAny(value, "：:"); idx >= 0 {
+		_, size := utf8.DecodeRuneInString(value[idx:])
+		if size <= 0 {
+			size = 1
+		}
+		return strings.TrimSpace(value[idx+size:])
+	}
+	return value
 }
