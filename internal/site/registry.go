@@ -67,18 +67,20 @@ func (r *Registry) Keys() []string {
 
 func NewDefaultRegistry() *Registry {
 	registry := NewRegistry()
-	registry.Register("esjzone", func(cfg config.ResolvedSiteConfig) Site {
-		return NewESJZoneSite(cfg)
-	})
-	registry.Register("westnovel", func(cfg config.ResolvedSiteConfig) Site {
-		return NewWestNovelSite(cfg)
-	})
+	// Disabled: connection issues
+	// registry.Register("esjzone", func(cfg config.ResolvedSiteConfig) Site {
+	// 	return NewESJZoneSite(cfg)
+	// })
+	// registry.Register("westnovel", func(cfg config.ResolvedSiteConfig) Site {
+	// 	return NewWestNovelSite(cfg)
+	// })
 	registry.Register("yibige", func(cfg config.ResolvedSiteConfig) Site {
 		return NewYibigeSite(cfg)
 	})
-	registry.Register("yodu", func(cfg config.ResolvedSiteConfig) Site {
-		return NewYoduSite(cfg)
-	})
+	// Disabled: timeout issues
+	// registry.Register("yodu", func(cfg config.ResolvedSiteConfig) Site {
+	// 	return NewYoduSite(cfg)
+	// })
 	registry.Register("linovelib", func(cfg config.ResolvedSiteConfig) Site {
 		return NewLinovelibSite(cfg)
 	})
@@ -88,21 +90,24 @@ func NewDefaultRegistry() *Registry {
 	registry.Register("biquge345", func(cfg config.ResolvedSiteConfig) Site {
 		return NewBiquge345Site(cfg)
 	})
-	registry.Register("biquge5", func(cfg config.ResolvedSiteConfig) Site {
-		return NewBiqugePagedSite("biquge5", "Biquge5", "https://www.biquge5.com", "", cfg)
-	})
+	// Disabled: HTTP 502 error
+	// registry.Register("biquge5", func(cfg config.ResolvedSiteConfig) Site {
+	// 	return NewBiqugePagedSite("biquge5", "Biquge5", "https://www.biquge5.com", "", cfg)
+	// })
 	registry.Register("fsshu", func(cfg config.ResolvedSiteConfig) Site {
 		return NewBiqugePagedSite("fsshu", "Fsshu", "https://www.fsshu.com", "biquge", cfg)
 	})
 	registry.Register("n69shuba", func(cfg config.ResolvedSiteConfig) Site {
 		return NewN69ShubaSite(cfg)
 	})
-	registry.Register("piaotia", func(cfg config.ResolvedSiteConfig) Site {
-		return NewPiaotiaSite(cfg)
-	})
-	registry.Register("ixdzs8", func(cfg config.ResolvedSiteConfig) Site {
-		return NewIxdzs8Site(cfg)
-	})
+	// Disabled: HTTP 403 error
+	// registry.Register("piaotia", func(cfg config.ResolvedSiteConfig) Site {
+	// 	return NewPiaotiaSite(cfg)
+	// })
+	// Disabled: timeout issues
+	// registry.Register("ixdzs8", func(cfg config.ResolvedSiteConfig) Site {
+	// 	return NewIxdzs8Site(cfg)
+	// })
 	registry.Register("novalpie", func(cfg config.ResolvedSiteConfig) Site {
 		return NewNovalpieSite(cfg)
 	})
@@ -130,9 +135,10 @@ func NewDefaultRegistry() *Registry {
 	registry.Register("ciyuanji", func(cfg config.ResolvedSiteConfig) Site {
 		return NewCiyuanjiSite(cfg)
 	})
-	registry.Register("qbtr", func(cfg config.ResolvedSiteConfig) Site {
-		return NewQBTRSite(cfg)
-	})
+	// Disabled: timeout issues
+	// registry.Register("qbtr", func(cfg config.ResolvedSiteConfig) Site {
+	// 	return NewQBTRSite(cfg)
+	// })
 	registry.Register("ciweimao", func(cfg config.ResolvedSiteConfig) Site {
 		return NewCiweimaoSite(cfg)
 	})

@@ -10,9 +10,6 @@ type SiteDescriptor struct {
 }
 
 var defaultAvailableSiteKeys = []string{
-	"esjzone",
-	"westnovel",
-	"yodu",
 	"linovelib",
 	"n23qb",
 	"ruochu",
