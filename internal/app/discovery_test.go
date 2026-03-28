@@ -14,21 +14,21 @@ import (
 
 func TestHybridSearchUsesDefaultAvailableSourcesAndGroupsVariants(t *testing.T) {
 	registry := site.NewRegistry()
-	registry.Register("esjzone", func(cfg config.ResolvedSiteConfig) site.Site {
+	registry.Register("ruochu", func(cfg config.ResolvedSiteConfig) site.Site {
 		return fakeSearchSite{
-			key:         "esjzone",
-			displayName: "ESJ Zone",
+			key:         "ruochu",
+			displayName: "Ruochu",
 			results: []model.SearchResult{
-				{Site: "esjzone", BookID: "100", Title: "Three Body", Author: "Liu", Description: "Sci-fi"},
+				{Site: "ruochu", BookID: "100", Title: "Three Body", Author: "Liu", Description: "Sci-fi"},
 			},
 		}
 	})
-	registry.Register("yodu", func(cfg config.ResolvedSiteConfig) site.Site {
+	registry.Register("sfacg", func(cfg config.ResolvedSiteConfig) site.Site {
 		return fakeSearchSite{
-			key:         "yodu",
-			displayName: "Yodu",
+			key:         "sfacg",
+			displayName: "SFACG",
 			results: []model.SearchResult{
-				{Site: "yodu", BookID: "200", Title: "Three Body", Author: "Liu", Description: "Mirror source"},
+				{Site: "sfacg", BookID: "200", Title: "Three Body", Author: "Liu", Description: "Mirror source"},
 			},
 		}
 	})
@@ -57,8 +57,8 @@ func TestHybridSearchUsesDefaultAvailableSourcesAndGroupsVariants(t *testing.T) 
 	}
 
 	result := response.Results[0]
-	if result.PreferredSite != "esjzone" {
-		t.Fatalf("expected esjzone to be preferred, got %s", result.PreferredSite)
+	if result.PreferredSite != "ruochu" {
+		t.Fatalf("expected ruochu to be preferred, got %s", result.PreferredSite)
 	}
 	if result.SourceCount != 2 {
 		t.Fatalf("expected 2 grouped variants, got %d", result.SourceCount)
@@ -177,10 +177,10 @@ func TestHybridSearchWarnsForUnsupportedSearchSites(t *testing.T) {
 
 func TestRuntimeExposesDownloadSourcesSeparatelyFromSearchSources(t *testing.T) {
 	registry := site.NewRegistry()
-	registry.Register("esjzone", func(cfg config.ResolvedSiteConfig) site.Site {
+	registry.Register("ruochu", func(cfg config.ResolvedSiteConfig) site.Site {
 		return fakeSearchSite{
-			key:         "esjzone",
-			displayName: "ESJ Zone",
+			key:         "ruochu",
+			displayName: "Ruochu",
 		}
 	})
 	registry.Register("westnovel", func(cfg config.ResolvedSiteConfig) site.Site {
@@ -199,13 +199,13 @@ func TestRuntimeExposesDownloadSourcesSeparatelyFromSearchSources(t *testing.T) 
 	allDownload := runtime.AllDownloadSites()
 	allSearch := runtime.AllSearchSites()
 
-	if len(defaultDownload) != 2 {
-		t.Fatalf("expected default download sources to include default non-search source, got %v", defaultDownload)
+	if len(defaultDownload) != 1 || defaultDownload[0] != "ruochu" {
+		t.Fatalf("expected only current default source in default download list, got %v", defaultDownload)
 	}
 	if len(allDownload) != 2 {
 		t.Fatalf("expected all download sources to include both sites, got %v", allDownload)
 	}
-	if len(allSearch) != 1 || allSearch[0] != "esjzone" {
+	if len(allSearch) != 1 || allSearch[0] != "ruochu" {
 		t.Fatalf("expected only searchable site in allSearch, got %v", allSearch)
 	}
 }
