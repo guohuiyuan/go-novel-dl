@@ -3,6 +3,8 @@ package site
 import (
 	"strings"
 	"testing"
+
+	"github.com/guohuiyuan/go-novel-dl/internal/model"
 )
 
 func TestParseCiweimaoSearchResults(t *testing.T) {
@@ -19,6 +21,31 @@ func TestParseCiweimaoSearchResults(t *testing.T) {
 	}
 	if results[0].BookID != "1001" || results[0].Author != "Author Name" || results[0].LatestChapter != "Latest Chapter" {
 		t.Fatalf("unexpected ciweimao result: %+v", results[0])
+	}
+}
+
+func TestCiweimaoSearchFallbackMatchByBookID(t *testing.T) {
+	book := &model.Book{Site: "ciweimao", ID: "1001", Title: "Example Ciweimao", Author: "Author Name"}
+	results := []model.SearchResult{
+		{Site: "ciweimao", BookID: "1001", Title: "Example Ciweimao", Author: "Author Name", Description: "Example description"},
+		{Site: "ciweimao", BookID: "1002", Title: "Other", Author: "Other"},
+	}
+
+	match := ciweimaoSearchFallbackMatch(book, results)
+	if match == nil || match.BookID != "1001" {
+		t.Fatalf("unexpected fallback match: %+v", match)
+	}
+}
+
+func TestFillCiweimaoBookFromSearchFillsMissingDescription(t *testing.T) {
+	book := &model.Book{Site: "ciweimao", ID: "1001", Title: "Example Ciweimao", Author: "Author Name"}
+	results := []model.SearchResult{
+		{Site: "ciweimao", BookID: "1001", Title: "Example Ciweimao", Author: "Author Name", Description: "Example description", URL: "https://www.ciweimao.com/book/1001"},
+	}
+
+	fillCiweimaoBookFromSearch(book, results)
+	if book.Description != "Example description" {
+		t.Fatalf("expected description to be filled, got %q", book.Description)
 	}
 }
 

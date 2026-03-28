@@ -120,6 +120,11 @@ func (s *CiweimaoSite) DownloadPlan(ctx context.Context, ref model.BookRef) (*mo
 		DownloadedAt: time.Now().UTC(),
 		UpdatedAt:    time.Now().UTC(),
 	}
+	if strings.TrimSpace(book.Description) == "" && strings.TrimSpace(book.Title) != "" {
+		if results, err := s.Search(ctx, book.Title, 10); err == nil {
+			fillCiweimaoBookFromSearch(book, results)
+		}
+	}
 	chapters := make([]model.Chapter, 0)
 	currentVolume := "正文"
 	for _, box := range findAll(listDoc, func(n *html.Node) bool {
@@ -147,6 +152,67 @@ func (s *CiweimaoSite) DownloadPlan(ctx context.Context, ref model.BookRef) (*mo
 	}
 	book.Chapters = applyChapterRange(chapters, ref)
 	return book, nil
+}
+
+func fillCiweimaoBookFromSearch(book *model.Book, results []model.SearchResult) {
+	if book == nil || len(results) == 0 {
+		return
+	}
+
+	match := ciweimaoSearchFallbackMatch(book, results)
+	if match == nil {
+		return
+	}
+
+	if strings.TrimSpace(book.Title) == "" {
+		book.Title = match.Title
+	}
+	if strings.TrimSpace(book.Author) == "" {
+		book.Author = match.Author
+	}
+	if strings.TrimSpace(book.Description) == "" {
+		book.Description = match.Description
+	}
+	if strings.TrimSpace(book.CoverURL) == "" {
+		book.CoverURL = match.CoverURL
+	}
+	if strings.TrimSpace(book.SourceURL) == "" {
+		book.SourceURL = match.URL
+	}
+}
+
+func ciweimaoSearchFallbackMatch(book *model.Book, results []model.SearchResult) *model.SearchResult {
+	if book == nil {
+		return nil
+	}
+
+	for idx := range results {
+		item := &results[idx]
+		if item.Site == "ciweimao" && strings.TrimSpace(item.BookID) == strings.TrimSpace(book.ID) {
+			return item
+		}
+	}
+
+	bookTitle := normalizeCiweimaoFallbackText(book.Title)
+	bookAuthor := normalizeCiweimaoFallbackText(book.Author)
+	for idx := range results {
+		item := &results[idx]
+		if item.Site != "ciweimao" {
+			continue
+		}
+		if bookTitle != "" && normalizeCiweimaoFallbackText(item.Title) != bookTitle {
+			continue
+		}
+		if bookAuthor != "" && normalizeCiweimaoFallbackText(item.Author) != bookAuthor {
+			continue
+		}
+		return item
+	}
+	return nil
+}
+
+func normalizeCiweimaoFallbackText(value string) string {
+	return ciweimaoTitleCleanRe.ReplaceAllString(strings.TrimSpace(value), "")
 }
 
 func (s *CiweimaoSite) FetchChapter(ctx context.Context, bookID string, chapter model.Chapter) (model.Chapter, error) {
