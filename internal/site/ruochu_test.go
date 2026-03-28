@@ -51,3 +51,12 @@ func TestExtractRuochuCatalogMetadataAndChapters(t *testing.T) {
 		t.Fatalf("unexpected chapter: %+v", chapters[0])
 	}
 }
+
+func TestNormalizeRuochuCoverURL(t *testing.T) {
+	if got := normalizeRuochuCoverURL("/book/142776.jpg@!bns?2"); got != "https://b-new.heiyanimg.com/book/142776.jpg@!bns?2" {
+		t.Fatalf("unexpected ruochu cover url: %q", got)
+	}
+	if got := normalizeRuochuCoverURL("https://b-new.heiyanimg.com/book/142776.jpg@!bm?2"); got != "https://b-new.heiyanimg.com/book/142776.jpg@!bm?2" {
+		t.Fatalf("unexpected absolute cover url: %q", got)
+	}
+}

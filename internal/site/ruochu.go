@@ -436,7 +436,7 @@ func parseRuochuSearchResults(body []byte) ([]model.SearchResult, bool, error) {
 			Description:   cleanText(item.Introduce),
 			URL:           "https://www.ruochu.com/book/" + bookID,
 			LatestChapter: cleanText(item.LastChapterName),
-			CoverURL:      absolutizeURL("https://www.ruochu.com", strings.TrimSpace(item.IconURLSmall)),
+			CoverURL:      normalizeRuochuCoverURL(item.IconURLSmall),
 		})
 	}
 
@@ -453,4 +453,21 @@ func cleanRuochuAuthor(value string) string {
 	value = strings.TrimPrefix(value, "作者:")
 	value = strings.TrimPrefix(value, "作者")
 	return strings.TrimSpace(value)
+}
+
+func normalizeRuochuCoverURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if strings.HasPrefix(raw, "//") {
+		return "https:" + raw
+	}
+	if strings.HasPrefix(raw, "http://") || strings.HasPrefix(raw, "https://") {
+		return raw
+	}
+	if strings.HasPrefix(raw, "/book/") {
+		return "https://b-new.heiyanimg.com" + raw
+	}
+	return absolutizeURL("https://www.ruochu.com", raw)
 }
