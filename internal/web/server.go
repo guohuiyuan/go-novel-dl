@@ -52,6 +52,10 @@ type downloadRequest struct {
 	Formats []string `json:"formats"`
 }
 
+type bookDetailResponse struct {
+	Book model.Book `json:"book"`
+}
+
 type paginatedSearchResponse struct {
 	app.HybridSearchResponse
 	Page       int  `json:"page"`
@@ -145,6 +149,30 @@ func newRouter(service *Service) *gin.Engine {
 			"default_sources": service.DefaultSources,
 			"all_sources":     service.AllSources,
 		})
+	})
+	group.GET("/api/books/detail", func(c *gin.Context) {
+		siteKey := strings.TrimSpace(c.Query("site"))
+		bookID := strings.TrimSpace(c.Query("book_id"))
+		if siteKey == "" || bookID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "site and book_id are required"})
+			return
+		}
+
+		if _, ok := descriptorKeySet(service.AllSources)[siteKey]; !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "selected site must support both search and download"})
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(c.Request.Context(), detailTimeoutForSite(siteKey))
+		defer cancel()
+
+		book, err := service.bookDetail(ctx, siteKey, bookID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, bookDetailResponse{Book: *book})
 	})
 	group.POST("/api/search", func(c *gin.Context) {
 		var req searchRequest
@@ -265,6 +293,29 @@ func (s *Service) newTaskRuntime(taskID string) *app.Runtime {
 	return runtime
 }
 
+func (s *Service) bookDetail(ctx context.Context, siteKey, bookID string) (*model.Book, error) {
+	resolved := s.Config.ResolveSiteConfig(siteKey)
+	client, err := s.Runtime.Registry.Build(siteKey, resolved)
+	if err != nil {
+		return nil, err
+	}
+
+	book, err := client.DownloadPlan(ctx, model.BookRef{BookID: bookID})
+	if err != nil {
+		return nil, err
+	}
+	if book == nil {
+		return nil, fmt.Errorf("download plan returned no book")
+	}
+	if strings.TrimSpace(book.Site) == "" {
+		book.Site = siteKey
+	}
+	if strings.TrimSpace(book.ID) == "" {
+		book.ID = bookID
+	}
+	return book, nil
+}
+
 type taskReporter struct {
 	store  *DownloadTaskStore
 	taskID string
@@ -324,6 +375,9 @@ func searchableDownloadDescriptors(items []site.SiteDescriptor) []site.SiteDescr
 		if !item.Capabilities.Search || !item.Capabilities.Download {
 			continue
 		}
+		if hideWebSource(item.Key) {
+			continue
+		}
 		filtered = append(filtered, item)
 	}
 	return filtered
@@ -366,7 +420,7 @@ func filterAllowedSites(items []string, allowed map[string]struct{}) []string {
 
 func paginateSearchResponse(response app.HybridSearchResponse, page, pageSize int) paginatedSearchResponse {
 	page = clampPositive(page, 1)
-	pageSize = clampPositive(pageSize, 12)
+	pageSize = clampPositive(pageSize, 50)
 
 	offset := (page - 1) * pageSize
 	total := len(response.Results)
@@ -413,11 +467,28 @@ func searchTimeoutForSites(sites []string) time.Duration {
 	timeout := 12 * time.Second
 	for _, site := range sites {
 		switch strings.ToLower(strings.TrimSpace(site)) {
+		case "esjzone":
+			timeout = maxDuration(timeout, 50*time.Second)
+		case "biquge5", "piaotia":
+			timeout = maxDuration(timeout, 45*time.Second)
 		case "linovelib":
 			timeout = maxDuration(timeout, 3*time.Minute)
 		}
 	}
 	return timeout
+}
+
+func detailTimeoutForSite(siteKey string) time.Duration {
+	return searchTimeoutForSites([]string{siteKey})
+}
+
+func hideWebSource(siteKey string) bool {
+	switch strings.ToLower(strings.TrimSpace(siteKey)) {
+	case "biquge345":
+		return true
+	default:
+		return false
+	}
 }
 
 func maxDuration(left, right time.Duration) time.Duration {

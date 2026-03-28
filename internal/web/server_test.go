@@ -49,6 +49,9 @@ func TestMetaIncludesSearchableDownloadSources(t *testing.T) {
 	if westnovel != nil {
 		t.Fatalf("did not expect westnovel in searchable web sources")
 	}
+	if findDescriptor(payload.AllSources, "biquge345") != nil {
+		t.Fatalf("did not expect biquge345 in searchable web sources")
+	}
 }
 
 func TestSearchEndpointPaginatesMixedSearchableSources(t *testing.T) {
@@ -116,6 +119,34 @@ func TestSearchEndpointRejectsUnsupportedSelectedSources(t *testing.T) {
 	}
 }
 
+func TestBookDetailEndpointReturnsBookMetadataAndChapters(t *testing.T) {
+	service := newTestService()
+	router := newRouter(service)
+
+	req := httptest.NewRequest(http.MethodGet, RoutePrefix+"/api/books/detail?site=esjzone&book_id=001", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", resp.Code, resp.Body.String())
+	}
+
+	var payload bookDetailResponse
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode detail payload: %v", err)
+	}
+
+	if payload.Book.Site != "esjzone" || payload.Book.ID != "001" {
+		t.Fatalf("unexpected book identity: %+v", payload.Book)
+	}
+	if payload.Book.Description != "Detail Desc" {
+		t.Fatalf("unexpected description: %q", payload.Book.Description)
+	}
+	if len(payload.Book.Chapters) != 2 || payload.Book.Chapters[1].Title != "Chapter 2" {
+		t.Fatalf("unexpected chapters: %+v", payload.Book.Chapters)
+	}
+}
+
 func newTestService() *Service {
 	cfg := config.DefaultConfig()
 	console := ui.NewConsole(strings.NewReader(""), io.Discard, io.Discard)
@@ -135,6 +166,17 @@ func newTestService() *Service {
 				{Site: "esjzone", BookID: "003", Title: "Alpha 03", Author: "Author", Description: "Desc 3"},
 				{Site: "esjzone", BookID: "004", Title: "Alpha 04", Author: "Author", Description: "Desc 4"},
 				{Site: "esjzone", BookID: "005", Title: "Alpha 05", Author: "Author", Description: "Desc 5"},
+			},
+			book: &model.Book{
+				Site:        "esjzone",
+				ID:          "001",
+				Title:       "Alpha 01",
+				Author:      "Author",
+				Description: "Detail Desc",
+				Chapters: []model.Chapter{
+					{ID: "c1", Title: "Chapter 1", Order: 1},
+					{ID: "c2", Title: "Chapter 2", Order: 2},
+				},
 			},
 		}
 	})
@@ -158,6 +200,16 @@ func newTestService() *Service {
 			},
 			results: []model.SearchResult{
 				{Site: "yodu", BookID: "101", Title: "Alpha 99", Author: "Author", Description: "Yodu Desc"},
+			},
+		}
+	})
+	registry.Register("biquge345", func(cfg config.ResolvedSiteConfig) site.Site {
+		return fakeWebSite{
+			key:         "biquge345",
+			displayName: "Biquge345",
+			capabilities: site.Capabilities{
+				Download: true,
+				Search:   true,
 			},
 		}
 	})
@@ -186,6 +238,7 @@ type fakeWebSite struct {
 	displayName  string
 	capabilities site.Capabilities
 	results      []model.SearchResult
+	book         *model.Book
 }
 
 func (s fakeWebSite) Key() string {
@@ -201,7 +254,17 @@ func (s fakeWebSite) Capabilities() site.Capabilities {
 }
 
 func (s fakeWebSite) DownloadPlan(ctx context.Context, ref model.BookRef) (*model.Book, error) {
-	return nil, nil
+	if s.book == nil {
+		return nil, nil
+	}
+	book := s.book.Clone()
+	if book.ID == "" {
+		book.ID = ref.BookID
+	}
+	if book.Site == "" {
+		book.Site = s.key
+	}
+	return book, nil
 }
 
 func (s fakeWebSite) FetchChapter(ctx context.Context, bookID string, chapter model.Chapter) (model.Chapter, error) {

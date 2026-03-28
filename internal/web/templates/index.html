@@ -13,7 +13,7 @@
       <div class="hero-copy panel-card">
         <p class="eyebrow">Novel DL Web</p>
         <h1>聚合搜索与下载</h1>
-        <p class="lead">勾选多个渠道并发搜索，后端会用 Go 协程同时请求多个站点，再把结果汇总到一页里。</p>
+        <p class="lead">多渠道并发检索，封面点开详情，查看简介、章节并直接发起下载。</p>
       </div>
     </header>
 
@@ -39,15 +39,14 @@
           </form>
 
           <div class="selection-toolbar">
-            <button type="button" id="selectSearchableSources" class="tool-button is-soft">恢复默认</button>
-            <button type="button" id="selectAllSources" class="tool-button">全选全部</button>
+            <button type="button" id="selectAllSources" class="tool-button">全选</button>
             <button type="button" id="clearSources" class="tool-button is-ghost">清空</button>
           </div>
 
           <div class="panel-header">
             <div>
               <h2>渠道</h2>
-              <p id="sourceSummary" class="panel-hint">从下方勾选要参与搜索的渠道。</p>
+              <p id="sourceSummary" class="panel-hint">高亮即已选。</p>
             </div>
           </div>
 
@@ -69,7 +68,7 @@
               <span id="resultCount" class="count-badge">0</span>
               <div class="pagination">
                 <button type="button" id="prevPage" class="page-button">上一页</button>
-                <span id="pageIndicator" class="page-indicator">第 1 页</span>
+                <span id="pageIndicator" class="page-indicator">第 1 页 · 每页 50 本</span>
                 <button type="button" id="nextPage" class="page-button">下一页</button>
               </div>
             </div>
@@ -87,7 +86,7 @@
         <div class="panel-header">
           <div>
             <h2>下载任务</h2>
-            <p class="panel-hint">这里会展示当前会话创建的下载任务与导出结果。</p>
+            <p class="panel-hint">这里显示当前会话创建的下载任务和导出结果。</p>
           </div>
           <span id="taskCount" class="count-badge">0</span>
         </div>
@@ -97,6 +96,18 @@
         </div>
       </section>
     </section>
+  </div>
+
+  <div id="detailOverlay" class="detail-overlay" hidden>
+    <div id="detailBackdrop" class="detail-backdrop"></div>
+    <aside class="detail-panel" role="dialog" aria-modal="true" aria-labelledby="detailHeading">
+      <div class="detail-topbar">
+        <button type="button" id="detailCloseButton" class="detail-close">关闭</button>
+      </div>
+      <div id="detailContent" class="detail-content">
+        <div class="empty-state empty-state-compact">点击封面查看小说详情。</div>
+      </div>
+    </aside>
   </div>
 
   <script>
