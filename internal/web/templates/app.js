@@ -763,7 +763,13 @@ function renderTasks() {
       exported.className = "file-list";
       task.exported.forEach((path) => {
         const item = document.createElement("li");
-        item.textContent = path;
+        const link = document.createElement("a");
+        link.className = "file-download-link";
+        link.href = `${root}/api/download-file?path=${encodeURIComponent(path)}`;
+        link.textContent = path.split(/[/\\]/).pop();
+        link.title = path;
+        link.download = "";
+        item.appendChild(link);
         exported.appendChild(item);
       });
       card.appendChild(exported);

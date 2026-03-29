@@ -8,7 +8,9 @@ import (
 	"html/template"
 	"io"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	goRuntime "runtime"
 	"strings"
 	"time"
@@ -265,6 +267,28 @@ func newRouter(service *Service) *gin.Engine {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"task": task})
+	})
+	group.GET("/api/download-file", func(c *gin.Context) {
+		filePath := strings.TrimSpace(c.Query("path"))
+		if filePath == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "path is required"})
+			return
+		}
+
+		absPath, err := filepath.Abs(filePath)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path"})
+			return
+		}
+
+		if _, err := os.Stat(absPath); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+			return
+		}
+
+		fileName := filepath.Base(absPath)
+		c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, fileName))
+		c.File(absPath)
 	})
 
 	return router

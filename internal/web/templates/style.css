@@ -583,6 +583,17 @@ h4 {
   color: var(--accent-strong);
 }
 
+.file-download-link {
+  color: var(--accent-strong);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.file-download-link:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
 .empty-state,
 .empty-inline {
   padding: 28px 14px;
