@@ -26,12 +26,15 @@ type DownloadTask struct {
 	TotalChapters     int                   `json:"total_chapters"`
 	CompletedChapters int                   `json:"completed_chapters"`
 	CurrentChapter    string                `json:"current_chapter,omitempty"`
+	ETA               string                `json:"eta,omitempty"`
+	Speed             float64               `json:"speed,omitempty"`
 	Exported          []string              `json:"exported,omitempty"`
 	Error             string                `json:"error,omitempty"`
 	Messages          []DownloadTaskMessage `json:"messages,omitempty"`
 	CreatedAt         time.Time             `json:"created_at"`
 	UpdatedAt         time.Time             `json:"updated_at"`
 	FinishedAt        *time.Time            `json:"finished_at,omitempty"`
+	StartTime         time.Time             `json:"start_time,omitempty"`
 }
 
 type DownloadTaskStore struct {
@@ -83,6 +86,7 @@ func (s *DownloadTaskStore) Snapshot(id string) (DownloadTask, bool) {
 }
 
 func (s *DownloadTaskStore) MarkRunning(id string, siteKey string, bookID string, title string, total int) {
+	now := time.Now().UTC()
 	s.update(id, func(task *DownloadTask) {
 		task.Status = "running"
 		task.Phase = "downloading"
@@ -94,6 +98,7 @@ func (s *DownloadTaskStore) MarkRunning(id string, siteKey string, bookID string
 		task.TotalChapters = total
 		task.CompletedChapters = 0
 		task.CurrentChapter = ""
+		task.StartTime = now
 		appendTaskMessage(task, "info", fmt.Sprintf("Started download (%d chapters)", total))
 	})
 }
@@ -117,12 +122,41 @@ func (s *DownloadTaskStore) MarkProgress(id string, done int, total int, chapter
 			task.TotalChapters = total
 		}
 		task.CurrentChapter = strings.TrimSpace(chapterTitle)
+
+		if done > 0 && !task.StartTime.IsZero() {
+			elapsed := time.Since(task.StartTime)
+			rate := float64(done) / elapsed.Seconds()
+			if rate > 0 {
+				remaining := task.TotalChapters - done
+				etaSeconds := float64(remaining) / rate
+				task.ETA = formatETADuration(time.Duration(etaSeconds) * time.Second)
+				task.Speed = rate
+			}
+		}
+
 		message := fmt.Sprintf("Downloaded chapter %d/%d", done, task.TotalChapters)
 		if task.CurrentChapter != "" {
 			message += ": " + task.CurrentChapter
 		}
 		appendTaskMessage(task, "progress", message)
 	})
+}
+
+func formatETADuration(d time.Duration) string {
+	if d <= 0 {
+		return "0s"
+	}
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	s := int(d.Seconds()) % 60
+
+	if h > 0 {
+		return fmt.Sprintf("%dh%dms", h, m)
+	}
+	if m > 0 {
+		return fmt.Sprintf("%dm%ds", m, s)
+	}
+	return fmt.Sprintf("%ds", s)
 }
 
 func (s *DownloadTaskStore) MarkExporting(id string, done int, total int) {

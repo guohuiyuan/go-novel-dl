@@ -129,7 +129,10 @@ func (r *Runtime) Download(ctx context.Context, siteKey string, books []model.Bo
 			}
 			loaded, err := client.FetchChapter(ctx, ref.BookID, chapter)
 			if err != nil {
-				return results, err
+				r.Console.Warnf("跳过章节 %s: %v", chapter.Title, err)
+				done++
+				r.Progress.OnBookProgress(done, len(book.Chapters), chapter.Title)
+				continue
 			}
 			book.Chapters[idx] = loaded
 			done++

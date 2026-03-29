@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"time"
 )
 
 type DownloadReporter interface {
@@ -25,6 +26,7 @@ type ConsoleBar struct {
 	mu          sync.Mutex
 	activeTotal int
 	active      bool
+	startTime   time.Time
 }
 
 func NewConsoleBar(out io.Writer) *ConsoleBar {
@@ -36,6 +38,7 @@ func (b *ConsoleBar) OnBookStart(site, bookID, title string, total int) {
 	defer b.mu.Unlock()
 	b.activeTotal = total
 	b.active = false
+	b.startTime = time.Now()
 	if strings.TrimSpace(title) == "" {
 		title = bookID
 	}
@@ -51,16 +54,48 @@ func (b *ConsoleBar) OnBookProgress(done, total int, chapterTitle string) {
 	if total <= 0 {
 		total = b.activeTotal
 	}
+
+	var etaStr string
+	if done > 0 && !b.startTime.IsZero() {
+		elapsed := time.Since(b.startTime)
+		rate := float64(done) / elapsed.Seconds()
+		if rate > 0 {
+			remaining := total - done
+			etaSeconds := float64(remaining) / rate
+			etaStr = formatDuration(time.Duration(etaSeconds) * time.Second)
+		}
+	}
+
 	bar := renderBar(done, total, b.width)
 	msg := fmt.Sprintf("[PROGRESS] %s %d/%d", bar, done, total)
+	if etaStr != "" {
+		msg += " ETA:" + etaStr
+	}
 	if title := strings.TrimSpace(chapterTitle); title != "" {
 		msg += " - " + title
 	}
 	if b.active {
 		_, _ = fmt.Fprint(b.out, "\r")
 	}
-	_, _ = fmt.Fprintf(b.out, "%-120s", msg)
+	_, _ = fmt.Fprintf(b.out, "%-150s", msg)
 	b.active = true
+}
+
+func formatDuration(d time.Duration) string {
+	if d <= 0 {
+		return "0s"
+	}
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	s := int(d.Seconds()) % 60
+
+	if h > 0 {
+		return fmt.Sprintf("%dh%dm", h, m)
+	}
+	if m > 0 {
+		return fmt.Sprintf("%dm%ds", m, s)
+	}
+	return fmt.Sprintf("%ds", s)
 }
 
 func (b *ConsoleBar) OnBookComplete(done, total int) {

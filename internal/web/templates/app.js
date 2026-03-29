@@ -738,7 +738,11 @@ function renderTasks() {
 
       const progressText = document.createElement("div");
       progressText.className = "task-progress-text";
-      progressText.textContent = `${task.completed_chapters}/${task.total_chapters}`;
+      let progressMsg = `${task.completed_chapters}/${task.total_chapters}`;
+      if (task.eta) {
+        progressMsg += ` (ETA: ${task.eta})`;
+      }
+      progressText.textContent = progressMsg;
       progressWrap.appendChild(progressText);
 
       card.appendChild(progressWrap);
