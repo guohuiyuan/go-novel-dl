@@ -56,8 +56,7 @@ func TestInteractiveProgramBatchDownloadMultiSelect(t *testing.T) {
 		results:       sampleHybridResults(),
 		selected:      make(map[int]struct{}),
 		chapterCounts: map[string]int{},
-		defaultSites:  []string{"alpha"},
-		allSites:      []string{"alpha"},
+		sites:         []string{"alpha"},
 		status:        "ready",
 	}
 
@@ -89,7 +88,7 @@ func TestInteractiveProgramBatchDownloadMultiSelect(t *testing.T) {
 	if got.state != uiStateResults {
 		t.Fatalf("expected to return to results state, got %v", got.state)
 	}
-	if !strings.Contains(got.status, "Downloaded 2 book(s)") {
+	if !strings.Contains(got.status, "已下载 2 本小说") {
 		t.Fatalf("expected batch download status, got %q", got.status)
 	}
 	if len(got.lastExported) != 2 {

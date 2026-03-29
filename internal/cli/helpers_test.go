@@ -33,14 +33,10 @@ func TestInteractiveSitesMatchWebVisibleSources(t *testing.T) {
 	runtime := app.NewRuntime(&cfg, console)
 	runtime.Registry = registry
 
-	defaultSites := defaultInteractiveSites(runtime)
-	allSites := allInteractiveSites(runtime)
+	sites := interactiveSites(runtime)
 
-	if strings.Join(defaultSites, ",") != "linovelib,ruochu" {
-		t.Fatalf("unexpected default interactive sites: %v", defaultSites)
-	}
-	if strings.Join(allSites, ",") != "linovelib,ruochu" {
-		t.Fatalf("unexpected all interactive sites: %v", allSites)
+	if strings.Join(sites, ",") != "linovelib,ruochu" {
+		t.Fatalf("unexpected interactive sites: %v", sites)
 	}
 }
 

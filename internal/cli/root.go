@@ -16,12 +16,11 @@ func NewRootCmd() *cobra.Command {
 	var (
 		configPath string
 		sites      []string
-		allSites   bool
 	)
 
 	cmd := &cobra.Command{
 		Use:           "novel-dl [keyword]",
-		Short:         "Interactive hybrid-search novel downloader",
+		Short:         "交互式聚合搜索小说下载器",
 		Version:       version.Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -31,13 +30,12 @@ func NewRootCmd() *cobra.Command {
 			if len(args) > 0 {
 				initialKeyword = strings.TrimSpace(args[0])
 			}
-			return runInteractive(cmd.Context(), configPath, initialKeyword, sites, allSites)
+			return runInteractive(cmd.Context(), configPath, initialKeyword, sites)
 		},
 	}
 
-	cmd.Flags().StringVar(&configPath, "config", "", "Path to the configuration file")
-	cmd.Flags().StringSliceVarP(&sites, "site", "s", nil, "Restrict interactive search to specific site key(s)")
-	cmd.Flags().BoolVar(&allSites, "all-sites", false, "Use all web-visible searchable download sources instead of the default web source set")
+	cmd.Flags().StringVar(&configPath, "config", "", "配置文件路径")
+	cmd.Flags().StringSliceVarP(&sites, "site", "s", nil, "只在指定渠道中搜索；默认直接使用当前 Web 的 9 个渠道")
 
 	cmd.AddCommand(
 		newDownloadCmd(),
@@ -51,26 +49,26 @@ func NewRootCmd() *cobra.Command {
 	return cmd
 }
 
-func runInteractive(ctx context.Context, configPath string, initialKeyword string, sites []string, allSites bool) error {
-	return StartInteractiveUI(ctx, configPath, initialKeyword, sites, allSites)
+func runInteractive(ctx context.Context, configPath string, initialKeyword string, sites []string) error {
+	return StartInteractiveUI(ctx, configPath, initialKeyword, sites)
 }
 
 func interactiveDownloadInput(runtime *app.Runtime) (string, []model.BookRef, error) {
 	console := runtime.Console
 	sites := runtime.Registry.Keys()
-	idx, err := console.Select("Choose site", sites)
+	idx, err := console.Select("选择渠道", sites)
 	if err != nil {
 		return "", nil, err
 	}
-	bookID, err := console.Prompt("Book ID")
+	bookID, err := console.Prompt("小说 ID")
 	if err != nil {
 		return "", nil, err
 	}
-	start, err := console.Prompt("Start chapter ID (optional)")
+	start, err := console.Prompt("起始章节 ID（可选）")
 	if err != nil {
 		return "", nil, err
 	}
-	end, err := console.Prompt("End chapter ID (optional)")
+	end, err := console.Prompt("结束章节 ID（可选）")
 	if err != nil {
 		return "", nil, err
 	}
@@ -84,10 +82,10 @@ func interactiveExportInput(runtime *app.Runtime) (string, []model.BookRef, erro
 		return "", nil, err
 	}
 	if len(sites) == 0 {
-		return "", nil, fmt.Errorf("no downloaded books found")
+		return "", nil, fmt.Errorf("没有找到已下载的小说")
 	}
 
-	idx, err := console.Select("Choose site", sites)
+	idx, err := console.Select("选择渠道", sites)
 	if err != nil {
 		return "", nil, err
 	}
@@ -100,7 +98,7 @@ func interactiveExportInput(runtime *app.Runtime) (string, []model.BookRef, erro
 	for _, book := range books {
 		labels = append(labels, fmt.Sprintf("%s (%s)", book.Title, book.BookID))
 	}
-	selected, err := console.SelectMany("Choose books", labels)
+	selected, err := console.SelectMany("选择小说", labels)
 	if err != nil {
 		return "", nil, err
 	}

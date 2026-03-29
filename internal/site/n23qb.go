@@ -273,6 +273,11 @@ func (s *N23QBSite) populateSearchDetail(ctx context.Context, item *model.Search
 	}))); description != "" {
 		item.Description = description
 	}
+	if latest := fallback(metaProperty(doc, "og:novel:latest_chapter_name"), cleanText(nodeText(findFirst(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "a" && hasAncestorClass(n, "newchapter")
+	})))); latest != "" {
+		item.LatestChapter = latest
+	}
 	if cover := attrValue(findFirst(doc, func(n *html.Node) bool {
 		return n.Type == html.ElementNode && n.Data == "img" && hasAncestorClass(n, "novel-cover")
 	}), "data-src"); cover != "" {

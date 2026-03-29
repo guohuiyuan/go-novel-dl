@@ -14,7 +14,7 @@ func newExportCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "export [book_id ...]",
-		Short: "Export previously downloaded novels",
+		Short: "导出已下载的小说",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			console := newConsole()
 			runtime, _, err := loadRuntime(console, configPath)
@@ -40,21 +40,21 @@ func newExportCmd() *cobra.Command {
 				return err
 			}
 			if len(paths) == 0 {
-				console.Warnf("No books exported")
+				console.Warnf("没有导出任何书籍")
 				return nil
 			}
 			for _, path := range paths {
-				console.Successf("Exported %s", path)
+				console.Successf("已导出 %s", path)
 			}
 			return nil
 		},
 	}
 
-	cmd.Flags().StringSliceVar(&formats, "format", nil, "Output format(s) (default: config)")
-	cmd.Flags().StringVar(&siteKey, "site", "", "Source site key (optional; choose interactively if omitted)")
-	cmd.Flags().StringVar(&configPath, "config", "", "Path to the configuration file")
-	cmd.Flags().StringVar(&startID, "start", "", "Start chapter ID (applies only to the first book)")
-	cmd.Flags().StringVar(&endID, "end", "", "End chapter ID (applies only to the first book)")
-	cmd.Flags().StringVar(&stage, "stage", "", "Export stage (default: latest stage)")
+	cmd.Flags().StringSliceVar(&formats, "format", nil, "导出格式列表，默认读取配置")
+	cmd.Flags().StringVar(&siteKey, "site", "", "渠道 key；省略时进入交互选择")
+	cmd.Flags().StringVar(&configPath, "config", "", "配置文件路径")
+	cmd.Flags().StringVar(&startID, "start", "", "起始章节 ID（仅作用于第一本书）")
+	cmd.Flags().StringVar(&endID, "end", "", "结束章节 ID（仅作用于第一本书）")
+	cmd.Flags().StringVar(&stage, "stage", "", "导出阶段，默认使用最新阶段")
 	return cmd
 }

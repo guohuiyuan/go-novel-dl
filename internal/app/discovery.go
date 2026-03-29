@@ -96,10 +96,10 @@ func (r *Runtime) SiteDescriptors() []site.SiteDescriptor {
 func (r *Runtime) HybridSearch(ctx context.Context, keyword string, opts HybridSearchOptions) (HybridSearchResponse, error) {
 	keyword = strings.TrimSpace(keyword)
 	if keyword == "" {
-		return HybridSearchResponse{}, fmt.Errorf("keyword is required")
+		return HybridSearchResponse{}, fmt.Errorf("关键字不能为空")
 	}
 	if r == nil || r.Registry == nil || r.Config == nil {
-		return HybridSearchResponse{}, fmt.Errorf("runtime is not initialized")
+		return HybridSearchResponse{}, fmt.Errorf("运行时尚未初始化")
 	}
 
 	sites := normalizeSiteKeys(opts.Sites)
@@ -107,7 +107,7 @@ func (r *Runtime) HybridSearch(ctx context.Context, keyword string, opts HybridS
 		sites = r.Registry.DefaultSearchKeys()
 	}
 	if len(sites) == 0 {
-		return HybridSearchResponse{}, fmt.Errorf("no searchable sites available")
+		return HybridSearchResponse{}, fmt.Errorf("当前没有可搜索的渠道")
 	}
 
 	perSiteLimit := opts.PerSiteLimit
@@ -131,7 +131,7 @@ func (r *Runtime) HybridSearch(ctx context.Context, keyword string, opts HybridS
 			if !client.Capabilities().Search {
 				siteResults <- siteSearchResponse{
 					siteKey: siteKey,
-					err:     fmt.Errorf("search is not supported for %s", siteKey),
+					err:     fmt.Errorf("渠道 %s 不支持搜索", siteKey),
 				}
 				return
 			}

@@ -66,11 +66,7 @@ type interactiveModel struct {
 	spinner       spinner.Model
 	state         uiState
 	keyword       string
-	scopeLocked   bool
-	useAllSites   bool
 	sites         []string
-	defaultSites  []string
-	allSites      []string
 	results       []app.HybridSearchResult
 	warnings      []app.SearchWarning
 	chapterCounts map[string]int
@@ -81,17 +77,17 @@ type interactiveModel struct {
 	countsLoading bool
 }
 
-func StartInteractiveUI(ctx context.Context, configPath string, initialKeyword string, sites []string, useAllSites bool) error {
+func StartInteractiveUI(ctx context.Context, configPath string, initialKeyword string, sites []string) error {
 	runtime, _, err := loadRuntimeSilent(configPath)
 	if err != nil {
 		return err
 	}
 	if runtime == nil {
-		return fmt.Errorf("runtime is not initialized")
+		return fmt.Errorf("运行时尚未初始化")
 	}
 
 	ti := textinput.New()
-	ti.Placeholder = "Enter title, author, or keyword"
+	ti.Placeholder = "输入书名、作者或关键字"
 	ti.CharLimit = 200
 	ti.Width = 48
 	ti.Focus()
@@ -108,19 +104,15 @@ func StartInteractiveUI(ctx context.Context, configPath string, initialKeyword s
 		spinner:       spin,
 		state:         uiStateInput,
 		keyword:       strings.TrimSpace(initialKeyword),
-		scopeLocked:   len(sites) > 0,
-		useAllSites:   useAllSites,
 		sites:         normalizeSites(sites),
-		defaultSites:  defaultInteractiveSites(runtime),
-		allSites:      allInteractiveSites(runtime),
 		chapterCounts: make(map[string]int),
 		selected:      make(map[int]struct{}),
-		status:        "Enter to search. Tab switches between default and all web-visible sources.",
+		status:        "按回车开始搜索，默认直接使用当前 Web 的 9 个渠道。",
 	}
 
 	if model.keyword != "" {
 		model.state = uiStateSearching
-		model.status = fmt.Sprintf("Searching for %q", model.keyword)
+		model.status = fmt.Sprintf("正在搜索 %q", model.keyword)
 	}
 
 	program := tea.NewProgram(model, tea.WithAltScreen())
@@ -165,19 +157,13 @@ func (m interactiveModel) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			keyword := strings.TrimSpace(m.textInput.Value())
 			if keyword == "" {
-				m.status = "Please enter a keyword."
+				m.status = "请输入关键字。"
 				return m, nil
 			}
 			m.keyword = keyword
 			m.state = uiStateSearching
-			m.status = fmt.Sprintf("Searching for %q", keyword)
+			m.status = fmt.Sprintf("正在搜索 %q", keyword)
 			return m, tea.Batch(m.spinner.Tick, m.searchCmd(keyword))
-		case "tab":
-			if !m.scopeLocked {
-				m.useAllSites = !m.useAllSites
-				m.status = "Source scope switched to " + m.scopeLabel()
-			}
-			return m, nil
 		case "q", "esc":
 			return m, tea.Quit
 		}
@@ -210,11 +196,11 @@ func (m interactiveModel) updateSearching(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.countsLoading = len(m.results) > 0
 
 		if len(m.results) == 0 {
-			m.status = "No results found."
+			m.status = "没有找到结果。"
 			return m, nil
 		}
 
-		m.status = fmt.Sprintf("Found %d grouped results in %s.", len(m.results), m.scopeLabel())
+		m.status = fmt.Sprintf("共找到 %d 个聚合结果，当前渠道：%s。", len(m.results), m.scopeLabel())
 		return m, m.chapterCountsCmd(m.results)
 	}
 	return m, nil
@@ -228,7 +214,7 @@ func (m interactiveModel) updateResults(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.chapterCounts[key] = count
 		}
 		if len(msg.counts) > 0 && len(m.results) > 0 {
-			m.status = fmt.Sprintf("Found %d grouped results in %s. Loaded chapter counts for %d books.", len(m.results), m.scopeLabel(), len(msg.counts))
+			m.status = fmt.Sprintf("共找到 %d 个聚合结果，当前渠道：%s。已加载 %d 本书的章节数。", len(m.results), m.scopeLabel(), len(msg.counts))
 		}
 		return m, nil
 	case tea.KeyMsg:
@@ -246,19 +232,19 @@ func (m interactiveModel) updateResults(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.toggleSelection(m.cursor)
-			m.status = fmt.Sprintf("Selected %d item(s).", len(m.selected))
+			m.status = fmt.Sprintf("已选择 %d 项。", len(m.selected))
 		case "a":
 			if len(m.results) == 0 {
 				return m, nil
 			}
 			if len(m.selected) == len(m.results) {
 				m.selected = make(map[int]struct{})
-				m.status = "Selection cleared."
+				m.status = "已清空选择。"
 			} else {
 				for idx := range m.results {
 					m.selected[idx] = struct{}{}
 				}
-				m.status = fmt.Sprintf("Selected all %d item(s).", len(m.results))
+				m.status = fmt.Sprintf("已全选 %d 项。", len(m.results))
 			}
 		case "enter", "d":
 			if len(m.results) == 0 {
@@ -271,17 +257,8 @@ func (m interactiveModel) updateResults(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selected[m.cursor] = struct{}{}
 			}
 			m.state = uiStateDownloading
-			m.status = fmt.Sprintf("Downloading %d selected book(s)...", len(selected))
+			m.status = fmt.Sprintf("正在下载已选择的 %d 本小说...", len(selected))
 			return m, tea.Batch(m.spinner.Tick, m.downloadCmd(selected))
-		case "tab":
-			if m.scopeLocked || strings.TrimSpace(m.keyword) == "" {
-				return m, nil
-			}
-			m.useAllSites = !m.useAllSites
-			m.state = uiStateSearching
-			m.countsLoading = false
-			m.status = "Switching source scope and searching again..."
-			return m, tea.Batch(m.spinner.Tick, m.searchCmd(m.keyword))
 		case "b":
 			m.state = uiStateInput
 			m.textInput.Focus()
@@ -310,11 +287,11 @@ func (m interactiveModel) updateDownloading(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.lastExported = append([]string(nil), msg.exported...)
 		switch {
 		case msg.downloaded == 0:
-			m.status = "No books were downloaded."
+			m.status = "没有下载到任何小说。"
 		case len(msg.exported) == 0:
-			m.status = fmt.Sprintf("Downloaded %d book(s).", msg.downloaded)
+			m.status = fmt.Sprintf("已下载 %d 本小说。", msg.downloaded)
 		default:
-			m.status = fmt.Sprintf("Downloaded %d book(s) and exported %d file(s).", msg.downloaded, len(msg.exported))
+			m.status = fmt.Sprintf("已下载 %d 本小说，并导出 %d 个文件。", msg.downloaded, len(msg.exported))
 		}
 		return m, nil
 	}
@@ -324,40 +301,37 @@ func (m interactiveModel) updateDownloading(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m interactiveModel) View() string {
 	var builder strings.Builder
 	builder.WriteString(uiTitleStyle.Render("Novel DL") + "\n")
-	builder.WriteString(uiHintStyle.Render("Interactive search and batch download") + "\n\n")
+	builder.WriteString(uiHintStyle.Render("交互式聚合搜索与批量下载") + "\n\n")
 
 	switch m.state {
 	case uiStateInput:
-		builder.WriteString("Keyword\n")
+		builder.WriteString("搜索关键字\n")
 		builder.WriteString(m.textInput.View() + "\n\n")
-		builder.WriteString(uiHintStyle.Render("Source scope: "+m.scopeLabel()) + "\n")
-		if m.scopeLocked {
-			builder.WriteString(uiHintStyle.Render("Source scope is fixed by --site.") + "\n")
-		}
-		builder.WriteString(uiHintStyle.Render("Keys: Enter search, Tab switch scope, q quit") + "\n")
+		builder.WriteString(uiHintStyle.Render("当前渠道: "+m.scopeLabel()) + "\n")
+		builder.WriteString(uiHintStyle.Render("按键: Enter 搜索，q 退出") + "\n")
 	case uiStateSearching:
-		builder.WriteString(fmt.Sprintf("%s Searching for %q\n", m.spinner.View(), m.keyword))
-		builder.WriteString(uiHintStyle.Render("Source scope: "+m.scopeLabel()) + "\n")
+		builder.WriteString(fmt.Sprintf("%s 正在搜索 %q\n", m.spinner.View(), m.keyword))
+		builder.WriteString(uiHintStyle.Render("当前渠道: "+m.scopeLabel()) + "\n")
 	case uiStateResults:
-		builder.WriteString(uiHintStyle.Render("Source scope: "+m.scopeLabel()) + "\n\n")
+		builder.WriteString(uiHintStyle.Render("当前渠道: "+m.scopeLabel()) + "\n\n")
 		if len(m.results) == 0 {
-			builder.WriteString(uiWarnStyle.Render("No results.") + "\n")
+			builder.WriteString(uiWarnStyle.Render("没有结果。") + "\n")
 		} else {
 			builder.WriteString(m.renderResultsTable())
 		}
 		if len(m.warnings) > 0 {
 			builder.WriteString("\n")
-			builder.WriteString(uiWarnStyle.Render("Partial search failures: "+formatWarnings(m.warnings)) + "\n")
+			builder.WriteString(uiWarnStyle.Render("部分渠道搜索失败: "+formatWarnings(m.warnings)) + "\n")
 		}
 		if len(m.lastExported) > 0 {
 			builder.WriteString("\n")
-			builder.WriteString(uiOkStyle.Render("Latest exported files") + "\n")
+			builder.WriteString(uiOkStyle.Render("最近导出的文件") + "\n")
 			for _, path := range m.lastExported {
 				builder.WriteString("  " + path + "\n")
 			}
 		}
 		builder.WriteString("\n")
-		builder.WriteString(uiHintStyle.Render("Keys: ↑↓ move, Space select, a select all, Enter download, Tab switch scope, b back, q quit") + "\n")
+		builder.WriteString(uiHintStyle.Render("按键: ↑↓ 移动，Space 选择，a 全选，Enter 下载，b 返回，q 退出") + "\n")
 	case uiStateDownloading:
 		builder.WriteString(fmt.Sprintf("%s %s\n", m.spinner.View(), m.status))
 	}
@@ -365,7 +339,7 @@ func (m interactiveModel) View() string {
 	if strings.TrimSpace(m.status) != "" && m.state != uiStateDownloading {
 		builder.WriteString("\n")
 		statusStyle := uiHintStyle
-		if strings.Contains(strings.ToLower(m.status), "error") || strings.Contains(strings.ToLower(m.status), "failed") {
+		if strings.Contains(strings.ToLower(m.status), "error") || strings.Contains(strings.ToLower(m.status), "failed") || strings.Contains(m.status, "错误") || strings.Contains(m.status, "失败") {
 			statusStyle = uiErrorStyle
 		}
 		builder.WriteString(statusStyle.Render(m.status) + "\n")
@@ -389,11 +363,11 @@ func (m interactiveModel) renderResultsTable() string {
 	header := lipgloss.JoinHorizontal(lipgloss.Left,
 		uiHintStyle.Width(colPick).Render("[x]"),
 		uiHintStyle.Width(colIndex).Render("No."),
-		uiHintStyle.Width(colTitle).Render("Title"),
-		uiHintStyle.Width(colAuthor).Render("Author"),
-		uiHintStyle.Width(colSource).Render("Source"),
-		uiHintStyle.Width(colChapters).Render("Chapters"),
-		uiHintStyle.Width(colLatest).Render("Latest"),
+		uiHintStyle.Width(colTitle).Render("书名"),
+		uiHintStyle.Width(colAuthor).Render("作者"),
+		uiHintStyle.Width(colSource).Render("渠道"),
+		uiHintStyle.Width(colChapters).Render("章节数"),
+		uiHintStyle.Width(colLatest).Render("最新章节"),
 	)
 	builder.WriteString(header + "\n")
 
@@ -421,10 +395,10 @@ func (m interactiveModel) renderResultsTable() string {
 	}
 
 	builder.WriteString("\n")
-	builder.WriteString(uiHintStyle.Render(fmt.Sprintf("Selected: %d/%d", len(m.selected), len(m.results))))
+	builder.WriteString(uiHintStyle.Render(fmt.Sprintf("已选择: %d/%d", len(m.selected), len(m.results))))
 	if m.countsLoading {
 		builder.WriteString("\n")
-		builder.WriteString(uiHintStyle.Render("Loading chapter counts in the background..."))
+		builder.WriteString(uiHintStyle.Render("正在后台加载章节数..."))
 	}
 
 	return builder.String()
@@ -546,21 +520,14 @@ func (m interactiveModel) activeSites() []string {
 	if len(m.sites) > 0 {
 		return append([]string(nil), m.sites...)
 	}
-	if m.useAllSites {
-		return append([]string(nil), m.allSites...)
-	}
-	return append([]string(nil), m.defaultSites...)
+	return interactiveSites(m.runtime)
 }
 
 func (m interactiveModel) scopeLabel() string {
-	switch {
-	case len(m.sites) > 0:
+	if len(m.sites) > 0 {
 		return strings.Join(m.sites, ", ")
-	case m.useAllSites:
-		return fmt.Sprintf("all web-visible sources (%d)", len(m.allSites))
-	default:
-		return fmt.Sprintf("default web sources (%d)", len(m.defaultSites))
 	}
+	return fmt.Sprintf("固定 9 个渠道 (%d)", len(interactiveSites(m.runtime)))
 }
 
 func (m *interactiveModel) toggleSelection(idx int) {
@@ -638,8 +605,8 @@ func truncateRunes(value string, limit int) string {
 	if len(runes) <= limit {
 		return value
 	}
-	if limit == 1 {
-		return string(runes[:1])
+	if limit <= 3 {
+		return string(runes[:limit])
 	}
-	return string(runes[:limit-1]) + "…"
+	return string(runes[:limit-3]) + "..."
 }

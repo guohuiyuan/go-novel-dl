@@ -70,12 +70,12 @@ func LoadOrInitConfig(console *ui.Console, explicitPath string) (*config.Config,
 		if absErr != nil {
 			absPath = target
 		}
-		console.Warnf("No config found at %s; creating a default config", absPath)
+		console.Warnf("未找到配置文件，正在创建默认配置：%s", absPath)
 
 		if err := config.WriteDefault(target, false); err != nil {
 			return nil, "", err
 		}
-		console.Successf("Created default config at %s", absPath)
+		console.Successf("已创建默认配置：%s", absPath)
 		return config.Load(target)
 	}
 
@@ -88,7 +88,7 @@ func (r *Runtime) Download(ctx context.Context, siteKey string, books []model.Bo
 		books = resolved.BookIDs
 	}
 	if len(books) == 0 {
-		return nil, fmt.Errorf("no book IDs provided for site %s", siteKey)
+		return nil, fmt.Errorf("渠道 %s 没有提供书籍 ID", siteKey)
 	}
 
 	client, err := r.Registry.Build(siteKey, resolved)
@@ -97,7 +97,7 @@ func (r *Runtime) Download(ctx context.Context, siteKey string, books []model.Bo
 	}
 
 	if resolved.General.LoginRequired && resolved.Cookie == "" && resolved.Username == "" {
-		r.Console.Warnf("Site %s is marked as login-required; starter scaffold continues with mock adapters", siteKey)
+		r.Console.Warnf("渠道 %s 标记为需要登录，但当前未提供登录信息，将继续按占位适配流程执行", siteKey)
 	}
 
 	results := make([]DownloadResult, 0, len(books))
@@ -250,7 +250,7 @@ func (r *Runtime) Export(siteKey string, books []model.BookRef, stage string, fo
 		books = resolved.BookIDs
 	}
 	if len(books) == 0 {
-		return nil, fmt.Errorf("no book IDs provided for export")
+		return nil, fmt.Errorf("导出时没有提供书籍 ID")
 	}
 
 	created := make([]string, 0)
@@ -264,7 +264,7 @@ func (r *Runtime) Export(siteKey string, books []model.BookRef, stage string, fo
 			return created, err
 		}
 		created = append(created, paths...)
-		r.Console.Infof("Exported %s/%s from stage %s", siteKey, ref.BookID, usedStage)
+		r.Console.Infof("已从阶段 %s 导出 %s/%s", usedStage, siteKey, ref.BookID)
 	}
 	return created, nil
 }

@@ -103,7 +103,7 @@ func TestManualWebSourceDetailHealth(t *testing.T) {
 				t.Fatalf("no valid detail result for %s after %d candidates: %s", tc.siteKey, minInt(5, len(results)), strings.Join(failures, "; "))
 			}
 
-			t.Logf("detail ok for %s/%s: search=%q title=%q chapters=%d", tc.siteKey, success.ID, tc.keyword, firstNonEmpty(success.Title, successResult.Title), len(success.Chapters))
+			t.Logf("detail ok for %s/%s: search=%q title=%q chapters=%d latest=%q", tc.siteKey, success.ID, tc.keyword, firstNonEmpty(success.Title, successResult.Title), len(success.Chapters), successResult.LatestChapter)
 		})
 	}
 }
@@ -129,6 +129,9 @@ func validateWebDetailResult(siteKey string, result model.SearchResult, book *mo
 	}
 	if strings.TrimSpace(firstNonEmpty(book.SourceURL, result.URL)) == "" {
 		return fmt.Errorf("empty source url")
+	}
+	if strings.TrimSpace(result.LatestChapter) == "" {
+		return fmt.Errorf("empty latest chapter")
 	}
 	if len(book.Chapters) == 0 {
 		return fmt.Errorf("no chapters returned")

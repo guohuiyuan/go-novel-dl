@@ -216,7 +216,21 @@ func (s *SfacgSite) Search(ctx context.Context, keyword string, limit int) ([]mo
 	if limit > 0 && len(results) > limit {
 		results = results[:limit]
 	}
+	enrichSearchResultsParallel(ctx, results, 5, s.populateSearchDetail)
 	return results, nil
+}
+
+func (s *SfacgSite) populateSearchDetail(ctx context.Context, item *model.SearchResult) error {
+	if item == nil || strings.TrimSpace(item.BookID) == "" {
+		return nil
+	}
+
+	book, err := s.DownloadPlan(ctx, model.BookRef{BookID: item.BookID})
+	if err != nil {
+		return err
+	}
+	fillSearchResultFromBook(item, book)
+	return nil
 }
 
 func parseSfacgSearchResults(markup string) ([]model.SearchResult, error) {

@@ -22,12 +22,11 @@ func newSearchCmd() *cobra.Command {
 		siteLimit  int
 		timeout    float64
 		formats    []string
-		allSites   bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "search keyword",
-		Short: "Hybrid search books across one or more sites",
+		Short: "跨多个渠道聚合搜索小说",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			console := newConsole()
@@ -44,15 +43,11 @@ func newSearchCmd() *cobra.Command {
 
 			keyword := args[0]
 			selectedSites := normalizeSites(sites)
-			switch {
-			case len(selectedSites) > 0:
-			case allSites:
-				selectedSites = allInteractiveSites(runtime)
-			default:
-				selectedSites = defaultInteractiveSites(runtime)
+			if len(selectedSites) == 0 {
+				selectedSites = interactiveSites(runtime)
 			}
 
-			console.Infof("Hybrid searching for %q...", keyword)
+			console.Infof("正在聚合搜索 %q...", keyword)
 			response, err := runtime.HybridSearch(ctx, keyword, app.HybridSearchOptions{
 				Sites:        selectedSites,
 				OverallLimit: limit,
@@ -62,7 +57,7 @@ func newSearchCmd() *cobra.Command {
 				return err
 			}
 			if len(response.Results) == 0 {
-				console.Warnf("No search results found")
+				console.Warnf("没有找到搜索结果")
 				printHybridWarnings(console, response.Warnings)
 				return nil
 			}
@@ -75,7 +70,7 @@ func newSearchCmd() *cobra.Command {
 			for _, result := range response.Results {
 				labels = append(labels, fmt.Sprintf("[%s] %s (%s) - %s | %s | %s", result.PreferredSite, result.Title, result.Primary.BookID, result.Author, resultChapterCountLabel(result, chapterCounts), nonEmptyLatestChapter(result)))
 			}
-			selected, err := console.SelectMany("Choose result(s) to download", labels)
+			selected, err := console.SelectMany("选择要下载的小说", labels)
 			if err != nil {
 				return err
 			}
@@ -85,39 +80,38 @@ func newSearchCmd() *cobra.Command {
 				return err
 			}
 			if len(downloads) == 0 {
-				console.Warnf("No books were downloaded")
+				console.Warnf("没有下载到任何小说")
 				return nil
 			}
 			for _, result := range downloads {
-				console.Successf("Downloaded %s/%s", result.Book.Site, result.Book.ID)
+				console.Successf("已下载 %s/%s", result.Book.Site, result.Book.ID)
 				for _, path := range result.Exported {
-					console.Infof("Exported %s", path)
+					console.Infof("已导出 %s", path)
 				}
 			}
 			return nil
 		},
 	}
 
-	cmd.Flags().StringSliceVarP(&sites, "site", "s", nil, "Restrict search to specific site key(s). Default: current web default sources")
-	cmd.Flags().StringVar(&configPath, "config", "", "Path to the configuration file")
-	cmd.Flags().IntVarP(&limit, "limit", "l", 20, "Maximum number of total results")
-	cmd.Flags().IntVar(&siteLimit, "site-limit", 10, "Maximum number of results per site")
-	cmd.Flags().Float64Var(&timeout, "timeout", 5.0, "Request timeout in seconds")
-	cmd.Flags().BoolVar(&allSites, "all-sites", false, "Use all web-visible searchable download sources instead of the default web source set")
-	cmd.Flags().StringSliceVar(&formats, "format", nil, "Output format(s) (default: config)")
+	cmd.Flags().StringSliceVarP(&sites, "site", "s", nil, "只搜索指定渠道；默认直接使用当前 Web 的 9 个渠道")
+	cmd.Flags().StringVar(&configPath, "config", "", "配置文件路径")
+	cmd.Flags().IntVarP(&limit, "limit", "l", 20, "总结果数上限")
+	cmd.Flags().IntVar(&siteLimit, "site-limit", 10, "单渠道结果数上限")
+	cmd.Flags().Float64Var(&timeout, "timeout", 5.0, "请求超时秒数")
+	cmd.Flags().StringSliceVar(&formats, "format", nil, "导出格式列表，默认读取配置")
 	return cmd
 }
 
 func printHybridSearchResults(console interface{ Infof(string, ...any) }, results []app.HybridSearchResult, chapterCounts map[string]int) {
 	for idx, result := range results {
 		console.Infof("%d. [%s] %s (%s) - %s", idx+1, result.PreferredSite, result.Title, result.Primary.BookID, result.Author)
-		console.Infof("   source: %s | chapters: %s | latest: %s", strings.Join(variantSites(result), ", "), resultChapterCountLabel(result, chapterCounts), nonEmptyLatestChapter(result))
+		console.Infof("   渠道: %s | 章节数: %s | 最新章节: %s", strings.Join(variantSites(result), ", "), resultChapterCountLabel(result, chapterCounts), nonEmptyLatestChapter(result))
 	}
 }
 
 func printHybridWarnings(console interface{ Warnf(string, ...any) }, warnings []app.SearchWarning) {
 	for _, warning := range warnings {
-		console.Warnf("%s search failed: %s", warning.Site, warning.Error)
+		console.Warnf("%s 搜索失败: %s", warning.Site, warning.Error)
 	}
 }
 

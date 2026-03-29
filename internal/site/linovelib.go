@@ -350,7 +350,52 @@ func (s *LinovelibSite) Search(ctx context.Context, keyword string, limit int) (
 	if err != nil {
 		return nil, err
 	}
-	return searchCachedResults(items, keyword, limit), nil
+	results := searchCachedResults(items, keyword, limit)
+	enrichSearchResultsParallel(ctx, results, 6, s.populateSearchDetail)
+	return results, nil
+}
+
+func (s *LinovelibSite) populateSearchDetail(ctx context.Context, item *model.SearchResult) error {
+	if item == nil || strings.TrimSpace(item.BookID) == "" {
+		return nil
+	}
+
+	markup, err := s.getWithRetry(ctx, fmt.Sprintf("https://www.linovelib.com/novel/%s.html", item.BookID))
+	if err != nil {
+		return err
+	}
+	doc, err := parseHTML(markup)
+	if err != nil {
+		return err
+	}
+
+	if title := fallback(metaProperty(doc, "og:title"), cleanText(nodeText(findFirst(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "h1" && hasClass(n, "book-name")
+	})))); title != "" {
+		item.Title = title
+	}
+	if author := fallback(metaProperty(doc, "og:novel:author"), cleanText(nodeText(findFirst(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "a" && hasAncestorClass(n, "au-name")
+	})))); author != "" {
+		item.Author = author
+	}
+	if description := fallback(metaProperty(doc, "og:description"), cleanText(nodeText(findFirst(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "div" && hasClass(n, "book-dec")
+	})))); description != "" {
+		item.Description = description
+	}
+	if cover := fallback(metaProperty(doc, "og:image"), attrValue(findFirst(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "img" && hasAncestorClass(n, "book-img")
+	}), "src")); cover != "" {
+		item.CoverURL = cover
+	}
+	if latest := fallback(metaProperty(doc, "og:novel:latest_chapter_name"), cleanText(nodeText(findFirst(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "a" && hasAncestorClass(n, "book-new-chapter")
+	})))); latest != "" {
+		item.LatestChapter = latest
+	}
+	item.URL = fmt.Sprintf("https://www.linovelib.com/novel/%s.html", item.BookID)
+	return nil
 }
 
 func (s *LinovelibSite) buildSearchIndex(ctx context.Context) ([]model.SearchResult, error) {

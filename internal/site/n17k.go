@@ -206,7 +206,21 @@ func (s *N17KSite) Search(ctx context.Context, keyword string, limit int) ([]mod
 	if limit > 0 && len(results) > limit {
 		results = results[:limit]
 	}
+	enrichSearchResultsParallel(ctx, results, 5, s.populateSearchDetail)
 	return results, nil
+}
+
+func (s *N17KSite) populateSearchDetail(ctx context.Context, item *model.SearchResult) error {
+	if item == nil || strings.TrimSpace(item.BookID) == "" {
+		return nil
+	}
+
+	book, err := s.DownloadPlan(ctx, model.BookRef{BookID: item.BookID})
+	if err != nil {
+		return err
+	}
+	fillSearchResultFromBook(item, book)
+	return nil
 }
 
 func parseN17KSearchResults(markup string) ([]model.SearchResult, error) {

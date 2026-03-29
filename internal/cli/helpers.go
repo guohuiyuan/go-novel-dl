@@ -60,7 +60,7 @@ func parseBookRefs(bookIDs []string, startID, endID string) []model.BookRef {
 
 func ensureSingleURL(args []string) (string, error) {
 	if len(args) != 1 {
-		return "", fmt.Errorf("expected exactly one URL argument when --site is omitted")
+		return "", fmt.Errorf("未指定 --site 时，必须且只能提供一个 URL 参数")
 	}
 	return args[0], nil
 }
@@ -94,20 +94,13 @@ func withTimeout(parent context.Context, timeoutSeconds float64) (context.Contex
 
 func requireSite(cmd *cobra.Command, site string) error {
 	if strings.TrimSpace(site) == "" {
-		return fmt.Errorf("--site is required for this operation")
+		return fmt.Errorf("当前操作必须指定 --site")
 	}
 	_ = cmd
 	return nil
 }
 
-func defaultInteractiveSites(runtime *app.Runtime) []string {
-	if runtime == nil {
-		return nil
-	}
-	return webCompatibleSites(runtime, runtime.DefaultSearchSites())
-}
-
-func allInteractiveSites(runtime *app.Runtime) []string {
+func interactiveSites(runtime *app.Runtime) []string {
 	if runtime == nil {
 		return nil
 	}
