@@ -98,6 +98,16 @@ func (s *DownloadTaskStore) MarkRunning(id string, siteKey string, bookID string
 	})
 }
 
+func (s *DownloadTaskStore) MarkLoadingChapters(id string, siteKey string, bookID string) {
+	s.update(id, func(task *DownloadTask) {
+		task.Status = "running"
+		task.Phase = "loading_chapters"
+		task.Site = siteKey
+		task.BookID = bookID
+		appendTaskMessage(task, "info", "Loading chapters list...")
+	})
+}
+
 func (s *DownloadTaskStore) MarkProgress(id string, done int, total int, chapterTitle string) {
 	s.update(id, func(task *DownloadTask) {
 		task.Status = "running"

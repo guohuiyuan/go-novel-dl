@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/net/html"
@@ -101,28 +102,71 @@ func (s *FsshuSite) Download(ctx context.Context, ref model.BookRef) (*model.Boo
 
 func (s *FsshuSite) DownloadPlan(ctx context.Context, ref model.BookRef) (*model.Book, error) {
 	bookPath := ref.BookID
-	pages := []string{}
 
-	for idx := 0; ; idx++ {
-		var url string
-		if idx == 0 {
-			url = fmt.Sprintf("%s/%s/%s/", s.baseURL, s.bookPrefix, bookPath)
-		} else {
-			url = fmt.Sprintf("%s/%s/%s/index_%d.html", s.baseURL, s.bookPrefix, bookPath, idx+1)
+	type pageResult struct {
+		idx    int
+		markup string
+		err    error
+	}
+
+	firstURL := fmt.Sprintf("%s/%s/%s/", s.baseURL, s.bookPrefix, bookPath)
+	firstMarkup, err := s.getWithRetry(ctx, firstURL)
+	if err != nil {
+		return nil, err
+	}
+
+	maxTestPages := 50
+	if !strings.Contains(firstMarkup, "book_list2") || !strings.Contains(firstMarkup, "index_") {
+		maxTestPages = 1
+	}
+
+	pages := make([]string, maxTestPages)
+	pages[0] = firstMarkup
+
+	if maxTestPages > 1 {
+		sem := make(chan struct{}, 5)
+		var wg sync.WaitGroup
+		results := make(chan pageResult, maxTestPages)
+
+		for idx := 1; idx < maxTestPages; idx++ {
+			wg.Add(1)
+			go func(pageIdx int) {
+				sem <- struct{}{}
+				defer wg.Done()
+				defer func() { <-sem }()
+
+				url := fmt.Sprintf("%s/%s/%s/index_%d.html", s.baseURL, s.bookPrefix, bookPath, pageIdx+1)
+				markup, err := s.getWithRetry(ctx, url)
+				results <- pageResult{idx: pageIdx, markup: markup, err: err}
+			}(idx)
 		}
 
-		markup, err := s.getWithRetry(ctx, url)
-		if err != nil {
-			if idx == 0 {
-				return nil, err
+		go func() {
+			wg.Wait()
+			close(results)
+		}()
+
+		validPages := 1
+		for result := range results {
+			if result.err == nil && result.markup != "" && strings.Contains(result.markup, "book_list2") {
+				pages[result.idx] = result.markup
+				validPages++
+			} else {
+				pages[result.idx] = ""
 			}
-			break
 		}
-		pages = append(pages, markup)
 
-		if !strings.Contains(markup, "book_list2") || !strings.Contains(markup, "index_") {
-			break
+		actualPages := make([]string, 0)
+		for _, p := range pages {
+			if p != "" {
+				actualPages = append(actualPages, p)
+			}
 		}
+		pages = actualPages
+	}
+
+	if len(pages) == 0 {
+		return nil, fmt.Errorf("book page not found")
 	}
 
 	if len(pages) == 0 {

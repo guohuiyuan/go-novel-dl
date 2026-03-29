@@ -801,6 +801,9 @@ function formatTaskStatus(task) {
   if (task.phase === "exporting") {
     return "导出中";
   }
+  if (task.phase === "loading_chapters") {
+    return "加载章节中";
+  }
   if (task.status === "running") {
     return "下载中";
   }
