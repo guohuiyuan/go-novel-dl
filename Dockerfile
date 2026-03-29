@@ -1,4 +1,7 @@
-FROM golang:1.25 AS builder
+FROM golang:1.25-alpine AS builder
+
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
+RUN apk add --no-cache git
 
 WORKDIR /app
 
