@@ -2,6 +2,7 @@ package site
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -12,6 +13,9 @@ import (
 func TestIntegrationDownloadAvailableSites(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration download test in short mode")
+	}
+	if os.Getenv("GO_NOVEL_DL_INTEGRATION_DOWNLOAD") == "" {
+		t.Skip("set GO_NOVEL_DL_INTEGRATION_DOWNLOAD=1 to run live integration download tests")
 	}
 
 	registry := NewDefaultRegistry()

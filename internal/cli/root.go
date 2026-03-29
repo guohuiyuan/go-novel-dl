@@ -37,7 +37,7 @@ func NewRootCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&configPath, "config", "", "Path to the configuration file")
 	cmd.Flags().StringSliceVarP(&sites, "site", "s", nil, "Restrict interactive search to specific site key(s)")
-	cmd.Flags().BoolVar(&allSites, "all-sites", false, "Use all searchable sites instead of default available sources")
+	cmd.Flags().BoolVar(&allSites, "all-sites", false, "Use all web-visible searchable download sources instead of the default web source set")
 
 	cmd.AddCommand(
 		newDownloadCmd(),

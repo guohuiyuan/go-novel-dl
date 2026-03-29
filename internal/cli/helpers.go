@@ -13,6 +13,7 @@ import (
 	"github.com/guohuiyuan/go-novel-dl/internal/app"
 	"github.com/guohuiyuan/go-novel-dl/internal/model"
 	"github.com/guohuiyuan/go-novel-dl/internal/progress"
+	"github.com/guohuiyuan/go-novel-dl/internal/site"
 	"github.com/guohuiyuan/go-novel-dl/internal/ui"
 )
 
@@ -97,4 +98,46 @@ func requireSite(cmd *cobra.Command, site string) error {
 	}
 	_ = cmd
 	return nil
+}
+
+func defaultInteractiveSites(runtime *app.Runtime) []string {
+	if runtime == nil {
+		return nil
+	}
+	return webCompatibleSites(runtime, runtime.DefaultSearchSites())
+}
+
+func allInteractiveSites(runtime *app.Runtime) []string {
+	if runtime == nil {
+		return nil
+	}
+	return webCompatibleSites(runtime, runtime.AllSearchSites())
+}
+
+func webCompatibleSites(runtime *app.Runtime, keys []string) []string {
+	if runtime == nil || runtime.Registry == nil {
+		return nil
+	}
+
+	descriptors := runtime.Registry.SiteDescriptors(keys)
+	filtered := make([]string, 0, len(descriptors))
+	for _, descriptor := range descriptors {
+		if !interactiveSiteVisible(descriptor) {
+			continue
+		}
+		filtered = append(filtered, descriptor.Key)
+	}
+	return filtered
+}
+
+func interactiveSiteVisible(descriptor site.SiteDescriptor) bool {
+	if !descriptor.Capabilities.Search || !descriptor.Capabilities.Download {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(descriptor.Key)) {
+	case "biquge345":
+		return false
+	default:
+		return true
+	}
 }
