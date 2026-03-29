@@ -1,22 +1,15 @@
 # go-novel-dl
 
-`go-novel-dl` 是一个以 Go 实现的小说下载器，当前同时提供：
+`go-novel-dl` 是一个以 Go 实现的多源聚合小说下载器，提供命令行和 Web 两种界面。
 
-- `novel-dl` 交互式多源并发搜索
-- `novel-dl` 单书下载 / 导出
-- Web UI
+## 功能特性
 
-当前统一入口是 `novel-dl`。
-
-## 当前能力
-
-- 支持按一个或多个站点做多源并发搜索
-- 搜索结果支持聚合排序、分页和简介展示
-- Web 端只展示“可搜索且可下载”的源
-- Web 端支持多渠道并发搜索、翻页、创建下载任务
-- 支持 TXT / HTML / EPUB 导出
-- 支持按章节范围下载
-- 原始数据、导出文件和运行状态统一落到 `data/`
+- **多源聚合搜索**：并发搜索多个小说站点，结果自动聚合去重
+- **交互式 TUI**：基于 Bubble Tea 的终端交互界面，支持翻页、选择、批量下载
+- **Web UI**：现代化 Web 界面，支持搜索、详情查看、任务队列、浏览器下载
+- **多格式导出**：支持 TXT / EPUB 格式
+- **章节范围下载**：可指定起止章节
+- **可配置分页**：CLI 和 Web 分页大小可通过配置或命令行调整
 
 ## 快速开始
 
@@ -26,20 +19,19 @@
 go run ./cmd/novel-dl config init
 ```
 
-默认配置文件会写到 `data/settings.toml`。
+配置文件默认写入 `data/settings.toml`。
 
 ### 2. 交互式搜索下载
 
 ```bash
+# 直接进入交互式搜索
 go run ./cmd/novel-dl 三体
-```
 
-或显式调用搜索命令：
+# 或显式调用 search 命令
+go run ./cmd/novel-dl search 斗罗
 
-```bash
-go run ./cmd/novel-dl search 三体
+# 指定渠道搜索
 go run ./cmd/novel-dl search 斗罗 --site sfacg --site n17k
-go run ./cmd/novel-dl search vtuber --all-sites
 ```
 
 ### 3. 启动 Web UI
@@ -48,24 +40,30 @@ go run ./cmd/novel-dl search vtuber --all-sites
 go run ./cmd/novel-dl web
 ```
 
-默认地址：
-
-```text
-http://localhost:8080/novel
-```
-
-可用参数：
+访问 http://localhost:8080/novel
 
 ```bash
+# 自定义端口，不自动打开浏览器
 go run ./cmd/novel-dl web --port 18080 --no-browser
+
+# 指定每页显示数量
+go run ./cmd/novel-dl web --page-size 30
 ```
 
 ### 4. 直接下载
 
 ```bash
-go run ./cmd/novel-dl download --site esjzone 1660702902
+# 通过 URL 下载
 go run ./cmd/novel-dl download https://www.esjzone.cc/detail/1660702902.html
-go run ./cmd/novel-dl download --site faloo 1482723 --start 1 --end 52
+
+# 指定站点和书号
+go run ./cmd/novel-dl download --site linovelib 8
+
+# 按章节范围下载
+go run ./cmd/novel-dl download --site esjzone 1660702902 --start 294593 --end 305803
+
+# 仅下载不导出
+go run ./cmd/novel-dl download --site sfacg 248014 --no-export
 ```
 
 ### 5. 导出已下载内容
@@ -74,228 +72,191 @@ go run ./cmd/novel-dl download --site faloo 1482723 --start 1 --end 52
 go run ./cmd/novel-dl export --site esjzone 1660702902 --format epub
 ```
 
+## 命令概览
+
+```text
+novel-dl [keyword]              # 交互式聚合搜索
+novel-dl search <keyword>       # 搜索并选择下载
+novel-dl download [url|book_id] # 直接下载
+novel-dl export [book_id]       # 导出已下载内容
+novel-dl web                    # 启动 Web 服务
+novel-dl config init            # 初始化配置
+novel-dl config set-lang zh_CN  # 设置语言
+novel-dl clean [state|logs|cache|book]  # 清理数据
+```
+
+### 命令行参数
+
+#### search
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `-s, --site` | 指定搜索渠道 | 所有可用渠道 |
+| `-l, --limit` | 总结果数上限 | 150 |
+| `--site-limit` | 单渠道结果数上限 | 30 |
+| `--page-size` | 每页显示数量 | 读取配置 |
+| `--timeout` | 请求超时秒数 | 5 |
+| `--format` | 导出格式 | 读取配置 |
+
+#### web
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `-p, --port` | 服务端口 | 8080 |
+| `--no-browser` | 不自动打开浏览器 | false |
+| `--page-size` | 每页显示数量 | 读取配置 |
+
+#### download
+
+| 参数 | 说明 |
+|------|------|
+| `--site` | 渠道 key |
+| `--start` | 起始章节 ID |
+| `--end` | 结束章节 ID |
+| `--format` | 导出格式 |
+| `--no-export` | 仅下载不导出 |
+
 ## Web UI
 
-Web 端当前行为和代码保持一致：
+### 功能
 
-- 页面路由前缀是 `/novel`
-- `default_sources` 只包含“默认启用且可搜索可下载”的源
-- `all_sources` 只包含“全部可搜索可下载”的源
-- 搜索支持勾选多个渠道并发搜索
-- 搜索结果支持分页
-- 结果卡片会展示简介、封面、来源聚合信息和下载目标
-- 显式传入不可搜索源时，`/novel/api/search` 会直接返回 `400`
-- Web 多源搜索会为每个渠道启动一个 goroutine 并发请求，再聚合结果排序
+- **多渠道搜索**：支持勾选多个渠道并发搜索
+- **分页浏览**：搜索结果分页显示，页码可配置
+- **详情查看**：点击封面查看小说简介、章节目录
+- **任务队列**：下载任务实时显示进度
+- **浏览器下载**：已完成的任务可直接点击文件名下载
 
 ### Web API
 
-#### 获取渠道元数据
-
 ```http
+# 获取渠道元数据
 GET /novel/api/meta
-```
 
-#### 搜索
-
-```http
+# 搜索
 POST /novel/api/search
 Content-Type: application/json
-```
-
-示例：
-
-```json
 {
   "keyword": "斗罗",
   "sites": ["n17k", "sfacg"],
   "page": 1,
-  "page_size": 5
+  "page_size": 50
 }
-```
 
-搜索响应包含：
+# 获取书籍详情
+GET /novel/api/books/detail?site=sfacg&book_id=248014
 
-- `results`
-- `warnings`
-- `page`
-- `page_size`
-- `total`
-- `total_exact`
-- `has_prev`
-- `has_next`
-
-#### 创建下载任务
-
-```http
+# 创建下载任务
 POST /novel/api/download-tasks
 Content-Type: application/json
-```
-
-示例：
-
-```json
 {
   "site": "sfacg",
   "book_id": "248014"
 }
-```
 
-## 命令概览
+# 查询任务状态
+GET /novel/api/download-tasks/:id
 
-```text
-novel-dl [keyword]
-novel-dl search keyword
-novel-dl download [book_ids | url]
-novel-dl export [book_id ...]
-novel-dl config init
-novel-dl config set-lang zh_CN
-novel-dl clean state
-novel-dl clean logs
-novel-dl clean cache
-novel-dl clean book
-novel-dl web
-```
-
-### 根命令
-
-```bash
-go run ./cmd/novel-dl --help
-```
-
-当前根命令行为：
-
-- `novel-dl [keyword]`：进入交互式多源并发搜索
-- `--site`：限制交互式搜索站点
-- `--all-sites`：使用全部可搜索源，而不是默认源
-
-## 站点能力矩阵
-
-下面这张表直接对应各站点 `Capabilities()` 的当前代码状态，不代表源站一定长期稳定可用。
-
-| Key | 下载 | 搜索 | 登录 |
-| --- | --- | --- | --- |
-| `biquge345` | 是 | 是 | 否 |
-| `biquge5` | 是 | 是 | 否 |
-| `ciweimao` | 是 | 是 | 否 |
-| `ciyuanji` | 是 | 是 | 否 |
-| `esjzone` | 是 | 是 | 是 |
-| `faloo` | 是 | 是 | 否 |
-| `fanqienovel` | 是 | 否 | 否 |
-| `fsshu` | 是 | 是 | 否 |
-| `hongxiuzhao` | 是 | 否 | 否 |
-| `ixdzs8` | 是 | 是 | 否 |
-| `linovelib` | 是 | 是 | 否 |
-| `n17k` | 是 | 是 | 否 |
-| `n23qb` | 是 | 是 | 否 |
-| `n69shuba` | 是 | 否 | 否 |
-| `novalpie` | 是 | 否 | 是 |
-| `piaotia` | 是 | 是 | 否 |
-| `qbtr` | 是 | 是 | 否 |
-| `ruochu` | 是 | 是 | 否 |
-| `sfacg` | 是 | 是 | 否 |
-| `wenku8` | 是 | 否 | 否 |
-| `westnovel` | 是 | 是 | 否 |
-| `yibige` | 是 | 否 | 否 |
-| `yodu` | 是 | 是 | 否 |
-
-### 当前可搜索且可下载的源
-
-共 17 个：
-
-`biquge345`、`biquge5`、`ciweimao`、`ciyuanji`、`esjzone`、`faloo`、`fsshu`、`ixdzs8`、`linovelib`、`n17k`、`n23qb`、`piaotia`、`qbtr`、`ruochu`、`sfacg`、`westnovel`、`yodu`
-
-### 当前仅下载、不支持搜索的源
-
-共 6 个：
-
-`fanqienovel`、`hongxiuzhao`、`n69shuba`、`novalpie`、`wenku8`、`yibige`
-
-### Web 默认搜索源
-
-默认启用的是 `defaultAvailableSiteKeys` 与“可搜索且可下载”能力交集，当前共 9 个：
-
-`esjzone`、`westnovel`、`yodu`、`linovelib`、`n23qb`、`ruochu`、`sfacg`、`ciyuanji`、`ciweimao`
-
-## 常用命令示例
-
-```bash
-# 通过 URL 自动识别站点并下载
-go run ./cmd/novel-dl download https://www.esjzone.cc/detail/1660702902.html
-
-# 指定站点和书号下载
-go run ./cmd/novel-dl download --site westnovel wuxia-ynyh
-go run ./cmd/novel-dl download --site linovelib 8
-go run ./cmd/novel-dl download --site n23qb 12282
-go run ./cmd/novel-dl download --site ciweimao 100812822
-
-# 按章节范围下载
-go run ./cmd/novel-dl download --site esjzone 1660702902 --start 294593 --end 305803
-
-# 下载后导出
-go run ./cmd/novel-dl export --site esjzone 1660702902 --format epub
-
-# 启动 Web UI
-go run ./cmd/novel-dl web --port 18080 --no-browser
+# 下载文件
+GET /novel/api/download-file?path=/path/to/file
 ```
 
 ## 配置说明
 
-默认配置文件：
+配置文件：`data/settings.toml`
 
-```text
-data/settings.toml
+```toml
+[general]
+# 分页配置
+web_page_size = 50    # Web 界面每页显示数量
+cli_page_size = 30    # CLI 界面每页显示数量
+
+# 下载配置
+request_interval = 0.5
+workers = 4
+max_connections = 10
+timeout = 10.0
+
+[general.output]
+formats = ["txt", "epub"]
+append_timestamp = true
+
+# 站点配置
+[sites.esjzone]
+login_required = true
+username = "your_username"
+password = "your_password"
 ```
 
-配置模板：
+完整配置示例见 `internal/config/resources/settings.sample.toml`。
+
+## 站点能力矩阵
+
+| Key | 下载 | 搜索 | 登录 |
+| --- | :---: | :---: | :---: |
+| `biquge345` | ✓ | ✓ | - |
+| `biquge5` | ✓ | ✓ | - |
+| `ciweimao` | ✓ | ✓ | - |
+| `ciyuanji` | ✓ | ✓ | - |
+| `esjzone` | ✓ | ✓ | ✓ |
+| `faloo` | ✓ | ✓ | - |
+| `fanqienovel` | ✓ | - | - |
+| `fsshu` | ✓ | ✓ | - |
+| `hongxiuzhao` | ✓ | - | - |
+| `ixdzs8` | ✓ | ✓ | - |
+| `linovelib` | ✓ | ✓ | - |
+| `n17k` | ✓ | ✓ | - |
+| `n23qb` | ✓ | ✓ | - |
+| `n69shuba` | ✓ | - | - |
+| `novalpie` | ✓ | - | ✓ |
+| `piaotia` | ✓ | ✓ | - |
+| `qbtr` | ✓ | ✓ | - |
+| `ruochu` | ✓ | ✓ | - |
+| `sfacg` | ✓ | ✓ | - |
+| `wenku8` | ✓ | - | - |
+| `westnovel` | ✓ | ✓ | - |
+| `yibige` | ✓ | - | - |
+| `yodu` | ✓ | ✓ | - |
+
+## 数据目录
 
 ```text
-internal/config/resources/settings.sample.toml
+data/
+├── settings.toml              # 配置文件
+├── raw_data/<site>/<book>/    # 原始数据
+├── downloads/                 # 导出文件
+├── novel_cache/               # 缓存
+├── logs/                      # 日志
+└── go-novel-dl/state.json    # 状态
 ```
 
-当前常见配置段包括：
-
-- `[general]`
-- `[general.output]`
-- `[general.parser]`
-- `[general.debug]`
-- `[[general.processors]]`
-- `[sites.<site>]`
-- `[plugins]`
-
-## 数据目录结构
-
-所有运行数据统一写入 `data/`。
-
-原始数据：
-
-```text
-data/raw_data/<site>/<book_id>/book_info.<stage>.json
-data/raw_data/<site>/<book_id>/chapters.<stage>.sqlite
-data/raw_data/<site>/<book_id>/pipeline.json
-```
-
-其他运行数据：
-
-```text
-data/downloads/
-data/logs/
-data/novel_cache/
-data/go-novel-dl/state.json
-```
-
-## 测试与构建
+## Docker 部署
 
 ```bash
-go test ./...
-go build ./...
+# 构建
+docker compose build
+
+# 启动
+docker compose up -d
+
+# 访问
+http://localhost:8080/novel
 ```
 
-更多测试组织说明见：
+## 构建与测试
 
-- `tests/README.md`
+```bash
+# 构建
+go build ./...
 
-## 说明
+# 测试
+go test ./...
 
-- 站点能力矩阵来自当前代码里的 `Capabilities()`，不是实时联网健康检查结论。
-- 某些站点会受到 Cloudflare、限流、登录态或反爬策略影响，真实可用性会波动。
-- `esjzone` 和 `novalpie` 当前带有登录能力标记；其中 `novalpie` 已保留为“可下载但不可搜索”。
+# 构建可执行文件
+go build -o novel-dl ./cmd/novel-dl
+```
+
+## 注意事项
+
+- 站点能力基于代码实现，非实时健康检查
+- 部分站点可能受 Cloudflare、限流、登录态或反爬策略影响
+- `esjzone` 和 `novalpie` 需要登录才能使用
