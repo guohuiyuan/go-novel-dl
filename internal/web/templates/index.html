@@ -68,7 +68,7 @@
               <span id="resultCount" class="count-badge">0</span>
               <div class="pagination">
                 <button type="button" id="prevPage" class="page-button">上一页</button>
-                <span id="pageIndicator" class="page-indicator">第 1 页 · 每页 50 本</span>
+                <span id="pageIndicator" class="page-indicator">第 1 页 · 每页 {{.PageSize}} 本</span>
                 <button type="button" id="nextPage" class="page-button">下一页</button>
               </div>
             </div>
@@ -114,7 +114,8 @@
     window.__NOVEL_DL__ = {
       root: {{ toJSON .Root }},
       defaultSources: {{ toJSON .DefaultSources }},
-      allSources: {{ toJSON .AllSources }}
+      allSources: {{ toJSON .AllSources }},
+      pageSize: {{ toJSON .PageSize }}
     };
   </script>
   <script src="{{ .Root }}/app.js"></script>

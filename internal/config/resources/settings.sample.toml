@@ -27,6 +27,8 @@ fetch_inaccessible = false
 backend = "nethttp"
 locale_style = "simplified"
 login_required = false
+web_page_size = 50
+cli_page_size = 30
 
 [general.output]
 formats = ["txt", "epub"]

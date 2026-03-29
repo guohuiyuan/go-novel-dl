@@ -26,7 +26,7 @@ const (
 	uiStateDownloading
 )
 
-const chapterCountEnrichLimit = 12
+const chapterCountEnrichLimit = defaultCLISearchPageSize
 
 var (
 	uiAccent = lipgloss.Color("#1d4ed8")
@@ -75,6 +75,7 @@ type interactiveModel struct {
 	status        string
 	lastExported  []string
 	countsLoading bool
+	pageSize      int
 }
 
 func StartInteractiveUI(ctx context.Context, configPath string, initialKeyword string, sites []string) error {
@@ -84,6 +85,11 @@ func StartInteractiveUI(ctx context.Context, configPath string, initialKeyword s
 	}
 	if runtime == nil {
 		return fmt.Errorf("运行时尚未初始化")
+	}
+
+	pageSize := runtime.Config.General.CLIPageSize
+	if pageSize <= 0 {
+		pageSize = defaultCLISearchPageSize
 	}
 
 	ti := textinput.New()
@@ -108,6 +114,7 @@ func StartInteractiveUI(ctx context.Context, configPath string, initialKeyword s
 		chapterCounts: make(map[string]int),
 		selected:      make(map[int]struct{}),
 		status:        "按回车开始搜索，默认直接使用当前 Web 的 9 个渠道。",
+		pageSize:      pageSize,
 	}
 
 	if model.keyword != "" {
@@ -193,15 +200,15 @@ func (m interactiveModel) updateSearching(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.selected = make(map[int]struct{})
 		m.chapterCounts = make(map[string]int)
 		m.state = uiStateResults
-		m.countsLoading = len(m.results) > 0
+		m.countsLoading = false
 
 		if len(m.results) == 0 {
 			m.status = "没有找到结果。"
 			return m, nil
 		}
 
-		m.status = fmt.Sprintf("共找到 %d 个聚合结果，当前渠道：%s。", len(m.results), m.scopeLabel())
-		return m, m.chapterCountsCmd(m.results)
+		m.status = fmt.Sprintf("共找到 %d 个聚合结果，当前渠道：%s。%s。", len(m.results), m.scopeLabel(), m.pageLabel())
+		return m, m.refreshCurrentPageChapterCounts()
 	}
 	return m, nil
 }
@@ -214,7 +221,7 @@ func (m interactiveModel) updateResults(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.chapterCounts[key] = count
 		}
 		if len(msg.counts) > 0 && len(m.results) > 0 {
-			m.status = fmt.Sprintf("共找到 %d 个聚合结果，当前渠道：%s。已加载 %d 本书的章节数。", len(m.results), m.scopeLabel(), len(msg.counts))
+			m.status = fmt.Sprintf("共找到 %d 个聚合结果，当前渠道：%s。%s。已加载当前页 %d 本书的章节数。", len(m.results), m.scopeLabel(), m.pageLabel(), len(msg.counts))
 		}
 		return m, nil
 	case tea.KeyMsg:
@@ -226,6 +233,16 @@ func (m interactiveModel) updateResults(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "down", "j":
 			if m.cursor < len(m.results)-1 {
 				m.cursor++
+			}
+		case "left", "pgup", "p":
+			if m.movePage(-1) {
+				m.status = fmt.Sprintf("已切换到%s。", m.pageLabel())
+				return m, m.refreshCurrentPageChapterCounts()
+			}
+		case "right", "pgdown", "n":
+			if m.movePage(1) {
+				m.status = fmt.Sprintf("已切换到%s。", m.pageLabel())
+				return m, m.refreshCurrentPageChapterCounts()
 			}
 		case " ":
 			if len(m.results) == 0 {
@@ -317,6 +334,7 @@ func (m interactiveModel) View() string {
 		if len(m.results) == 0 {
 			builder.WriteString(uiWarnStyle.Render("没有结果。") + "\n")
 		} else {
+			builder.WriteString(uiHintStyle.Render(m.pageLabel()) + "\n\n")
 			builder.WriteString(m.renderResultsTable())
 		}
 		if len(m.warnings) > 0 {
@@ -331,7 +349,7 @@ func (m interactiveModel) View() string {
 			}
 		}
 		builder.WriteString("\n")
-		builder.WriteString(uiHintStyle.Render("按键: ↑↓ 移动，Space 选择，a 全选，Enter 下载，b 返回，q 退出") + "\n")
+		builder.WriteString(uiHintStyle.Render("按键: ↑↓ 移动，←→ 翻页，Space 选择，a 全选，Enter 下载，b 返回，q 退出") + "\n")
 	case uiStateDownloading:
 		builder.WriteString(fmt.Sprintf("%s %s\n", m.spinner.View(), m.status))
 	}
@@ -371,7 +389,9 @@ func (m interactiveModel) renderResultsTable() string {
 	)
 	builder.WriteString(header + "\n")
 
-	for idx, result := range m.results {
+	pageStart, _ := m.pageBounds()
+	for offset, result := range m.currentPageResults() {
+		idx := pageStart + offset
 		rowStyle := uiRowStyle
 		if idx == m.cursor {
 			rowStyle = uiFocusStyle
@@ -409,8 +429,8 @@ func (m interactiveModel) searchCmd(keyword string) tea.Cmd {
 	return func() tea.Msg {
 		response, err := m.runtime.HybridSearch(m.ctx, keyword, app.HybridSearchOptions{
 			Sites:        sites,
-			OverallLimit: 20,
-			PerSiteLimit: 8,
+			OverallLimit: defaultSearchResultLimit,
+			PerSiteLimit: m.pageSize,
 		})
 		return searchFinishedMsg{response: response, err: err}
 	}
@@ -528,6 +548,80 @@ func (m interactiveModel) scopeLabel() string {
 		return strings.Join(m.sites, ", ")
 	}
 	return fmt.Sprintf("固定 9 个渠道 (%d)", len(interactiveSites(m.runtime)))
+}
+
+func (m interactiveModel) currentPage() int {
+	if len(m.results) == 0 {
+		return 0
+	}
+	return clampInt(resultPageForIndex(m.cursor, m.pageSize), 0, resultPageCount(len(m.results), m.pageSize)-1)
+}
+
+func (m interactiveModel) pageBounds() (int, int) {
+	return resultPageBounds(len(m.results), m.currentPage(), m.pageSize)
+}
+
+func (m interactiveModel) currentPageResults() []app.HybridSearchResult {
+	start, end := m.pageBounds()
+	if start >= end {
+		return nil
+	}
+	return m.results[start:end]
+}
+
+func (m interactiveModel) pageLabel() string {
+	totalPages := resultPageCount(len(m.results), m.pageSize)
+	if totalPages == 0 {
+		return fmt.Sprintf("第 1/1 页，每页 %d 条", m.pageSize)
+	}
+	return fmt.Sprintf("第 %d/%d 页，每页 %d 条", m.currentPage()+1, totalPages, m.pageSize)
+}
+
+func (m *interactiveModel) movePage(delta int) bool {
+	totalPages := resultPageCount(len(m.results), m.pageSize)
+	if totalPages <= 1 {
+		return false
+	}
+	currentPage := m.currentPage()
+	targetPage := clampInt(currentPage+delta, 0, totalPages-1)
+	if targetPage == currentPage {
+		return false
+	}
+
+	currentStart, _ := resultPageBounds(len(m.results), currentPage, m.pageSize)
+	targetStart, targetEnd := resultPageBounds(len(m.results), targetPage, m.pageSize)
+	offset := m.cursor - currentStart
+	m.cursor = targetStart + offset
+	if m.cursor >= targetEnd {
+		m.cursor = targetEnd - 1
+	}
+	if m.cursor < targetStart {
+		m.cursor = targetStart
+	}
+	return true
+}
+
+func (m *interactiveModel) refreshCurrentPageChapterCounts() tea.Cmd {
+	pageResults := m.currentPageResults()
+	if len(pageResults) == 0 {
+		m.countsLoading = false
+		return nil
+	}
+
+	pending := make([]app.HybridSearchResult, 0, len(pageResults))
+	for _, result := range pageResults {
+		if _, ok := m.chapterCounts[resultIdentity(result)]; ok {
+			continue
+		}
+		pending = append(pending, result)
+	}
+	if len(pending) == 0 {
+		m.countsLoading = false
+		return nil
+	}
+
+	m.countsLoading = true
+	return m.chapterCountsCmd(pending)
 }
 
 func (m *interactiveModel) toggleSelection(idx int) {

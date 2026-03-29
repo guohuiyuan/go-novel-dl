@@ -54,6 +54,8 @@ func DefaultConfig() Config {
 			Backend:           "nethttp",
 			LocaleStyle:       "simplified",
 			LoginRequired:     false,
+			WebPageSize:       50,
+			CLIPageSize:       30,
 			Output: OutputConfig{
 				Formats:              []string{"txt", "epub"},
 				AppendTimestamp:      true,

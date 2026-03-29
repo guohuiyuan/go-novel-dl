@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +24,7 @@ func TestInteractiveModelToggleSelectionAndSelectAll(t *testing.T) {
 		state:    uiStateResults,
 		results:  sampleHybridResults(),
 		selected: make(map[int]struct{}),
+		pageSize: 20,
 	}
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}})
@@ -58,6 +60,7 @@ func TestInteractiveProgramBatchDownloadMultiSelect(t *testing.T) {
 		chapterCounts: map[string]int{},
 		sites:         []string{"alpha"},
 		status:        "ready",
+		pageSize:      20,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -102,6 +105,44 @@ func TestInteractiveProgramBatchDownloadMultiSelect(t *testing.T) {
 	}
 }
 
+func TestInteractiveModelPageNavigation(t *testing.T) {
+	m := interactiveModel{
+		state:         uiStateResults,
+		results:       sampleHybridResultsCount(45),
+		selected:      make(map[int]struct{}),
+		chapterCounts: map[string]int{},
+		pageSize:      20,
+	}
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	afterNextPage := next.(interactiveModel)
+	if afterNextPage.currentPage() != 1 {
+		t.Fatalf("expected current page 2, got %d", afterNextPage.currentPage()+1)
+	}
+	if afterNextPage.cursor != 20 {
+		t.Fatalf("expected cursor to move to first item on page 2, got %d", afterNextPage.cursor)
+	}
+	view := afterNextPage.View()
+	if !strings.Contains(view, "第 2/3 页，每页 20 条") {
+		t.Fatalf("expected page label in view, got %q", view)
+	}
+	if !strings.Contains(view, "Book 21") {
+		t.Fatalf("expected page 2 results in view, got %q", view)
+	}
+	if len(afterNextPage.currentPageResults()) != 20 {
+		t.Fatalf("expected 20 results on page 2, got %d", len(afterNextPage.currentPageResults()))
+	}
+	if afterNextPage.currentPageResults()[0].Title != "Book 21" {
+		t.Fatalf("expected first result on page 2 to be Book 21, got %q", afterNextPage.currentPageResults()[0].Title)
+	}
+
+	next, _ = afterNextPage.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	afterPrevPage := next.(interactiveModel)
+	if afterPrevPage.currentPage() != 0 {
+		t.Fatalf("expected current page 1, got %d", afterPrevPage.currentPage()+1)
+	}
+}
+
 func newInteractiveTestRuntime(t *testing.T) *app.Runtime {
 	t.Helper()
 
@@ -127,47 +168,54 @@ func newInteractiveTestRuntime(t *testing.T) *app.Runtime {
 }
 
 func sampleHybridResults() []app.HybridSearchResult {
-	return []app.HybridSearchResult{
-		{
-			Title:         "Book One",
-			Author:        "Author One",
+	return sampleHybridResultsCount(2)
+}
+
+func sampleHybridResultsCount(total int) []app.HybridSearchResult {
+	results := make([]app.HybridSearchResult, 0, total)
+	for idx := 1; idx <= total; idx++ {
+		bookID := "book-" + strconv.Itoa(idx)
+		title := "Book " + strconv.Itoa(idx)
+		author := "Author " + strconv.Itoa(idx)
+		results = append(results, app.HybridSearchResult{
+			Title:         title,
+			Author:        author,
 			LatestChapter: "Chapter 2",
 			PreferredSite: "alpha",
 			Primary: model.SearchResult{
 				Site:          "alpha",
-				BookID:        "book-1",
-				Title:         "Book One",
-				Author:        "Author One",
+				BookID:        bookID,
+				Title:         title,
+				Author:        author,
 				LatestChapter: "Chapter 2",
 			},
 			Variants: []model.SearchResult{{
 				Site:          "alpha",
-				BookID:        "book-1",
-				Title:         "Book One",
-				Author:        "Author One",
+				BookID:        bookID,
+				Title:         title,
+				Author:        author,
 				LatestChapter: "Chapter 2",
 			}},
-		},
-		{
-			Title:         "Book Two",
-			Author:        "Author Two",
-			LatestChapter: "Chapter 2",
-			PreferredSite: "alpha",
-			Primary: model.SearchResult{
-				Site:          "alpha",
-				BookID:        "book-2",
-				Title:         "Book Two",
-				Author:        "Author Two",
-				LatestChapter: "Chapter 2",
-			},
-			Variants: []model.SearchResult{{
-				Site:          "alpha",
-				BookID:        "book-2",
-				Title:         "Book Two",
-				Author:        "Author Two",
-				LatestChapter: "Chapter 2",
-			}},
-		},
+		})
+	}
+	return results
+}
+
+func TestSelectHybridResultsPaged(t *testing.T) {
+	input := strings.NewReader("1\nn\n2\nd\n")
+	output := io.Discard
+	errOutput := io.Discard
+	console := ui.NewConsole(input, output, errOutput)
+
+	selected, err := selectHybridResultsPaged(context.Background(), nil, console, sampleHybridResultsCount(25), map[string]int{}, 20)
+	if err != nil {
+		t.Fatalf("select paged results: %v", err)
+	}
+	if len(selected) != 2 {
+		t.Fatalf("expected 2 selections, got %d", len(selected))
+	}
+	if selected[0] != 0 || selected[1] != 21 {
+		t.Fatalf("unexpected selected indices: %v", selected)
 	}
 }
 

@@ -30,6 +30,8 @@ type GeneralConfig struct {
 	Backend           string
 	LocaleStyle       string
 	LoginRequired     bool
+	WebPageSize       int
+	CLIPageSize       int
 	Output            OutputConfig
 	Parser            ParserConfig
 	Debug             DebugConfig

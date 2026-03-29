@@ -1,6 +1,7 @@
 const root = window.__NOVEL_DL__.root;
 const defaultSources = window.__NOVEL_DL__.defaultSources || [];
 const allSources = window.__NOVEL_DL__.allSources || [];
+const defaultPageSize = window.__NOVEL_DL__.pageSize || 50;
 const sourceLabelMap = new Map(
   allSources.map((source) => [source.key, source.display_name || source.key]),
 );
@@ -26,7 +27,7 @@ const DEFAULT_COVER_SRC = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent
 const appState = {
   activeTab: "search",
   page: 1,
-  pageSize: 50,
+  pageSize: defaultPageSize,
   lastKeyword: "",
   results: [],
   total: 0,

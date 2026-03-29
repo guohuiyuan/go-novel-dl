@@ -28,12 +28,15 @@ var templateFS embed.FS
 
 const RoutePrefix = "/novel"
 
+const defaultWebPageSize = 50
+
 type Service struct {
 	Config         *config.Config
 	Runtime        *app.Runtime
 	DefaultSources []site.SiteDescriptor
 	AllSources     []site.SiteDescriptor
 	Tasks          *DownloadTaskStore
+	PageSize       int
 }
 
 type searchRequest struct {
@@ -66,10 +69,14 @@ type paginatedSearchResponse struct {
 	HasNext    bool `json:"has_next"`
 }
 
-func Start(port string, shouldOpenBrowser bool, configPath string) error {
+func Start(port string, shouldOpenBrowser bool, configPath string, cliPageSize int) error {
 	service, err := newService(configPath)
 	if err != nil {
 		return err
+	}
+
+	if cliPageSize > 0 {
+		service.PageSize = cliPageSize
 	}
 
 	router := newRouter(service)
@@ -98,12 +105,18 @@ func newService(configPath string) (*Service, error) {
 	defaultSources := searchableDownloadDescriptors(runtime.Registry.SiteDescriptors(runtime.DefaultSearchSites()))
 	allSources := searchableDownloadDescriptors(runtime.Registry.SiteDescriptors(runtime.AllSearchSites()))
 
+	pageSize := cfg.General.WebPageSize
+	if pageSize <= 0 {
+		pageSize = defaultWebPageSize
+	}
+
 	return &Service{
 		Config:         cfg,
 		Runtime:        runtime,
 		DefaultSources: defaultSources,
 		AllSources:     allSources,
 		Tasks:          NewDownloadTaskStore(),
+		PageSize:       pageSize,
 	}, nil
 }
 
@@ -133,6 +146,7 @@ func newRouter(service *Service) *gin.Engine {
 			"Root":           RoutePrefix,
 			"DefaultSources": service.DefaultSources,
 			"AllSources":     service.AllSources,
+			"PageSize":       service.PageSize,
 		})
 	})
 	group.GET("/style.css", func(c *gin.Context) {
@@ -202,7 +216,7 @@ func newRouter(service *Service) *gin.Engine {
 			return
 		}
 		page := clampPositive(req.Page, 1)
-		pageSize := clampPositive(req.PageSize, 12)
+		pageSize := clampPositive(req.PageSize, service.PageSize)
 		fetchLimit := page*pageSize + 1
 		siteLimit := req.SiteLimit
 		if siteLimit < fetchLimit {
@@ -420,7 +434,7 @@ func filterAllowedSites(items []string, allowed map[string]struct{}) []string {
 
 func paginateSearchResponse(response app.HybridSearchResponse, page, pageSize int) paginatedSearchResponse {
 	page = clampPositive(page, 1)
-	pageSize = clampPositive(pageSize, 50)
+	pageSize = clampPositive(pageSize, defaultWebPageSize)
 
 	offset := (page - 1) * pageSize
 	total := len(response.Results)
