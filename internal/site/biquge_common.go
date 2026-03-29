@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -32,7 +33,12 @@ func NewBiqugePagedSite(key, displayName, baseURL, bookPrefix string, cfg config
 			timeout = base
 		}
 	}
-	client := newSiteHTTPClient(timeout, siteHTTPClientOptions{Direct: true})
+	proxy := os.Getenv("HTTP_PROXY")
+	if proxy == "" {
+		proxy = os.Getenv("http_proxy")
+	}
+	direct := proxy == ""
+	client := newSiteHTTPClient(timeout, siteHTTPClientOptions{Direct: direct})
 	return &BiqugePagedSite{key: key, displayName: displayName, baseURL: baseURL, bookPrefix: strings.Trim(bookPrefix, "/"), cfg: cfg, html: NewHTMLSite(client), client: client}
 }
 

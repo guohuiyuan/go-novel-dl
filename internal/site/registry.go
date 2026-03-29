@@ -95,7 +95,7 @@ func NewDefaultRegistry() *Registry {
 	// 	return NewBiqugePagedSite("biquge5", "Biquge5", "https://www.biquge5.com", "", cfg)
 	// })
 	registry.Register("fsshu", func(cfg config.ResolvedSiteConfig) Site {
-		return NewBiqugePagedSite("fsshu", "Fsshu", "https://www.fsshu.com", "biquge", cfg)
+		return NewFsshuSite(cfg)
 	})
 	registry.Register("n69shuba", func(cfg config.ResolvedSiteConfig) Site {
 		return NewN69ShubaSite(cfg)

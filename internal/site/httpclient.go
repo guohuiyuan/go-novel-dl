@@ -5,6 +5,8 @@ import (
 	"crypto/tls"
 	"errors"
 	"net/http"
+	"net/url"
+	"os"
 	"strings"
 	"time"
 )
@@ -19,6 +21,22 @@ func newSiteHTTPClient(timeout time.Duration, opts siteHTTPClientOptions) *http.
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	if opts.Direct {
 		transport.Proxy = nil
+	} else {
+		proxyURL := os.Getenv("HTTP_PROXY")
+		if proxyURL == "" {
+			proxyURL = os.Getenv("http_proxy")
+		}
+		if proxyURL == "" {
+			proxyURL = os.Getenv("HTTPS_PROXY")
+		}
+		if proxyURL == "" {
+			proxyURL = os.Getenv("https_proxy")
+		}
+		if proxyURL != "" {
+			if pu, err := url.Parse(proxyURL); err == nil {
+				transport.Proxy = http.ProxyURL(pu)
+			}
+		}
 	}
 	if opts.DisableHTTP2 {
 		transport.ForceAttemptHTTP2 = false
