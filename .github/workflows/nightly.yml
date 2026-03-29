@@ -1,4 +1,4 @@
-name: Nightly CLI Build
+name: Nightly novel-dl Build
 
 on:
   schedule:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-cli:
+  build-novel-dl:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -36,7 +36,7 @@ jobs:
       - name: Download modules
         run: go mod download
 
-      - name: Build CLI
+      - name: Build novel-dl
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
@@ -52,5 +52,5 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: cli-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: novel-dl-${{ matrix.goos }}-${{ matrix.goarch }}
           path: output/*

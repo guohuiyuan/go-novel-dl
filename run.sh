@@ -19,7 +19,7 @@ go build -ldflags="-s -w" -o novel-dl ./cmd/novel-dl
 
 echo
 echo "Usage:"
-echo "  1. Interactive CLI: ./novel-dl"
+echo "  1. Interactive novel-dl: ./novel-dl"
 echo "  2. Search by keyword: ./novel-dl \"三体\""
 echo "  3. Start Web UI: ./novel-dl web --no-browser"
 echo

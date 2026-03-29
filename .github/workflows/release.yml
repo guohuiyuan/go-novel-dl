@@ -1,4 +1,4 @@
-name: Release CLI And Desktop
+name: Release novel-dl And Desktop
 
 on:
   push:

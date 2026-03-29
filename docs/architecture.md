@@ -5,7 +5,7 @@
 ## Runtime Flow
 
 ```text
-CLI command
+novel-dl command
   -> load and merge config
   -> build runtime
   -> resolve site adapter
@@ -87,6 +87,6 @@ Exports staged book content into user-facing files. Initial formats:
 
 This layout keeps command compatibility close to the reference project while making later extensions straightforward:
 
-- real site implementations can replace starter adapters without changing CLI behavior
+- real site implementations can replace starter adapters without changing novel-dl behavior
 - web handlers can reuse `internal/app`
-- pipeline/export/storage stay independent from CLI details
+- pipeline/export/storage stay independent from novel-dl details

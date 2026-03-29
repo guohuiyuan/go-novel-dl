@@ -31,10 +31,9 @@ jobs:
       - name: Run Go tests
         run: go test ./...
 
-      - name: Build CLI binaries
+      - name: Build novel-dl binary
         run: |
           go build -o novel-dl ./cmd/novel-dl
-          go build -o novel-cli ./cmd/novel-cli
 
       - name: Build desktop shell
         run: cargo check --manifest-path desktop/Cargo.toml

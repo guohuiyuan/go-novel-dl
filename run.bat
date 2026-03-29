@@ -18,7 +18,7 @@ go build -ldflags="-s -w" -o novel-dl.exe ./cmd/novel-dl || goto :error
 
 echo.
 echo Usage:
-echo   1. Interactive CLI: novel-dl.exe
+echo   1. Interactive novel-dl: novel-dl.exe
 echo   2. Search by keyword: novel-dl.exe "三体"
 echo   3. Start Web UI: novel-dl.exe web --no-browser
 echo.

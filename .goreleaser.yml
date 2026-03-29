@@ -42,7 +42,7 @@ changelog:
       - go mod tidy
 
 archives:
-  - id: cli
+  - id: novel-dl-archive
     ids:
       - novel-dl
     name_template: "go-novel-dl_{{ .Os }}_{{ .Arch }}"
@@ -54,7 +54,7 @@ archives:
           - zip
 
 nfpms:
-  - id: cli
+  - id: novel-dl-package
     package_name: go-novel-dl
     file_name_template: "go-novel-dl_{{ .Os }}_{{ .Arch }}"
     homepage: https://github.com/guohuiyuan/go-novel-dl
