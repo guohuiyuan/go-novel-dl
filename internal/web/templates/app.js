@@ -72,6 +72,9 @@ const detailBackdrop = document.getElementById("detailBackdrop");
 const detailCloseButton = document.getElementById("detailCloseButton");
 const detailContentNode = document.getElementById("detailContent");
 
+// 👇 新增这行 👇
+const backToTopButton = document.getElementById("backToTop");
+
 bootstrap();
 
 function bootstrap() {
@@ -127,6 +130,25 @@ function bootstrap() {
       closeDetail();
     }
   });
+
+  // 👇 新增：回到顶部逻辑 👇
+  window.addEventListener("scroll", () => {
+    // 页面向下滚动超过 300px 时显示按钮
+    if (window.scrollY > 300) {
+      backToTopButton.classList.add("is-visible");
+    } else {
+      backToTopButton.classList.remove("is-visible");
+    }
+  });
+
+  backToTopButton.addEventListener("click", () => {
+    // 平滑滚动回顶部
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth"
+    });
+  });
+  // 👆 新增结束 👆
 }
 
 function activateTab(tabName) {
