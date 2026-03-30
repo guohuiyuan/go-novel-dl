@@ -10,17 +10,21 @@ const DEFAULT_COVER_SRC = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 480">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#eef8f0"/>
-      <stop offset="100%" stop-color="#dceddf"/>
+      <stop offset="0%" stop-color="#fdfaef"/>
+      <stop offset="100%" stop-color="#fef3c7"/>
+    </linearGradient>
+    <linearGradient id="circleBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fde68a"/>
+      <stop offset="100%" stop-color="#fcd34d"/>
     </linearGradient>
   </defs>
   <rect width="360" height="480" rx="28" fill="url(#bg)"/>
-  <rect x="30" y="32" width="300" height="416" rx="24" fill="#ffffff" fill-opacity="0.72" stroke="#9cc6a8" stroke-opacity="0.55"/>
-  <circle cx="180" cy="164" r="58" fill="#b9dac2"/>
-  <rect x="104" y="248" width="152" height="18" rx="9" fill="#b9dac2"/>
-  <rect x="90" y="282" width="180" height="18" rx="9" fill="#d6eadb"/>
-  <text x="180" y="356" text-anchor="middle" font-size="26" font-family="Arial, sans-serif" fill="#3d7050">Novel DL</text>
-  <text x="180" y="388" text-anchor="middle" font-size="16" font-family="Arial, sans-serif" fill="#5f7a67">No Cover</text>
+  <rect x="30" y="32" width="300" height="416" rx="24" fill="#ffffff" fill-opacity="0.85" stroke="#fcd34d" stroke-opacity="0.6"/>
+  <circle cx="180" cy="164" r="58" fill="url(#circleBg)"/>
+  <rect x="104" y="248" width="152" height="18" rx="9" fill="#fde68a"/>
+  <rect x="90" y="282" width="180" height="18" rx="9" fill="#fef08a"/>
+  <text x="180" y="356" text-anchor="middle" font-size="28" font-weight="bold" font-family="Arial, sans-serif" fill="#b45309">Novel DL</text>
+  <text x="180" y="388" text-anchor="middle" font-size="16" font-family="Arial, sans-serif" fill="#d97706">No Cover</text>
 </svg>
 `)}`;
 
