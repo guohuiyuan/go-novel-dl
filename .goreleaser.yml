@@ -5,6 +5,8 @@ project_name: go-novel-dl
 before:
   hooks:
     - go mod tidy
+    - go run ./tools/iconprep
+    - go run github.com/tc-hib/go-winres@latest make --in ./winres/winres.json --out ./cmd/novel-dl/rsrc
 
 builds:
   - id: novel-dl

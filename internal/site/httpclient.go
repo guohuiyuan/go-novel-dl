@@ -41,6 +41,14 @@ func newSiteHTTPClient(timeout time.Duration, opts siteHTTPClientOptions) *http.
 	if opts.DisableHTTP2 {
 		transport.ForceAttemptHTTP2 = false
 		transport.TLSNextProto = make(map[string]func(string, *tls.Conn) http.RoundTripper)
+		tlsCfg := transport.TLSClientConfig
+		if tlsCfg == nil {
+			tlsCfg = &tls.Config{}
+		} else {
+			tlsCfg = tlsCfg.Clone()
+		}
+		tlsCfg.NextProtos = []string{"http/1.1"}
+		transport.TLSClientConfig = tlsCfg
 	}
 	return &http.Client{
 		Timeout:   timeout,
@@ -101,4 +109,18 @@ func sleepWithContext(ctx context.Context, delay time.Duration) error {
 	case <-timer.C:
 		return nil
 	}
+}
+
+func shouldFallbackMissingChapter(err error) bool {
+	if err == nil {
+		return false
+	}
+	if shouldRetrySiteRequest(err) {
+		return true
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "http 404") ||
+		strings.Contains(message, "http 405") ||
+		strings.Contains(message, "http 410") ||
+		strings.Contains(message, "http 520")
 }

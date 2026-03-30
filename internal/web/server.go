@@ -154,6 +154,9 @@ func newRouter(service *Service) *gin.Engine {
 	group.GET("/style.css", func(c *gin.Context) {
 		c.FileFromFS("templates/style.css", http.FS(templateFS))
 	})
+	group.GET("/icon-256.png", func(c *gin.Context) {
+		c.FileFromFS("templates/icon-256.png", http.FS(templateFS))
+	})
 	group.GET("/app.js", func(c *gin.Context) {
 		c.FileFromFS("templates/app.js", http.FS(templateFS))
 	})

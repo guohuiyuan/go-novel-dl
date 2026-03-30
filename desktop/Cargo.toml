@@ -2,6 +2,7 @@
 name = "novel-dl-desktop"
 version = "0.1.0"
 edition = "2021"
+build = "build.rs"
 license = "AGPL-3.0"
 description = "A desktop shell for novel-dl"
 authors = ["guohuiyuan"]
@@ -12,6 +13,9 @@ tao = "0.30"
 wry = "0.42"
 open = "3"
 
+[build-dependencies]
+winres = "0.1"
+
 [package.metadata.deb]
 maintainer = "guohuiyuan"
 copyright = "2026, guohuiyuan"
@@ -20,11 +24,13 @@ section = "utility"
 priority = "optional"
 assets = [
     ["target/release/novel-dl-desktop", "usr/bin/novel-dl-desktop", "755"],
+    ["icon.png", "usr/share/icons/hicolor/256x256/apps/novel-dl.png", "644"],
     ["novel-dl.desktop", "usr/share/applications/novel-dl.desktop", "644"],
 ]
 
 [package.metadata.generate-rpm]
 assets = [
     { source = "target/release/novel-dl-desktop", dest = "/usr/bin/novel-dl-desktop", mode = "755" },
+    { source = "icon.png", dest = "/usr/share/icons/hicolor/256x256/apps/novel-dl.png", mode = "644" },
     { source = "novel-dl.desktop", dest = "/usr/share/applications/novel-dl.desktop", mode = "644" },
 ]

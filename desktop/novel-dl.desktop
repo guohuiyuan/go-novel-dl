@@ -3,5 +3,6 @@ Type=Application
 Name=NovelDL
 Comment=A desktop shell for novel-dl
 Exec=novel-dl-desktop
+Icon=novel-dl
 Terminal=false
 Categories=Office;

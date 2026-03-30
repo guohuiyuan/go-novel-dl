@@ -34,7 +34,7 @@ func NewFsshuSite(cfg config.ResolvedSiteConfig) *FsshuSite {
 			timeout = base
 		}
 	}
-	client := newSiteHTTPClient(timeout, siteHTTPClientOptions{Direct: false})
+	client := newSiteHTTPClient(timeout, siteHTTPClientOptions{Direct: true})
 	return &FsshuSite{
 		key:         "fsshu",
 		displayName: "Fsshu",
@@ -90,9 +90,14 @@ func (s *FsshuSite) Download(ctx context.Context, ref model.BookRef) (*model.Boo
 		return nil, err
 	}
 	for idx, chapter := range book.Chapters {
-		loaded, err := s.FetchChapter(ctx, ref.BookID, chapter)
+		loaded, err := s.fetchChapterWithRetry(ctx, ref.BookID, chapter)
 		if err != nil {
-			return nil, err
+			if !shouldFallbackMissingChapter(err) {
+				return nil, err
+			}
+			loaded = chapter
+			loaded.Content = fmt.Sprintf("[章节抓取失败，已跳过] %v", err)
+			loaded.Downloaded = true
 		}
 		loaded.Order = idx + 1
 		book.Chapters[idx] = loaded
@@ -303,6 +308,24 @@ func (s *FsshuSite) FetchChapter(ctx context.Context, bookID string, chapter mod
 	chapter.Content = strings.Join(blocks, "\n")
 	chapter.Downloaded = true
 	return chapter, nil
+}
+
+func (s *FsshuSite) fetchChapterWithRetry(ctx context.Context, bookID string, chapter model.Chapter) (model.Chapter, error) {
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		loaded, err := s.FetchChapter(ctx, bookID, chapter)
+		if err == nil {
+			return loaded, nil
+		}
+		lastErr = err
+		if !shouldRetrySiteRequest(err) || ctx.Err() != nil || attempt == 2 {
+			return chapter, err
+		}
+		if err := sleepWithContext(ctx, siteRetryDelay(attempt)); err != nil {
+			return chapter, err
+		}
+	}
+	return chapter, lastErr
 }
 
 func (s *FsshuSite) getWithRetry(ctx context.Context, rawURL string) (string, error) {

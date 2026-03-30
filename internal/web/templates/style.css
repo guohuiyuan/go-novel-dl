@@ -266,6 +266,8 @@ h4 { font-size: 15px; }
 .chapter-item:hover { border-color: var(--accent); box-shadow: 0 2px 8px var(--accent-soft); }
 .chapter-index { display: inline-flex; align-items: center; justify-content: center; height: 24px; border-radius: 6px; font-size: 12px; font-weight: 800; color: #6366f1; background: #e0e7ff; }
 .chapter-title { line-height: 1.5; font-size: 14px; color: #334155; }
+.chapter-title-link { color: #0f172a; text-decoration: none; transition: color 0.2s ease; }
+.chapter-title-link:hover { color: var(--accent-strong); text-decoration: underline; }
 
 /* ================= 移动端完美适配 ================= */
 @media (max-width: 768px) {

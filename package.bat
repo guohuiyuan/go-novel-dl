@@ -5,6 +5,13 @@ echo ========================================
 echo Novel DL - Package Desktop (Windows)
 echo ========================================
 
+echo Preparing icon assets...
+go run ./tools/iconprep || goto :error
+
+echo Generating Windows resources...
+del /Q cmd\novel-dl\*.syso 2>nul
+go run github.com/tc-hib/go-winres@latest make --in winres/winres.json --out cmd/novel-dl/rsrc || goto :error
+
 echo Building Go binaries...
 go build -ldflags="-s -w" -o novel-dl.exe ./cmd/novel-dl || goto :error
 

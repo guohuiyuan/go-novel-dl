@@ -1,5 +1,9 @@
 # go-novel-dl
 
+<p align="center">
+  <img src="./internal/web/templates/icon-256.png" alt="Novel Downloader Icon" width="220" />
+</p>
+
 `go-novel-dl` 是一个以 Go 实现的多源聚合小说下载器，提供命令行和 Web 两种界面。
 
 ## 功能特性
@@ -89,31 +93,31 @@ novel-dl clean [state|logs|cache|book]  # 清理数据
 
 #### search
 
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `-s, --site` | 指定搜索渠道 | 所有可用渠道 |
-| `-l, --limit` | 总结果数上限 | 150 |
-| `--site-limit` | 单渠道结果数上限 | 30 |
-| `--page-size` | 每页显示数量 | 读取配置 |
-| `--timeout` | 请求超时秒数 | 5 |
-| `--format` | 导出格式 | 读取配置 |
+| 参数             | 说明             | 默认值       |
+| ---------------- | ---------------- | ------------ |
+| `-s, --site`   | 指定搜索渠道     | 所有可用渠道 |
+| `-l, --limit`  | 总结果数上限     | 150          |
+| `--site-limit` | 单渠道结果数上限 | 30           |
+| `--page-size`  | 每页显示数量     | 读取配置     |
+| `--timeout`    | 请求超时秒数     | 5            |
+| `--format`     | 导出格式         | 读取配置     |
 
 #### web
 
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `-p, --port` | 服务端口 | 8080 |
-| `--no-browser` | 不自动打开浏览器 | false |
-| `--page-size` | 每页显示数量 | 读取配置 |
+| 参数             | 说明             | 默认值   |
+| ---------------- | ---------------- | -------- |
+| `-p, --port`   | 服务端口         | 8080     |
+| `--no-browser` | 不自动打开浏览器 | false    |
+| `--page-size`  | 每页显示数量     | 读取配置 |
 
 #### download
 
-| 参数 | 说明 |
-|------|------|
-| `--site` | 渠道 key |
-| `--start` | 起始章节 ID |
-| `--end` | 结束章节 ID |
-| `--format` | 导出格式 |
+| 参数            | 说明         |
+| --------------- | ------------ |
+| `--site`      | 渠道 key     |
+| `--start`     | 起始章节 ID  |
+| `--end`       | 结束章节 ID  |
+| `--format`    | 导出格式     |
 | `--no-export` | 仅下载不导出 |
 
 ## Web UI
@@ -191,31 +195,31 @@ password = "your_password"
 
 ## 站点能力矩阵
 
-| Key | 下载 | 搜索 | 登录 |
-| --- | :---: | :---: | :---: |
-| `biquge345` | ✓ | ✓ | - |
-| `biquge5` | ✓ | ✓ | - |
-| `ciweimao` | ✓ | ✓ | - |
-| `ciyuanji` | ✓ | ✓ | - |
-| `esjzone` | ✓ | ✓ | ✓ |
-| `faloo` | ✓ | ✓ | - |
-| `fanqienovel` | ✓ | - | - |
-| `fsshu` | ✓ | ✓ | - |
-| `hongxiuzhao` | ✓ | - | - |
-| `ixdzs8` | ✓ | ✓ | - |
-| `linovelib` | ✓ | ✓ | - |
-| `n17k` | ✓ | ✓ | - |
-| `n23qb` | ✓ | ✓ | - |
-| `n69shuba` | ✓ | - | - |
-| `novalpie` | ✓ | - | ✓ |
-| `piaotia` | ✓ | ✓ | - |
-| `qbtr` | ✓ | ✓ | - |
-| `ruochu` | ✓ | ✓ | - |
-| `sfacg` | ✓ | ✓ | - |
-| `wenku8` | ✓ | - | - |
-| `westnovel` | ✓ | ✓ | - |
-| `yibige` | ✓ | - | - |
-| `yodu` | ✓ | ✓ | - |
+| Key             | 下载 | 搜索 | 登录 |
+| --------------- | :--: | :--: | :--: |
+| `biquge345`   |  ✓  |  ✓  |  -  |
+| `biquge5`     |  ✓  |  ✓  |  -  |
+| `ciweimao`    |  ✓  |  ✓  |  -  |
+| `ciyuanji`    |  ✓  |  ✓  |  -  |
+| `esjzone`     |  ✓  |  ✓  |  ✓  |
+| `faloo`       |  ✓  |  ✓  |  -  |
+| `fanqienovel` |  ✓  |  -  |  -  |
+| `fsshu`       |  ✓  |  ✓  |  -  |
+| `hongxiuzhao` |  ✓  |  -  |  -  |
+| `ixdzs8`      |  ✓  |  ✓  |  -  |
+| `linovelib`   |  ✓  |  ✓  |  -  |
+| `n17k`        |  ✓  |  ✓  |  -  |
+| `n23qb`       |  ✓  |  ✓  |  -  |
+| `n69shuba`    |  ✓  |  -  |  -  |
+| `novalpie`    |  ✓  |  -  |  ✓  |
+| `piaotia`     |  ✓  |  ✓  |  -  |
+| `qbtr`        |  ✓  |  ✓  |  -  |
+| `ruochu`      |  ✓  |  ✓  |  -  |
+| `sfacg`       |  ✓  |  ✓  |  -  |
+| `wenku8`      |  ✓  |  -  |  -  |
+| `westnovel`   |  ✓  |  ✓  |  -  |
+| `yibige`      |  ✓  |  -  |  -  |
+| `yodu`        |  ✓  |  ✓  |  -  |
 
 ## 数据目录
 

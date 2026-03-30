@@ -72,7 +72,12 @@ func (s *N23QBSite) Download(ctx context.Context, ref model.BookRef) (*model.Boo
 	for idx, chapter := range book.Chapters {
 		loaded, err := s.FetchChapter(ctx, ref.BookID, chapter)
 		if err != nil {
-			return nil, err
+			if !shouldFallbackMissingChapter(err) {
+				return nil, err
+			}
+			loaded = chapter
+			loaded.Content = fmt.Sprintf("[章节抓取失败，已跳过] %v", err)
+			loaded.Downloaded = true
 		}
 		loaded.Order = idx + 1
 		book.Chapters[idx] = loaded

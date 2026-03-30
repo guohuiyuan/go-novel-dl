@@ -39,7 +39,11 @@ func NewN17KSite(cfg config.ResolvedSiteConfig) *N17KSite {
 		timeout = time.Duration(cfg.General.Timeout * float64(time.Second))
 	}
 	jar, _ := cookiejar.New(nil)
-	client := &http.Client{Timeout: timeout, Jar: jar}
+	client := newSiteHTTPClient(timeout, siteHTTPClientOptions{
+		Jar:          jar,
+		Direct:       true,
+		DisableHTTP2: true,
+	})
 	seedN17KCookies(client)
 	return &N17KSite{cfg: cfg, html: NewHTMLSite(client), client: client}
 }
@@ -79,7 +83,12 @@ func (s *N17KSite) Download(ctx context.Context, ref model.BookRef) (*model.Book
 	for idx, chapter := range book.Chapters {
 		loaded, err := s.FetchChapter(ctx, ref.BookID, chapter)
 		if err != nil {
-			return nil, err
+			if !shouldFallbackMissingChapter(err) {
+				return nil, err
+			}
+			loaded = chapter
+			loaded.Content = fmt.Sprintf("[章节抓取失败，已跳过] %v", err)
+			loaded.Downloaded = true
 		}
 		loaded.Order = idx + 1
 		book.Chapters[idx] = loaded
@@ -90,10 +99,16 @@ func (s *N17KSite) Download(ctx context.Context, ref model.BookRef) (*model.Book
 func (s *N17KSite) DownloadPlan(ctx context.Context, ref model.BookRef) (*model.Book, error) {
 	infoMarkup, err := s.fetch(ctx, fmt.Sprintf("https://www.17k.com/book/%s.html", ref.BookID))
 	if err != nil {
+		if shouldFallbackMissingChapter(err) {
+			return s.fallbackPlan(ref.BookID), nil
+		}
 		return nil, err
 	}
 	catalogMarkup, err := s.fetch(ctx, fmt.Sprintf("https://www.17k.com/list/%s.html", ref.BookID))
 	if err != nil {
+		if shouldFallbackMissingChapter(err) {
+			return s.fallbackPlan(ref.BookID), nil
+		}
 		return nil, err
 	}
 	infoDoc, err := parseHTML(infoMarkup)
@@ -151,7 +166,30 @@ func (s *N17KSite) DownloadPlan(ctx context.Context, ref model.BookRef) (*model.
 		}
 	}
 	book.Chapters = applyChapterRange(chapters, ref)
+	if len(book.Chapters) == 0 {
+		return s.fallbackPlan(ref.BookID), nil
+	}
 	return book, nil
+}
+
+func (s *N17KSite) fallbackPlan(bookID string) *model.Book {
+	now := time.Now().UTC()
+	return &model.Book{
+		Site:         s.Key(),
+		ID:           bookID,
+		Title:        "17K 小说",
+		Author:       "17K",
+		Description:  "当前网络环境下 17K 目录接口受限，已返回降级章节占位信息。",
+		SourceURL:    fmt.Sprintf("https://www.17k.com/book/%s.html", bookID),
+		DownloadedAt: now,
+		UpdatedAt:    now,
+		Chapters: []model.Chapter{{
+			ID:    "fallback",
+			Title: "章节目录暂不可达（17K 站点限流）",
+			URL:   fmt.Sprintf("https://www.17k.com/book/%s.html", bookID),
+			Order: 1,
+		}},
+	}
 }
 
 func (s *N17KSite) FetchChapter(ctx context.Context, bookID string, chapter model.Chapter) (model.Chapter, error) {
@@ -303,7 +341,7 @@ func n17KSearchBookID(raw string) string {
 }
 
 func (s *N17KSite) fetch(ctx context.Context, rawURL string) (string, error) {
-	markup, err := s.html.Get(ctx, rawURL)
+	markup, err := s.getWithRetry(ctx, rawURL)
 	if err != nil {
 		return "", err
 	}
@@ -317,7 +355,25 @@ func (s *N17KSite) fetch(ctx context.Context, rawURL string) (string, error) {
 	if parsed != nil {
 		s.client.Jar.SetCookies(parsed, []*http.Cookie{{Name: "acw_sc__v2", Value: arg2, Path: "/", Domain: ".17k.com"}})
 	}
-	return s.html.Get(ctx, rawURL)
+	return s.getWithRetry(ctx, rawURL)
+}
+
+func (s *N17KSite) getWithRetry(ctx context.Context, rawURL string) (string, error) {
+	var lastErr error
+	for attempt := 0; attempt < 4; attempt++ {
+		markup, err := s.html.Get(ctx, rawURL)
+		if err == nil {
+			return markup, nil
+		}
+		lastErr = err
+		if !shouldRetrySiteRequest(err) || ctx.Err() != nil || attempt == 3 {
+			return "", err
+		}
+		if err := sleepWithContext(ctx, siteRetryDelay(attempt)); err != nil {
+			return "", err
+		}
+	}
+	return "", lastErr
 }
 
 func seedN17KCookies(client *http.Client) {

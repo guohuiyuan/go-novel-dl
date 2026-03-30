@@ -566,19 +566,20 @@ function renderChapterList(chapters) {
 
     const content = document.createElement("div");
 
-    const title = document.createElement("span");
-    title.className = "chapter-title";
-    title.textContent = chapter.title || `第 ${index + 1} 章`;
-    content.appendChild(title);
-
+    const chapterTitle = chapter.title || `第 ${index + 1} 章`;
     if (chapter.url) {
-      const link = document.createElement("a");
-      link.className = "chapter-url";
-      link.href = chapter.url;
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      link.textContent = chapter.url;
-      content.appendChild(link);
+      const titleLink = document.createElement("a");
+      titleLink.className = "chapter-title chapter-title-link";
+      titleLink.href = chapter.url;
+      titleLink.target = "_blank";
+      titleLink.rel = "noopener noreferrer";
+      titleLink.textContent = chapterTitle;
+      content.appendChild(titleLink);
+    } else {
+      const title = document.createElement("span");
+      title.className = "chapter-title";
+      title.textContent = chapterTitle;
+      content.appendChild(title);
     }
 
     item.appendChild(number);

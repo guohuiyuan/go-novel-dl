@@ -42,8 +42,10 @@ func NewLinovelibSite(cfg config.ResolvedSiteConfig) *LinovelibSite {
 	if cfg.General.Timeout > 0 {
 		timeout = time.Duration(cfg.General.Timeout * float64(time.Second))
 	}
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	client := &http.Client{Timeout: timeout, Transport: transport}
+	client := newSiteHTTPClient(timeout, siteHTTPClientOptions{
+		Direct:       true,
+		DisableHTTP2: true,
+	})
 	return &LinovelibSite{cfg: cfg, html: NewHTMLSite(client), client: client, imageRef: "https://www.linovelib.com/"}
 }
 
@@ -213,16 +215,22 @@ func (s *LinovelibSite) getWithRetry(ctx context.Context, rawURL string) (string
 	for attempt := 0; attempt < 4; attempt++ {
 		markup, err := s.html.Get(ctx, rawURL)
 		if err == nil {
-			if attempt > 0 {
-				time.Sleep(500 * time.Millisecond)
-			}
 			return markup, nil
 		}
 		lastErr = err
-		if !strings.Contains(err.Error(), "http 429") {
+		if !strings.Contains(err.Error(), "http 429") && !shouldRetrySiteRequest(err) {
 			return "", err
 		}
-		time.Sleep(time.Duration(attempt+1) * 2 * time.Second)
+		if ctx.Err() != nil || attempt == 3 {
+			return "", err
+		}
+		delay := siteRetryDelay(attempt)
+		if strings.Contains(err.Error(), "http 429") {
+			delay = time.Duration(attempt+1) * 2 * time.Second
+		}
+		if err := sleepWithContext(ctx, delay); err != nil {
+			return "", err
+		}
 	}
 	return "", lastErr
 }
