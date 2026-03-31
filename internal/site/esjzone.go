@@ -489,61 +489,96 @@ func (s *ESJZoneSite) markSessionValid(valid bool) {
 }
 
 func (s *ESJZoneSite) login(ctx context.Context, username, password string) error {
-	token, err := s.getAuthToken(ctx, s.primaryHost+"/my/login")
-	if err != nil {
-		return err
-	}
 	form := url.Values{}
 	form.Set("email", username)
 	form.Set("pwd", password)
 	form.Set("remember_me", "on")
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.primaryHost+"/inc/mem_login.php", strings.NewReader(form.Encode()))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-	req.Header.Set("Authorization", token)
-	req.Header.Set("User-Agent", "go-novel-dl/0.1 (+https://github.com/guohuiyuan/go-novel-dl)")
-	req.Header.Set("Accept", "application/json, text/javascript, */*; q=0.01")
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("esjzone login http %d", resp.StatusCode)
-	}
-	var result struct {
-		Status int    `json:"status"`
-		Msg    string `json:"msg"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return err
-	}
-	if result.Status != 200 {
-		if result.Msg == "" {
-			result.Msg = "login failed"
+
+	var lastErr error
+	for _, host := range s.authHosts() {
+		token, err := s.getAuthToken(ctx, host+"/my/login")
+		if err != nil {
+			lastErr = err
+			continue
 		}
-		return fmt.Errorf("esjzone login failed: %s", result.Msg)
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, host+"/inc/mem_login.php", strings.NewReader(form.Encode()))
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+		req.Header.Set("Authorization", token)
+		req.Header.Set("User-Agent", "go-novel-dl/0.1 (+https://github.com/guohuiyuan/go-novel-dl)")
+		req.Header.Set("Accept", "application/json, text/javascript, */*; q=0.01")
+
+		resp, err := s.httpClient.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		func() {
+			defer resp.Body.Close()
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+				lastErr = fmt.Errorf("esjzone login http %d", resp.StatusCode)
+				return
+			}
+			var result struct {
+				Status int    `json:"status"`
+				Msg    string `json:"msg"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+				lastErr = err
+				return
+			}
+			if result.Status != 200 {
+				if result.Msg == "" {
+					result.Msg = "login failed"
+				}
+				lastErr = fmt.Errorf("esjzone login failed: %s", result.Msg)
+				return
+			}
+			lastErr = nil
+		}()
+		if lastErr != nil {
+			continue
+		}
+		s.rememberWorkingHost(host)
+		if err := s.saveCookies(); err != nil {
+			return err
+		}
+		return nil
 	}
-	if err := s.saveCookies(); err != nil {
-		return err
+	if lastErr != nil {
+		return lastErr
 	}
-	return nil
+	return fmt.Errorf("esjzone login failed")
 }
 
 func (s *ESJZoneSite) checkLoginStatus(ctx context.Context) (bool, error) {
-	markup, err := s.html.Get(ctx, s.primaryHost+"/my/favorite")
-	if err != nil {
-		return false, err
-	}
-	markers := []string{"window.location.href='/my/login'", "會員登入", "會員註冊 SIGN UP"}
-	for _, marker := range markers {
-		if strings.Contains(markup, marker) {
-			return false, nil
+	var lastErr error
+	for _, host := range s.authHosts() {
+		markup, err := s.html.Get(ctx, host+"/my/favorite")
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		markers := []string{"window.location.href='/my/login'", "會員登入", "會員註冊 SIGN UP"}
+		loginRequired := false
+		for _, marker := range markers {
+			if strings.Contains(markup, marker) {
+				loginRequired = true
+				break
+			}
+		}
+		if !loginRequired {
+			s.rememberWorkingHost(host)
+			return true, nil
 		}
 	}
-	return true, nil
+	if lastErr != nil {
+		return false, lastErr
+	}
+	return false, nil
 }
 
 func (s *ESJZoneSite) getAuthToken(ctx context.Context, rawURL string) (string, error) {
@@ -572,39 +607,42 @@ func (s *ESJZoneSite) getAuthToken(ctx context.Context, rawURL string) (string, 
 }
 
 func (s *ESJZoneSite) unlockChapter(ctx context.Context, chapterURL, password string) (string, error) {
-	token, err := s.getAuthToken(ctx, chapterURL)
-	if err != nil {
-		return "", err
-	}
 	form := url.Values{}
 	form.Set("pw", password)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.primaryHost+"/inc/forum_pw.php", strings.NewReader(form.Encode()))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-	req.Header.Set("Authorization", token)
-	req.Header.Set("User-Agent", "go-novel-dl/0.1 (+https://github.com/guohuiyuan/go-novel-dl)")
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	var result struct {
-		Status int    `json:"status"`
-		Msg    string `json:"msg"`
-		HTML   string `json:"html"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", err
-	}
-	if result.Status != 200 || result.HTML == "" {
-		if result.Msg == "" {
-			result.Msg = "chapter unlock failed"
+
+	token, err := s.getAuthToken(ctx, chapterURL)
+	if err == nil {
+		host := s.hostFromRawURL(chapterURL)
+		if host == "" {
+			host = s.primaryHost
 		}
-		return "", fmt.Errorf("%s", result.Msg)
+		htmlBody, unlockErr := s.tryUnlockChapter(ctx, host, token, form)
+		if unlockErr == nil {
+			s.rememberWorkingHost(host)
+			return htmlBody, nil
+		}
+		err = unlockErr
 	}
-	return result.HTML, nil
+
+	lastErr := err
+	for _, host := range s.authHosts() {
+		token, tokenErr := s.getAuthToken(ctx, host+"/my/login")
+		if tokenErr != nil {
+			lastErr = tokenErr
+			continue
+		}
+		htmlBody, unlockErr := s.tryUnlockChapter(ctx, host, token, form)
+		if unlockErr != nil {
+			lastErr = unlockErr
+			continue
+		}
+		s.rememberWorkingHost(host)
+		return htmlBody, nil
+	}
+	if lastErr != nil {
+		return "", lastErr
+	}
+	return "", fmt.Errorf("chapter unlock failed")
 }
 
 func (s *ESJZoneSite) lookupChapterPassword(markup, bookID, chapterID string) (string, error) {
@@ -654,21 +692,32 @@ func (s *ESJZoneSite) saveCookies() error {
 	if s.httpClient.Jar == nil {
 		return nil
 	}
-	parsed, err := url.Parse(s.primaryHost)
-	if err != nil {
-		return err
-	}
 	entries := make([]esjCookie, 0)
-	for _, cookie := range s.httpClient.Jar.Cookies(parsed) {
-		entries = append(entries, esjCookie{
-			Name:     cookie.Name,
-			Value:    cookie.Value,
-			Domain:   parsed.Hostname(),
-			Path:     cookie.Path,
-			Expires:  cookie.Expires,
-			Secure:   cookie.Secure,
-			HttpOnly: cookie.HttpOnly,
-		})
+	seen := map[string]struct{}{}
+	for _, host := range s.authHosts() {
+		parsed, err := url.Parse(host)
+		if err != nil {
+			continue
+		}
+		for _, cookie := range s.httpClient.Jar.Cookies(parsed) {
+			key := parsed.Hostname() + "|" + cookie.Name + "|" + cookie.Value
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			entries = append(entries, esjCookie{
+				Name:     cookie.Name,
+				Value:    cookie.Value,
+				Domain:   parsed.Hostname(),
+				Path:     cookie.Path,
+				Expires:  cookie.Expires,
+				Secure:   cookie.Secure,
+				HttpOnly: cookie.HttpOnly,
+			})
+		}
+	}
+	if len(entries) == 0 {
+		return nil
 	}
 	if err := os.MkdirAll(filepath.Dir(s.cookieFile), 0o755); err != nil {
 		return err
@@ -695,22 +744,27 @@ func (s *ESJZoneSite) cookieHeaderString() string {
 	if s.httpClient == nil || s.httpClient.Jar == nil {
 		return ""
 	}
-	parsed, err := url.Parse(s.primaryHost)
-	if err != nil {
-		return ""
-	}
-	cookies := s.httpClient.Jar.Cookies(parsed)
-	if len(cookies) == 0 {
-		return ""
-	}
-	parts := make([]string, 0, len(cookies))
-	for _, cookie := range cookies {
-		name := strings.TrimSpace(cookie.Name)
-		value := strings.TrimSpace(cookie.Value)
-		if name == "" || value == "" {
+	seen := make(map[string]struct{})
+	parts := make([]string, 0)
+	for _, host := range s.authHosts() {
+		parsed, err := url.Parse(host)
+		if err != nil {
 			continue
 		}
-		parts = append(parts, name+"="+value)
+		cookies := s.httpClient.Jar.Cookies(parsed)
+		for _, cookie := range cookies {
+			name := strings.TrimSpace(cookie.Name)
+			value := strings.TrimSpace(cookie.Value)
+			if name == "" || value == "" {
+				continue
+			}
+			pair := name + "=" + value
+			if _, ok := seen[pair]; ok {
+				continue
+			}
+			seen[pair] = struct{}{}
+			parts = append(parts, pair)
+		}
 	}
 	return strings.Join(parts, "; ")
 }
@@ -719,17 +773,63 @@ func (s *ESJZoneSite) hasAuthCookies() bool {
 	if s.httpClient == nil || s.httpClient.Jar == nil {
 		return false
 	}
-	parsed, err := url.Parse(s.primaryHost)
-	if err != nil {
-		return false
-	}
-	for _, cookie := range s.httpClient.Jar.Cookies(parsed) {
-		name := strings.ToLower(strings.TrimSpace(cookie.Name))
-		if strings.Contains(name, "sess") || strings.Contains(name, "token") || strings.Contains(name, "auth") {
-			return true
+	for _, host := range s.authHosts() {
+		parsed, err := url.Parse(host)
+		if err != nil {
+			continue
+		}
+		for _, cookie := range s.httpClient.Jar.Cookies(parsed) {
+			name := strings.ToLower(strings.TrimSpace(cookie.Name))
+			if strings.Contains(name, "sess") || strings.Contains(name, "token") || strings.Contains(name, "auth") {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+func (s *ESJZoneSite) authHosts() []string {
+	base := append([]string{s.primaryHost}, s.bookAliases...)
+	base = append(base, s.searchAliases...)
+	return s.prioritizedAliases(base)
+}
+
+func (s *ESJZoneSite) hostFromRawURL(raw string) string {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return ""
+	}
+	return parsed.Scheme + "://" + parsed.Host
+}
+
+func (s *ESJZoneSite) tryUnlockChapter(ctx context.Context, host, token string, form url.Values) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(host, "/")+"/inc/forum_pw.php", strings.NewReader(form.Encode()))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+	req.Header.Set("Authorization", token)
+	req.Header.Set("User-Agent", "go-novel-dl/0.1 (+https://github.com/guohuiyuan/go-novel-dl)")
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	var result struct {
+		Status int    `json:"status"`
+		Msg    string `json:"msg"`
+		HTML   string `json:"html"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", err
+	}
+	if result.Status != 200 || result.HTML == "" {
+		if result.Msg == "" {
+			result.Msg = "chapter unlock failed"
+		}
+		return "", fmt.Errorf("%s", result.Msg)
+	}
+	return result.HTML, nil
 }
 
 func (s *ESJZoneSite) loadCookies() error {
