@@ -69,7 +69,7 @@ func (b *ConsoleBar) OnBookProgress(done, total int, chapterTitle string) {
 	bar := renderBar(done, total, b.width)
 	msg := fmt.Sprintf("[PROGRESS] %s %d/%d", bar, done, total)
 	if etaStr != "" {
-		msg += " ETA:" + etaStr
+		msg += " 剩余时间:" + etaStr
 	}
 	if title := strings.TrimSpace(chapterTitle); title != "" {
 		msg += " - " + title
@@ -90,12 +90,12 @@ func formatDuration(d time.Duration) string {
 	s := int(d.Seconds()) % 60
 
 	if h > 0 {
-		return fmt.Sprintf("%dh%dm", h, m)
+		return fmt.Sprintf("%d小时%d分", h, m)
 	}
 	if m > 0 {
-		return fmt.Sprintf("%dm%ds", m, s)
+		return fmt.Sprintf("%d分%d秒", m, s)
 	}
-	return fmt.Sprintf("%ds", s)
+	return fmt.Sprintf("%d秒", s)
 }
 
 func (b *ConsoleBar) OnBookComplete(done, total int) {
@@ -108,7 +108,7 @@ func (b *ConsoleBar) OnBookComplete(done, total int) {
 	if b.active {
 		_, _ = fmt.Fprint(b.out, "\r")
 	}
-	_, _ = fmt.Fprintf(b.out, "[PROGRESS] %s %d/%d complete\n", bar, done, total)
+	_, _ = fmt.Fprintf(b.out, "[PROGRESS] %s %d/%d 完成\n", bar, done, total)
 	_, _ = fmt.Fprintln(b.out)
 	b.active = false
 }

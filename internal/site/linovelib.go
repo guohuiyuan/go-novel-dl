@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
@@ -94,29 +93,15 @@ func (s *LinovelibSite) DownloadPlan(ctx context.Context, ref model.BookRef) (*m
 	if err != nil {
 		return nil, err
 	}
-	volIDs := linovelibVolRe.FindAllStringSubmatch(infoMarkup, -1)
-	volMap := make(map[string]struct{})
-	for _, item := range volIDs {
-		if len(item) == 2 {
-			volMap[item[1]] = struct{}{}
-		}
-	}
-	if len(volMap) == 0 {
+	volumes := collectLinovelibVolumeIDs(infoMarkup)
+	if len(volumes) == 0 {
 		catalogMarkup, err := s.getWithRetry(ctx, fmt.Sprintf("https://www.linovelib.com/novel/%s/catalog", ref.BookID))
 		if err != nil {
 			return nil, err
 		}
-		for _, item := range linovelibVolRe.FindAllStringSubmatch(catalogMarkup, -1) {
-			if len(item) == 2 {
-				volMap[item[1]] = struct{}{}
-			}
-		}
+		volumes = collectLinovelibVolumeIDs(catalogMarkup)
 	}
-	volumes := make([]string, 0, len(volMap))
-	for volID := range volMap {
-		volumes = append(volumes, volID)
-	}
-	sort.Sort(sort.Reverse(sort.StringSlice(volumes)))
+	reverseStrings(volumes)
 	infoDoc, err := parseHTML(infoMarkup)
 	if err != nil {
 		return nil, err
@@ -301,6 +286,33 @@ func applyLinovelibSubst(text string) string {
 		}
 	}
 	return b.String()
+}
+
+func collectLinovelibVolumeIDs(markup string) []string {
+	matches := linovelibVolRe.FindAllStringSubmatch(markup, -1)
+	seen := make(map[string]struct{}, len(matches))
+	volumes := make([]string, 0, len(matches))
+	for _, item := range matches {
+		if len(item) != 2 {
+			continue
+		}
+		volID := strings.TrimSpace(item[1])
+		if volID == "" {
+			continue
+		}
+		if _, ok := seen[volID]; ok {
+			continue
+		}
+		seen[volID] = struct{}{}
+		volumes = append(volumes, volID)
+	}
+	return volumes
+}
+
+func reverseStrings(values []string) {
+	for left, right := 0, len(values)-1; left < right; left, right = left+1, right-1 {
+		values[left], values[right] = values[right], values[left]
+	}
 }
 
 func reorderLinovelibParagraphs(paragraphs []string, chapterID int) []string {

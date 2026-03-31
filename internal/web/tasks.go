@@ -64,7 +64,7 @@ func (s *DownloadTaskStore) Create(siteKey string, bookID string) DownloadTask {
 		Messages: []DownloadTaskMessage{{
 			At:    now,
 			Level: "info",
-			Text:  "Task queued",
+			Text:  "任务已排队",
 		}},
 	}
 
@@ -99,7 +99,7 @@ func (s *DownloadTaskStore) MarkRunning(id string, siteKey string, bookID string
 		task.CompletedChapters = 0
 		task.CurrentChapter = ""
 		task.StartTime = now
-		appendTaskMessage(task, "info", fmt.Sprintf("Started download (%d chapters)", total))
+		appendTaskMessage(task, "info", fmt.Sprintf("开始下载（%d章）", total))
 	})
 }
 
@@ -109,7 +109,7 @@ func (s *DownloadTaskStore) MarkLoadingChapters(id string, siteKey string, bookI
 		task.Phase = "loading_chapters"
 		task.Site = siteKey
 		task.BookID = bookID
-		appendTaskMessage(task, "info", "Loading chapters list...")
+		appendTaskMessage(task, "info", "正在加载章节列表...")
 	})
 }
 
@@ -134,7 +134,7 @@ func (s *DownloadTaskStore) MarkProgress(id string, done int, total int, chapter
 			}
 		}
 
-		message := fmt.Sprintf("Downloaded chapter %d/%d", done, task.TotalChapters)
+		message := fmt.Sprintf("已下载章节 %d/%d", done, task.TotalChapters)
 		if task.CurrentChapter != "" {
 			message += ": " + task.CurrentChapter
 		}
@@ -151,12 +151,12 @@ func formatETADuration(d time.Duration) string {
 	s := int(d.Seconds()) % 60
 
 	if h > 0 {
-		return fmt.Sprintf("%dh%dms", h, m)
+		return fmt.Sprintf("%d小时%d分", h, m)
 	}
 	if m > 0 {
-		return fmt.Sprintf("%dm%ds", m, s)
+		return fmt.Sprintf("%d分%d秒", m, s)
 	}
-	return fmt.Sprintf("%ds", s)
+	return fmt.Sprintf("%d秒", s)
 }
 
 func (s *DownloadTaskStore) MarkExporting(id string, done int, total int) {
@@ -168,7 +168,7 @@ func (s *DownloadTaskStore) MarkExporting(id string, done int, total int) {
 			task.TotalChapters = total
 		}
 		task.CurrentChapter = ""
-		appendTaskMessage(task, "info", "Fetched all chapters, exporting output")
+		appendTaskMessage(task, "info", "章节抓取完成，正在导出")
 	})
 }
 
@@ -183,7 +183,7 @@ func (s *DownloadTaskStore) MarkCompleted(id string, title string, exported []st
 			task.Title = title
 		}
 		task.Exported = append([]string(nil), exported...)
-		appendTaskMessage(task, "success", fmt.Sprintf("Export completed (%d file(s))", len(exported)))
+		appendTaskMessage(task, "success", fmt.Sprintf("导出完成（%d个文件）", len(exported)))
 	})
 }
 

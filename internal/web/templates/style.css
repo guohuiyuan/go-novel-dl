@@ -253,6 +253,8 @@ h4 { font-size: 15px; }
 
 .detail-summary { display: flex; flex-direction: column; gap: 12px; }
 .detail-title { font-size: clamp(22px, 2vw, 28px); line-height: 1.3; color: #0f172a; }
+.detail-title-link { color: inherit; text-decoration: none; }
+.detail-title-link:hover { color: var(--accent-strong); text-decoration: underline; }
 .detail-source-button.is-active { color: #fff; background: var(--accent); border-color: var(--accent); box-shadow: 0 4px 12px var(--accent-glow); }
 .detail-actions { margin-top: auto; padding-top: 12px; }
 .detail-link { color: var(--info); font-weight: 700; }

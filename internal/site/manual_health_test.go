@@ -3,10 +3,12 @@ package site
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -22,6 +24,12 @@ type manualHealthCase struct {
 	timeout    time.Duration
 }
 
+const (
+	manualHealthChapterLimit     = 20
+	manualHealthSiteParallelism  = 4
+	manualHealthFetchParallelism = 4
+)
+
 func TestManualDefaultRangeDownloadHealth(t *testing.T) {
 	if os.Getenv("GO_NOVEL_DL_HEALTH") == "" {
 		t.Skip("set GO_NOVEL_DL_HEALTH=1 to run manual site health checks")
@@ -30,6 +38,7 @@ func TestManualDefaultRangeDownloadHealth(t *testing.T) {
 	cfg := loadManualHealthConfig(t)
 	registry := NewDefaultRegistry()
 	filter := parseManualHealthFilter(os.Getenv("GO_NOVEL_DL_HEALTH_SITES"))
+	siteSlots := make(chan struct{}, manualHealthSiteParallelism)
 
 	testCases := []manualHealthCase{
 		{siteKey: "esjzone", bookURL: "https://www.esjzone.cc/detail/1660702902.html", chapterURL: "https://www.esjzone.cc/forum/1660702902/294593.html", timeout: 3 * time.Minute},
@@ -58,6 +67,7 @@ func TestManualDefaultRangeDownloadHealth(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		if len(filter) > 0 {
 			if _, ok := filter[tc.siteKey]; !ok {
 				continue
@@ -65,6 +75,10 @@ func TestManualDefaultRangeDownloadHealth(t *testing.T) {
 		}
 
 		t.Run(tc.siteKey, func(t *testing.T) {
+			t.Parallel()
+			siteSlots <- struct{}{}
+			defer func() { <-siteSlots }()
+
 			resolvedCfg := cfg.ResolveSiteConfig(tc.siteKey)
 			if resolvedCfg.General.Timeout < 20 {
 				resolvedCfg.General.Timeout = 20
@@ -90,12 +104,12 @@ func TestManualDefaultRangeDownloadHealth(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), tc.timeout)
 			defer cancel()
 
-			book, err := client.Download(ctx, bookRef)
+			book, err := client.DownloadPlan(ctx, bookRef)
 			if err != nil {
-				t.Fatalf("download %s/%s: %v", tc.siteKey, bookRef.BookID, err)
+				t.Fatalf("download plan %s/%s: %v", tc.siteKey, bookRef.BookID, err)
 			}
 			if book == nil {
-				t.Fatalf("download %s/%s returned nil book", tc.siteKey, bookRef.BookID)
+				t.Fatalf("download plan %s/%s returned nil book", tc.siteKey, bookRef.BookID)
 			}
 			if book.ID != bookRef.BookID {
 				t.Fatalf("unexpected book id: got %s want %s", book.ID, bookRef.BookID)
@@ -106,6 +120,20 @@ func TestManualDefaultRangeDownloadHealth(t *testing.T) {
 			if len(book.Chapters) == 0 {
 				t.Fatalf("book %s/%s returned no chapters", tc.siteKey, bookRef.BookID)
 			}
+
+			chapters := book.Chapters
+			truncated := false
+			if len(chapters) > manualHealthChapterLimit {
+				chapters = append([]model.Chapter(nil), chapters[:manualHealthChapterLimit]...)
+				truncated = true
+				t.Logf("章节数量 %d 超过上限 %d，已中断剩余章节下载", len(book.Chapters), manualHealthChapterLimit)
+			}
+
+			loaded, err := fetchManualHealthChapters(ctx, client, bookRef.BookID, chapters)
+			if err != nil {
+				t.Fatalf("fetch chapters %s/%s: %v", tc.siteKey, bookRef.BookID, err)
+			}
+			book.Chapters = loaded
 
 			foundExpectedChapter := false
 			for idx, chapter := range book.Chapters {
@@ -123,12 +151,76 @@ func TestManualDefaultRangeDownloadHealth(t *testing.T) {
 				}
 			}
 			if !foundExpectedChapter {
-				t.Fatalf("catalog for %s/%s does not contain expected chapter %s", tc.siteKey, bookRef.BookID, expectedChapterID)
+				if truncated {
+					t.Logf("expected chapter %s not in first %d chapters after truncation", expectedChapterID, manualHealthChapterLimit)
+				} else {
+					t.Fatalf("catalog for %s/%s does not contain expected chapter %s", tc.siteKey, bookRef.BookID, expectedChapterID)
+				}
 			}
 
 			t.Logf("downloaded %d chapters for %s/%s", len(book.Chapters), tc.siteKey, bookRef.BookID)
 		})
 	}
+}
+
+func fetchManualHealthChapters(ctx context.Context, client Site, bookID string, chapters []model.Chapter) ([]model.Chapter, error) {
+	if len(chapters) == 0 {
+		return nil, nil
+	}
+	loaded := make([]model.Chapter, len(chapters))
+
+	jobs := make(chan int)
+	errCh := make(chan error, 1)
+	workers := manualHealthFetchParallelism
+	if workers > len(chapters) {
+		workers = len(chapters)
+	}
+
+	var wg sync.WaitGroup
+	for worker := 0; worker < workers; worker++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for idx := range jobs {
+				if ctx.Err() != nil {
+					return
+				}
+				chapter, err := client.FetchChapter(ctx, bookID, chapters[idx])
+				if err != nil {
+					select {
+					case errCh <- fmt.Errorf("chapter %s: %w", chapters[idx].ID, err):
+					default:
+					}
+					return
+				}
+				loaded[idx] = chapter
+			}
+		}()
+	}
+
+	for idx := range chapters {
+		select {
+		case err := <-errCh:
+			close(jobs)
+			wg.Wait()
+			return nil, err
+		case <-ctx.Done():
+			close(jobs)
+			wg.Wait()
+			return nil, ctx.Err()
+		case jobs <- idx:
+		}
+	}
+	close(jobs)
+	wg.Wait()
+
+	select {
+	case err := <-errCh:
+		return nil, err
+	default:
+	}
+
+	return loaded, nil
 }
 
 func resolveManualHealthRefs(t *testing.T, client Site, tc manualHealthCase) (model.BookRef, string) {

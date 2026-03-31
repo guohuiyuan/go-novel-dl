@@ -418,7 +418,17 @@ function renderDetail(result, variant, book, loading, errorMessage) {
   const heading = document.createElement("h2");
   heading.id = "detailHeading";
   heading.className = "detail-title";
-  heading.textContent = title;
+  if (book && book.source_url) {
+    const titleLink = document.createElement("a");
+    titleLink.className = "detail-title-link";
+    titleLink.href = book.source_url;
+    titleLink.target = "_blank";
+    titleLink.rel = "noopener noreferrer";
+    titleLink.textContent = title;
+    heading.appendChild(titleLink);
+  } else {
+    heading.textContent = title;
+  }
 
   const authorNode = document.createElement("p");
   authorNode.className = "detail-author";
@@ -481,21 +491,6 @@ function renderDetail(result, variant, book, loading, errorMessage) {
   });
   actions.appendChild(downloadButton);
   summary.appendChild(actions);
-
-  if (book && book.source_url) {
-    const links = document.createElement("div");
-    links.className = "detail-links";
-
-    const sourceLink = document.createElement("a");
-    sourceLink.className = "detail-link";
-    sourceLink.href = book.source_url;
-    sourceLink.target = "_blank";
-    sourceLink.rel = "noopener noreferrer";
-    sourceLink.textContent = "打开原站页面";
-
-    links.appendChild(sourceLink);
-    summary.appendChild(links);
-  }
 
   hero.appendChild(summary);
   detailContentNode.appendChild(hero);
@@ -767,7 +762,7 @@ function renderTasks() {
       progressText.className = "task-progress-text";
       let progressMsg = `${task.completed_chapters}/${task.total_chapters}`;
       if (task.eta) {
-        progressMsg += ` (ETA: ${task.eta})`;
+        progressMsg += ` (剩余时间: ${task.eta})`;
       }
       progressText.textContent = progressMsg;
       progressWrap.appendChild(progressText);
