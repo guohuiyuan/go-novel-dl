@@ -766,7 +766,6 @@ function totalLabel(total, exact) { return exact ? `${total}` : `${total}+`; }
 function isESJConfigured() {
   const item = appState.siteConfigs.get("esjzone");
   if (!item) return false;
-  if (!item.login_required) return true;
   return Boolean((item.cookie || "").trim() || (item.password || "").trim());
 }
 

@@ -277,6 +277,9 @@ func seedFromEmbeddedSample(db *gorm.DB) error {
 		if sampleSite.LoginRequired != nil {
 			current.LoginRequired = *sampleSite.LoginRequired
 		}
+		if siteKey == "esjzone" {
+			current.LoginRequired = true
+		}
 		if sampleSite.Workers != nil {
 			workers := *sampleSite.Workers
 			if workers < 0 {
@@ -385,6 +388,9 @@ func UpsertSiteCatalog(siteKey string, patch SiteCatalogUpdate) (SiteCatalogReco
 	if patch.LoginRequired != nil {
 		current.LoginRequired = *patch.LoginRequired
 	}
+	if siteKey == "esjzone" {
+		current.LoginRequired = true
+	}
 	if patch.WorkerLimit != nil {
 		if *patch.WorkerLimit < 0 {
 			current.WorkerLimit = 0
@@ -438,6 +444,10 @@ func SyncSiteCatalogFromConfig(sites map[string]SiteConfig) error {
 				current.LoginRequired = *siteCfg.LoginRequired
 				changed = true
 			}
+		}
+		if siteKey == "esjzone" && !current.LoginRequired {
+			current.LoginRequired = true
+			changed = true
 		}
 
 		if siteCfg.Workers != nil {
@@ -496,10 +506,14 @@ func SyncSiteCatalogFromConfig(sites map[string]SiteConfig) error {
 }
 
 func toSiteCatalogRecord(entry siteCatalogEntry) SiteCatalogRecord {
+	loginRequired := entry.LoginRequired
+	if entry.Key == "esjzone" {
+		loginRequired = true
+	}
 	return SiteCatalogRecord{
 		Key:           entry.Key,
 		DisplayName:   entry.DisplayName,
-		LoginRequired: entry.LoginRequired,
+		LoginRequired: loginRequired,
 		WorkerLimit:   entry.WorkerLimit,
 		FetchImages:   entry.FetchImages,
 		Username:      entry.Username,
@@ -548,7 +562,7 @@ func mergeSiteCatalog(cfg *Config) error {
 	}
 	for _, entry := range entries {
 		siteCfg := cfg.Sites[entry.Key]
-		if entry.LoginRequired {
+		if entry.Key == "esjzone" || entry.LoginRequired {
 			siteCfg.LoginRequired = boolPtr(true)
 		}
 		if entry.WorkerLimit > 0 {

@@ -57,6 +57,12 @@ func newSearchCmd() *cobra.Command {
 			if len(selectedSites) == 0 {
 				selectedSites = interactiveSites(runtime)
 			}
+			if shouldRequireESJAuthForSearch(selectedSites, runtime.AllSearchSites()) {
+				resolved := runtime.Config.ResolveSiteConfig("esjzone")
+				if strings.TrimSpace(resolved.Cookie) == "" && strings.TrimSpace(resolved.Password) == "" {
+					return fmt.Errorf("ESJ Zone 未配置 Cookie 或密码，请先执行 config site-set esjzone ...")
+				}
+			}
 
 			console.Infof("正在聚合搜索 %q...", keyword)
 			response, err := runtime.HybridSearch(ctx, keyword, app.HybridSearchOptions{
@@ -111,6 +117,22 @@ func newSearchCmd() *cobra.Command {
 	cmd.Flags().Float64Var(&timeout, "timeout", 5.0, "请求超时秒数")
 	cmd.Flags().StringSliceVar(&formats, "format", nil, "导出格式列表，默认读取配置")
 	return cmd
+}
+
+func shouldRequireESJAuthForSearch(selectedSites, fallbackSites []string) bool {
+	items := selectedSites
+	if len(items) == 0 {
+		items = fallbackSites
+	}
+	if len(items) != 1 {
+		return false
+	}
+	for _, siteKey := range items {
+		if strings.EqualFold(strings.TrimSpace(siteKey), "esjzone") {
+			return true
+		}
+	}
+	return false
 }
 
 func selectHybridResultsPaged(ctx context.Context, runtime *app.Runtime, console *ui.Console, results []app.HybridSearchResult, chapterCounts map[string]int, pageSize int) ([]int, error) {
@@ -308,6 +330,9 @@ func loadHybridChapterCounts(ctx context.Context, runtime *app.Runtime, results 
 			defer func() { <-sem }()
 
 			resolved := runtime.Config.ResolveSiteConfig(result.Primary.Site)
+			if resolved.General.LoginRequired {
+				return
+			}
 			client, err := runtime.Registry.Build(result.Primary.Site, resolved)
 			if err != nil {
 				return

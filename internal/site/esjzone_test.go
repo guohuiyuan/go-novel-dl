@@ -1,6 +1,7 @@
 package site
 
 import (
+	"context"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -8,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/guohuiyuan/go-novel-dl/internal/config"
 	"github.com/guohuiyuan/go-novel-dl/internal/model"
@@ -167,5 +169,37 @@ func TestParseChapterContentSupportsTextWithoutParagraphTags(t *testing.T) {
 	}
 	if !strings.Contains(content, "第一段") || !strings.Contains(content, "第二段") {
 		t.Fatalf("expected plain section text to be captured, got %q", content)
+	}
+}
+
+func TestEnsureLoginStillRequiredWhenSiteFlagDisabled(t *testing.T) {
+	cfg := config.DefaultConfig().ResolveSiteConfig("esjzone")
+	cfg.General.LoginRequired = false
+	cfg.Cookie = ""
+	cfg.Password = ""
+	site := NewESJZoneSite(cfg)
+
+	err := site.ensureLogin(context.Background())
+	if err == nil {
+		t.Fatalf("expected ensureLogin to require auth even when login_required flag is false")
+	}
+}
+
+func TestShouldEnrichESJSearch(t *testing.T) {
+	ctx := context.Background()
+	if !shouldEnrichESJSearch(ctx, 8, 4) {
+		t.Fatalf("expected enrich enabled for small result set")
+	}
+	if shouldEnrichESJSearch(ctx, 20, 4) {
+		t.Fatalf("expected enrich disabled for large limit")
+	}
+	if shouldEnrichESJSearch(ctx, 8, 12) {
+		t.Fatalf("expected enrich disabled for large result size")
+	}
+
+	shortCtx, cancel := context.WithDeadline(context.Background(), time.Now().Add(2*time.Second))
+	defer cancel()
+	if shouldEnrichESJSearch(shortCtx, 8, 4) {
+		t.Fatalf("expected enrich disabled for tight deadline")
 	}
 }

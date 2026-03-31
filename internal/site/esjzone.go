@@ -101,7 +101,7 @@ func (s *ESJZoneSite) DisplayName() string {
 }
 
 func (s *ESJZoneSite) Capabilities() Capabilities {
-	return Capabilities{Download: true, Search: true, Login: s.cfg.General.LoginRequired}
+	return Capabilities{Download: true, Search: true, Login: true}
 }
 
 func (s *ESJZoneSite) ResolveURL(rawURL string) (*ResolvedURL, bool) {
@@ -205,6 +205,9 @@ func (s *ESJZoneSite) Search(ctx context.Context, keyword string, limit int) ([]
 	if keyword == "" {
 		return nil, nil
 	}
+	if err := s.ensureLogin(ctx); err != nil {
+		return nil, err
+	}
 
 	encoded := url.PathEscape(keyword)
 	var lastErr error
@@ -226,7 +229,9 @@ func (s *ESJZoneSite) Search(ctx context.Context, keyword string, limit int) ([]
 		if limit > 0 && len(results) > limit {
 			results = results[:limit]
 		}
-		s.enrichSearchResults(ctx, results)
+		if shouldEnrichESJSearch(ctx, limit, len(results)) {
+			s.enrichSearchResults(ctx, results)
+		}
 		return results, nil
 	}
 
@@ -272,12 +277,6 @@ func (s *ESJZoneSite) enrichSearchResults(ctx context.Context, results []model.S
 			if err != nil {
 				return
 			}
-			if item.Title == "" {
-				item.Title = book.Title
-			}
-			if item.Author == "" || item.Author == "Unknown" {
-				item.Author = book.Author
-			}
 			if item.Description == "" {
 				item.Description = book.Description
 			}
@@ -292,7 +291,28 @@ func (s *ESJZoneSite) enrichSearchResults(ctx context.Context, results []model.S
 	wg.Wait()
 }
 
+func shouldEnrichESJSearch(ctx context.Context, limit, size int) bool {
+	if size == 0 {
+		return false
+	}
+	if size > 8 {
+		return false
+	}
+	if limit > 0 && limit > 8 {
+		return false
+	}
+	if deadline, ok := ctx.Deadline(); ok {
+		if time.Until(deadline) < 3*time.Second {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *ESJZoneSite) fetchBookPage(ctx context.Context, bookID string) (string, string, error) {
+	if err := s.ensureLogin(ctx); err != nil {
+		return "", "", err
+	}
 	var lastErr error
 	for _, host := range s.prioritizedAliases(s.bookAliases) {
 		hostCtx, cancel := context.WithTimeout(ctx, s.perHostTimeout(10*time.Second))
@@ -327,6 +347,9 @@ func (s *ESJZoneSite) fetchBookPage(ctx context.Context, bookID string) (string,
 }
 
 func (s *ESJZoneSite) fetchChapterContent(ctx context.Context, bookID, chapterID string) (string, error) {
+	if err := s.ensureLogin(ctx); err != nil {
+		return "", err
+	}
 	var lastErr error
 	for _, host := range s.prioritizedAliases(s.bookAliases) {
 		hostCtx, cancel := context.WithTimeout(ctx, s.perHostTimeout(10*time.Second))
@@ -422,27 +445,29 @@ func (s *ESJZoneSite) getWorkingHost() string {
 }
 
 func (s *ESJZoneSite) ensureLogin(ctx context.Context) error {
-	if !s.cfg.General.LoginRequired {
-		return nil
-	}
-	if strings.TrimSpace(s.cfg.Cookie) == "" && strings.TrimSpace(s.cfg.Password) == "" {
+	hasConfiguredCookie := strings.TrimSpace(s.cfg.Cookie) != ""
+	hasConfiguredCreds := strings.TrimSpace(s.cfg.Username) != "" && strings.TrimSpace(s.cfg.Password) != ""
+	hasRuntimeCookies := s.hasAuthCookies()
+
+	if !hasConfiguredCookie && !hasRuntimeCookies && !hasConfiguredCreds {
 		return fmt.Errorf("ESJ Zone 未配置 Cookie 或密码，请先在站点配置中补全")
 	}
-	if s.isSessionValid() {
-		return nil
-	}
+
 	loggedIn, err := s.checkLoginStatus(ctx)
 	if err == nil && loggedIn {
 		s.markSessionValid(true)
 		_ = s.saveCookiesToConfigStore()
 		return nil
 	}
-	if s.cfg.Cookie != "" && (s.cfg.Username == "" || s.cfg.Password == "") {
-		return fmt.Errorf("esjzone cookie 似乎不可用, 请重置 Cookie 或提供登录凭据")
-	}
-	if s.cfg.Username == "" || s.cfg.Password == "" {
+	s.markSessionValid(false)
+
+	if !hasConfiguredCreds {
+		if hasConfiguredCookie || hasRuntimeCookies {
+			return fmt.Errorf("esjzone cookie 似乎不可用, 请重置 Cookie 或提供登录凭据")
+		}
 		return fmt.Errorf("esjzone login required but username/password not configured")
 	}
+
 	if err := s.login(ctx, s.cfg.Username, s.cfg.Password); err != nil {
 		return err
 	}

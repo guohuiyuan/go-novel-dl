@@ -117,7 +117,7 @@ func (r *Runtime) Download(ctx context.Context, siteKey string, books []model.Bo
 			return results, err
 		}
 		if existing != nil {
-			mergeExistingChapters(book, existing.Book)
+			mergeExistingChapters(siteKey, book, existing.Book)
 		}
 		book = textconv.NormalizeBookLocale(book, resolved.General.LocaleStyle)
 		r.Progress.OnBookStart(siteKey, ref.BookID, book.Title, len(book.Chapters))
@@ -212,6 +212,9 @@ func (r *Runtime) Download(ctx context.Context, siteKey string, books []model.Bo
 		if stage == "" {
 			stage = "raw"
 		}
+		if !bookHasUsableContent(processed) {
+			return results, fmt.Errorf("渠道 %s 处理后的正文为空，已中止导出", siteKey)
+		}
 		if stage != "raw" {
 			if err := r.Library.SaveBookStage(siteKey, stage, processed); err != nil {
 				return results, err
@@ -233,13 +236,13 @@ func (r *Runtime) Download(ctx context.Context, siteKey string, books []model.Bo
 	return results, nil
 }
 
-func mergeExistingChapters(target *model.Book, existing *model.Book) {
+func mergeExistingChapters(siteKey string, target *model.Book, existing *model.Book) {
 	if target == nil || existing == nil {
 		return
 	}
 	byID := make(map[string]model.Chapter, len(existing.Chapters))
 	for _, chapter := range existing.Chapters {
-		if (chapter.Downloaded || chapter.Content != "") && canReuseChapterContent(chapter.Content) {
+		if (chapter.Downloaded || chapter.Content != "") && canReuseChapterContentForSite(siteKey, chapter.Content) {
 			byID[chapter.ID] = chapter
 		}
 	}
@@ -254,8 +257,29 @@ func mergeExistingChapters(target *model.Book, existing *model.Book) {
 	}
 }
 
+func canReuseChapterContentForSite(siteKey, content string) bool {
+	if !canReuseChapterContent(content) {
+		return false
+	}
+	if !strings.EqualFold(strings.TrimSpace(siteKey), "esjzone") {
+		return true
+	}
+	normalized := strings.ReplaceAll(content, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+	normalized = strings.ReplaceAll(normalized, "\u200b", "")
+	normalized = strings.ReplaceAll(normalized, "\ufeff", "")
+	normalized = strings.TrimSpace(normalized)
+	if normalized == "" {
+		return false
+	}
+	if len([]rune(normalized)) < 20 {
+		return false
+	}
+	return true
+}
+
 func canReuseChapterContent(content string) bool {
-	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = normalizeContentForValidation(content)
 	for _, line := range strings.Split(content, "\n") {
 		trimmed := strings.TrimSpace(line)
 		switch trimmed {
@@ -270,6 +294,15 @@ func canReuseChapterContent(content string) bool {
 		}
 	}
 	return strings.TrimSpace(content) != ""
+}
+
+func normalizeContentForValidation(content string) string {
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = strings.ReplaceAll(content, "\u200b", "")
+	content = strings.ReplaceAll(content, "\u200c", "")
+	content = strings.ReplaceAll(content, "\u200d", "")
+	content = strings.ReplaceAll(content, "\ufeff", "")
+	return content
 }
 
 func bookHasUsableContent(book *model.Book) bool {

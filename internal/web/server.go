@@ -179,9 +179,6 @@ func (s *Service) hasESJAuthConfigured() bool {
 		return false
 	}
 	resolved := s.Config.ResolveSiteConfig("esjzone")
-	if !resolved.General.LoginRequired {
-		return true
-	}
 	hasCookie := strings.TrimSpace(resolved.Cookie) != ""
 	hasPassword := strings.TrimSpace(resolved.Password) != ""
 	return hasCookie || hasPassword
@@ -192,9 +189,6 @@ func collectSiteWarnings(runtime *app.Runtime) []SiteWarning {
 		return nil
 	}
 	resolved := runtime.Config.ResolveSiteConfig("esjzone")
-	if !resolved.General.LoginRequired {
-		return nil
-	}
 	if strings.TrimSpace(resolved.Cookie) != "" {
 		return nil
 	}
@@ -437,6 +431,13 @@ func newRouter(service *Service) *gin.Engine {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "no searchable download sources available"})
 			return
 		}
+		if len(sites) == 1 && containsSite(sites, "esjzone") && !service.hasESJAuthConfigured() {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":      "ESJ Zone 未配置 Cookie 或密码，请先在设置中心补全登录信息",
+				"error_code": "esjzone_config_required",
+			})
+			return
+		}
 		page := clampPositive(req.Page, 1)
 		pageSize := clampPositive(req.PageSize, service.PageSize)
 		fetchLimit := page*pageSize + 1
@@ -676,6 +677,19 @@ func filterAllowedSites(items []string, allowed map[string]struct{}) []string {
 		filtered = append(filtered, item)
 	}
 	return filtered
+}
+
+func containsSite(items []string, target string) bool {
+	target = strings.TrimSpace(strings.ToLower(target))
+	if target == "" {
+		return false
+	}
+	for _, item := range items {
+		if strings.TrimSpace(strings.ToLower(item)) == target {
+			return true
+		}
+	}
+	return false
 }
 
 func paginateSearchResponse(response app.HybridSearchResponse, page, pageSize int) paginatedSearchResponse {
