@@ -179,7 +179,7 @@ GET /novel/api/download-file?path=/path/to/file
 - 运行时读取：`data/site_catalog.db`
 - 全局参数：SQLite `config_kvs`（键 `general_config`）
 - 站点参数：SQLite `site_catalog` 表
-- `internal/config/resources/settings.sample.toml` 作为字段示例与迁移参考，不是主运行时配置来源
+- 首次检测到 `data/site_catalog.db` 不存在时，会用内嵌 `internal/config/resources/settings.sample.toml` 初始化数据库；后续运行只从 SQLite 读取和修改配置
 
 ### 全局参数（示例）
 
@@ -317,6 +317,11 @@ go build -o novel-dl ./cmd/novel-dl
 
 - [saudadez21/novel-downloader](https://github.com/saudadez21/novel-downloader)
 - [mikoto710/esj-novel-downloader](https://github.com/mikoto710/esj-novel-downloader)
+
+项目定位：
+
+- `saudadez21/novel-downloader`：偏通用多站点下载框架，强调插件化站点支持、配置体系与端到端下载导出流程。
+- `mikoto710/esj-novel-downloader`：偏 ESJ 垂直专项工具，重点在 ESJ 登录态处理、章节解析与导出链路优化。
 
 感谢两位作者对小说下载生态与工程实现思路的贡献。
 
