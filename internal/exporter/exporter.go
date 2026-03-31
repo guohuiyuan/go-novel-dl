@@ -6,6 +6,7 @@ import (
 	"crypto/sha1"
 	"fmt"
 	"html/template"
+	"image/png"
 	"io"
 	"mime"
 	"net/http"
@@ -19,7 +20,7 @@ import (
 
 	"github.com/guohuiyuan/go-novel-dl/internal/config"
 	"github.com/guohuiyuan/go-novel-dl/internal/model"
-	//xwebp "golang.org/x/image/webp"
+	xwebp "golang.org/x/image/webp"
 )
 
 type Service struct{}
@@ -439,11 +440,32 @@ func downloadAsset(client *http.Client, rawURL string) ([]byte, string, string, 
 
 func normalizeAssetData(data []byte, mediaType, rawURL string) ([]byte, string, error) {
 	mediaType = strings.ToLower(strings.TrimSpace(mediaType))
-	return data, mediaType, nil
+	if !shouldTranscodeToPNG(mediaType, rawURL) {
+		return data, mediaType, nil
+	}
+
+	img, err := xwebp.Decode(bytes.NewReader(data))
+	if err != nil {
+		// Keep original bytes when transcoding fails to avoid dropping chapter images.
+		return data, mediaType, nil
+	}
+
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		return nil, "", err
+	}
+	return buf.Bytes(), "image/png", nil
 }
 
 func shouldTranscodeToPNG(mediaType, rawURL string) bool {
-	return false
+	if strings.EqualFold(strings.TrimSpace(mediaType), "image/webp") {
+		return true
+	}
+	parsed, err := neturl.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(path.Ext(parsed.Path), ".webp")
 }
 
 func assetExtension(mediaType, rawURL string) string {

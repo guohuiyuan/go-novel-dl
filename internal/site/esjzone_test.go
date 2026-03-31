@@ -140,3 +140,17 @@ func TestParseChapterContentSupportsImageOnlyParagraph(t *testing.T) {
 		t.Fatalf("expected image placeholder with url, got %s", content)
 	}
 }
+
+func TestParseChapterContentSupportsTextWithoutParagraphTags(t *testing.T) {
+	markup := `<html><body><h2>第1话</h2><section class="forum-content mt-3"><section>第1话</section><section>第一段<br>第二段</section></section></body></html>`
+	content, err := parseChapterContent(markup, "https://www.esjzone.cc/forum/1/2.html", false)
+	if err != nil {
+		t.Fatalf("parse text without paragraph tags: %v", err)
+	}
+	if strings.Contains(content, "第1话\n") || strings.HasPrefix(content, "第1话") {
+		t.Fatalf("expected leading duplicate chapter title to be stripped, got %q", content)
+	}
+	if !strings.Contains(content, "第一段") || !strings.Contains(content, "第二段") {
+		t.Fatalf("expected plain section text to be captured, got %q", content)
+	}
+}

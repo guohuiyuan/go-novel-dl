@@ -821,18 +821,80 @@ func parseChapterContent(markup, pageURL string, includeImages bool) (string, er
 		return "", fmt.Errorf("chapter content container not found")
 	}
 
-	paragraphs := make([]string, 0)
-	for child := container.FirstChild; child != nil; child = child.NextSibling {
-		collectReadableParagraphs(child, &paragraphs, pageURL, includeImages)
+	title := cleanText(firstNodeText(findFirst(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "h2"
+	})))
+	text := cleanText(stripLeadingChapterTitle(nodeTextForChapter(container), title))
+
+	paragraphs := make([]string, 0, 1)
+	if text != "" {
+		paragraphs = append(paragraphs, text)
+	}
+	if includeImages {
+		for _, imageURL := range collectImageSources(container, pageURL) {
+			paragraphs = append(paragraphs, formatImagePlaceholder(imageURL))
+		}
 	}
 	if len(paragraphs) == 0 {
-		fallback := cleanText(nodeTextPreserveLineBreaks(container))
-		if fallback != "" {
-			return fallback, nil
-		}
 		return "", fmt.Errorf("no readable chapter content found")
 	}
 	return strings.Join(paragraphs, "\n\n"), nil
+}
+
+func nodeTextForChapter(node *html.Node) string {
+	if node == nil {
+		return ""
+	}
+	var b strings.Builder
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n == nil {
+			return
+		}
+		if n.Type == html.ElementNode {
+			switch n.Data {
+			case "script", "style", "meta", "link", "img", "noscript":
+				return
+			case "br":
+				b.WriteString("\n")
+				return
+			}
+		}
+		if n.Type == html.TextNode {
+			b.WriteString(n.Data)
+		}
+		for child := n.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+		if n.Type == html.ElementNode {
+			switch n.Data {
+			case "p", "div", "section", "article", "blockquote", "li", "h1", "h2", "h3", "h4", "h5", "h6":
+				b.WriteString("\n")
+			}
+		}
+	}
+	walk(node)
+	return b.String()
+}
+
+func stripLeadingChapterTitle(content, title string) string {
+	content = strings.TrimSpace(content)
+	title = strings.TrimSpace(title)
+	if content == "" || title == "" {
+		return content
+	}
+	lines := strings.Split(content, "\n")
+	for len(lines) > 0 {
+		if strings.TrimSpace(lines[0]) == "" {
+			lines = lines[1:]
+			continue
+		}
+		if strings.EqualFold(cleanText(lines[0]), cleanText(title)) {
+			lines = lines[1:]
+		}
+		break
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
 func collectReadableParagraphs(node *html.Node, paragraphs *[]string, pageURL string, includeImages bool) {

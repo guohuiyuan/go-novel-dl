@@ -37,6 +37,33 @@ type siteCatalogEntry struct {
 	UpdatedAt     time.Time `gorm:"autoUpdateTime"`
 }
 
+type configKV struct {
+	Key       string    `gorm:"primaryKey;size:128"`
+	Value     string    `gorm:"type:text;not null"`
+	UpdatedAt time.Time `gorm:"autoUpdateTime"`
+}
+
+const generalConfigKey = "general_config"
+
+type GeneralConfigRecord struct {
+	RawDataDir      string   `json:"raw_data_dir"`
+	OutputDir       string   `json:"output_dir"`
+	CacheDir        string   `json:"cache_dir"`
+	RequestInterval float64  `json:"request_interval"`
+	Workers         int      `json:"workers"`
+	MaxConnections  int      `json:"max_connections"`
+	MaxRPS          float64  `json:"max_rps"`
+	RetryTimes      int      `json:"retry_times"`
+	BackoffFactor   float64  `json:"backoff_factor"`
+	Timeout         float64  `json:"timeout"`
+	WebPageSize     int      `json:"web_page_size"`
+	CLIPageSize     int      `json:"cli_page_size"`
+	LocaleStyle     string   `json:"locale_style"`
+	Formats         []string `json:"formats"`
+	AppendTimestamp bool     `json:"append_timestamp"`
+	IncludePicture  bool     `json:"include_picture"`
+}
+
 type SiteCatalogRecord struct {
 	Key           string    `json:"key"`
 	DisplayName   string    `json:"display_name"`
@@ -143,6 +170,10 @@ func ensureSiteCatalogDB() error {
 			return
 		}
 		if err := db.AutoMigrate(&siteCatalogEntry{}); err != nil {
+			siteCatalogErr = err
+			return
+		}
+		if err := db.AutoMigrate(&configKV{}); err != nil {
 			siteCatalogErr = err
 			return
 		}
@@ -418,6 +449,140 @@ func mergeSiteCatalog(cfg *Config) error {
 		cfg.Sites[entry.Key] = siteCfg
 	}
 	return nil
+}
+
+func LoadGeneralConfig() (GeneralConfigRecord, error) {
+	defaults := defaultGeneralRecord(DefaultConfig().General)
+	if err := ensureSiteCatalogDB(); err != nil {
+		return defaults, err
+	}
+	var row configKV
+	if err := siteCatalogDB.Where("key = ?", generalConfigKey).Limit(1).Find(&row).Error; err != nil {
+		return defaults, err
+	}
+	if row.Key == "" {
+		return defaults, nil
+	}
+
+	record := defaults
+	if err := json.Unmarshal([]byte(row.Value), &record); err != nil {
+		return defaults, nil
+	}
+	return normalizeGeneralRecord(record), nil
+}
+
+func SaveGeneralConfig(record GeneralConfigRecord) (GeneralConfigRecord, error) {
+	if err := ensureSiteCatalogDB(); err != nil {
+		return GeneralConfigRecord{}, err
+	}
+	record = normalizeGeneralRecord(record)
+	payload, err := json.Marshal(record)
+	if err != nil {
+		return GeneralConfigRecord{}, err
+	}
+	if err := siteCatalogDB.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "key"}},
+		DoUpdates: clause.AssignmentColumns([]string{"value", "updated_at"}),
+	}).Create(&configKV{Key: generalConfigKey, Value: string(payload)}).Error; err != nil {
+		return GeneralConfigRecord{}, err
+	}
+	return record, nil
+}
+
+func mergeGeneralConfig(cfg *Config) error {
+	if cfg == nil {
+		return nil
+	}
+	record, err := LoadGeneralConfig()
+	if err != nil {
+		return err
+	}
+
+	cfg.General.RawDataDir = record.RawDataDir
+	cfg.General.OutputDir = record.OutputDir
+	cfg.General.CacheDir = record.CacheDir
+	cfg.General.RequestInterval = record.RequestInterval
+	cfg.General.Workers = record.Workers
+	cfg.General.MaxConnections = record.MaxConnections
+	cfg.General.MaxRPS = record.MaxRPS
+	cfg.General.RetryTimes = record.RetryTimes
+	cfg.General.BackoffFactor = record.BackoffFactor
+	cfg.General.Timeout = record.Timeout
+	cfg.General.WebPageSize = record.WebPageSize
+	cfg.General.CLIPageSize = record.CLIPageSize
+	cfg.General.LocaleStyle = record.LocaleStyle
+	cfg.General.Output.Formats = cloneStrings(record.Formats)
+	cfg.General.Output.AppendTimestamp = record.AppendTimestamp
+	cfg.General.Output.IncludePicture = record.IncludePicture
+	return nil
+}
+
+func defaultGeneralRecord(general GeneralConfig) GeneralConfigRecord {
+	return GeneralConfigRecord{
+		RawDataDir:      general.RawDataDir,
+		OutputDir:       general.OutputDir,
+		CacheDir:        general.CacheDir,
+		RequestInterval: general.RequestInterval,
+		Workers:         general.Workers,
+		MaxConnections:  general.MaxConnections,
+		MaxRPS:          general.MaxRPS,
+		RetryTimes:      general.RetryTimes,
+		BackoffFactor:   general.BackoffFactor,
+		Timeout:         general.Timeout,
+		WebPageSize:     general.WebPageSize,
+		CLIPageSize:     general.CLIPageSize,
+		LocaleStyle:     general.LocaleStyle,
+		Formats:         cloneStrings(general.Output.Formats),
+		AppendTimestamp: general.Output.AppendTimestamp,
+		IncludePicture:  general.Output.IncludePicture,
+	}
+}
+
+func normalizeGeneralRecord(record GeneralConfigRecord) GeneralConfigRecord {
+	defaults := defaultGeneralRecord(DefaultConfig().General)
+	if strings.TrimSpace(record.RawDataDir) == "" {
+		record.RawDataDir = defaults.RawDataDir
+	}
+	if strings.TrimSpace(record.OutputDir) == "" {
+		record.OutputDir = defaults.OutputDir
+	}
+	if strings.TrimSpace(record.CacheDir) == "" {
+		record.CacheDir = defaults.CacheDir
+	}
+	if record.RequestInterval <= 0 {
+		record.RequestInterval = defaults.RequestInterval
+	}
+	if record.Workers <= 0 {
+		record.Workers = defaults.Workers
+	}
+	if record.MaxConnections <= 0 {
+		record.MaxConnections = defaults.MaxConnections
+	}
+	if record.MaxRPS <= 0 {
+		record.MaxRPS = defaults.MaxRPS
+	}
+	if record.RetryTimes < 0 {
+		record.RetryTimes = defaults.RetryTimes
+	}
+	if record.BackoffFactor <= 0 {
+		record.BackoffFactor = defaults.BackoffFactor
+	}
+	if record.Timeout <= 0 {
+		record.Timeout = defaults.Timeout
+	}
+	if record.WebPageSize <= 0 {
+		record.WebPageSize = defaults.WebPageSize
+	}
+	if record.CLIPageSize <= 0 {
+		record.CLIPageSize = defaults.CLIPageSize
+	}
+	if strings.TrimSpace(record.LocaleStyle) == "" {
+		record.LocaleStyle = defaults.LocaleStyle
+	}
+	if len(record.Formats) == 0 {
+		record.Formats = cloneStrings(defaults.Formats)
+	}
+	return record
 }
 
 func intPtr(v int) *int {

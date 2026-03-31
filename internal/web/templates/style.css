@@ -55,6 +55,31 @@ button { border: 0; outline: none; }
   padding: 24px 0 40px;
 }
 
+.settings-float {
+  position: fixed;
+  top: 22px;
+  right: 22px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: #ffffff;
+  color: var(--accent-deep);
+  font-size: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 80;
+  box-shadow: var(--shadow);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.settings-float:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-hover);
+}
+
 /* 全局卡片质感：干净的白色微透明 */
 .panel-card, .status-card, .warning-item, .task-card, .result-card, 
 .detail-section, .chapter-item, .chapter-volume, .detail-source-button, .source-option {

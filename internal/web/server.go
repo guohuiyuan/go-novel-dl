@@ -35,6 +35,7 @@ const defaultWebPageSize = 50
 type Service struct {
 	Config         *config.Config
 	ConfigPath     string
+	GeneralConfig  config.GeneralConfigRecord
 	Runtime        *app.Runtime
 	DefaultSources []site.SiteDescriptor
 	AllSources     []site.SiteDescriptor
@@ -134,10 +135,12 @@ func newService(configPath string) (*Service, error) {
 	stats := collectSiteStats(runtime)
 	siteConfigs, _ := config.ListSiteCatalog()
 	paramSupports := config.SiteParameterSupports()
+	generalConfig, _ := config.LoadGeneralConfig()
 
 	return &Service{
 		Config:         cfg,
 		ConfigPath:     configPath,
+		GeneralConfig:  generalConfig,
 		Runtime:        runtime,
 		DefaultSources: defaultSources,
 		AllSources:     allSources,
@@ -160,6 +163,9 @@ func (s *Service) reloadRuntime() error {
 	runtime.Progress = progress.NullReporter{}
 
 	s.Config = cfg
+	if general, err := config.LoadGeneralConfig(); err == nil {
+		s.GeneralConfig = general
+	}
 	s.Runtime = runtime
 	s.SiteWarnings = collectSiteWarnings(runtime)
 	s.SiteStats = collectSiteStats(runtime)
@@ -270,6 +276,7 @@ func newRouter(service *Service) *gin.Engine {
 			"PageSize":       service.PageSize,
 			"SiteWarnings":   service.SiteWarnings,
 			"SiteStats":      service.SiteStats,
+			"GeneralConfig":  service.GeneralConfig,
 		})
 	})
 	group.GET("/style.css", func(c *gin.Context) {
@@ -290,7 +297,33 @@ func newRouter(service *Service) *gin.Engine {
 			"all_sources":     service.AllSources,
 			"site_warnings":   service.SiteWarnings,
 			"site_stats":      service.SiteStats,
+			"general_config":  service.GeneralConfig,
 		})
+	})
+	group.GET("/api/general-config", func(c *gin.Context) {
+		record, err := config.LoadGeneralConfig()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"item": record})
+	})
+	group.PUT("/api/general-config", func(c *gin.Context) {
+		var req config.GeneralConfigRecord
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+			return
+		}
+		record, err := config.SaveGeneralConfig(req)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if err := service.reloadRuntime(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"item": record})
 	})
 	group.GET("/api/site-configs", func(c *gin.Context) {
 		configs, err := config.ListSiteCatalog()

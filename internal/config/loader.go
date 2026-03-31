@@ -12,6 +12,9 @@ import (
 func Load(explicitPath string) (*Config, string, error) {
 	_ = explicitPath
 	cfg := DefaultConfig()
+	if err := mergeGeneralConfig(&cfg); err != nil {
+		return nil, "", fmt.Errorf("load db general config: %w", err)
+	}
 	if err := mergeSiteCatalog(&cfg); err != nil {
 		return nil, "", fmt.Errorf("load db site catalog: %w", err)
 	}

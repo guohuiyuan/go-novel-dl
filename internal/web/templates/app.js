@@ -2,6 +2,7 @@ const root = window.__NOVEL_DL__.root;
 const defaultSources = window.__NOVEL_DL__.defaultSources || [];
 const allSources = window.__NOVEL_DL__.allSources || [];
 const defaultPageSize = window.__NOVEL_DL__.pageSize || 50;
+const initialGeneralConfig = window.__NOVEL_DL__.generalConfig || {};
 const sourceLabelMap = new Map(
   allSources.map((source) => [source.key, source.display_name || source.key]),
 );
@@ -55,6 +56,7 @@ const appState = {
   activeDetailKey: "",
   siteConfigs: new Map(),
   paramSupports: [],
+  generalConfig: initialGeneralConfig,
 };
 
 function renderSiteWarnings() {
@@ -145,6 +147,7 @@ const detailBackdrop = document.getElementById("detailBackdrop");
 const detailCloseButton = document.getElementById("detailCloseButton");
 const detailContentNode = document.getElementById("detailContent");
 const openSiteConfigButton = document.getElementById("openSiteConfig");
+const openGeneralConfigButton = document.getElementById("openGeneralConfig");
 const siteConfigOverlay = document.getElementById("siteConfigOverlay");
 const siteConfigBackdrop = document.getElementById("siteConfigBackdrop");
 const closeSiteConfigButton = document.getElementById("closeSiteConfig");
@@ -159,6 +162,27 @@ const toggleSitePasswordButton = document.getElementById("toggleSitePassword");
 const siteCookieNode = document.getElementById("siteCookie");
 const siteMirrorHostsNode = document.getElementById("siteMirrorHosts");
 const siteParamStatsNode = document.getElementById("siteParamStats");
+const generalConfigOverlay = document.getElementById("generalConfigOverlay");
+const generalConfigBackdrop = document.getElementById("generalConfigBackdrop");
+const closeGeneralConfigButton = document.getElementById("closeGeneralConfig");
+const generalConfigForm = document.getElementById("generalConfigForm");
+const openSiteConfigFromGeneralButton = document.getElementById("openSiteConfigFromGeneral");
+const generalWorkersNode = document.getElementById("generalWorkers");
+const generalTimeoutNode = document.getElementById("generalTimeout");
+const generalRequestIntervalNode = document.getElementById("generalRequestInterval");
+const generalMaxConnectionsNode = document.getElementById("generalMaxConnections");
+const generalMaxRPSNode = document.getElementById("generalMaxRPS");
+const generalRetryTimesNode = document.getElementById("generalRetryTimes");
+const generalBackoffFactorNode = document.getElementById("generalBackoffFactor");
+const generalLocaleStyleNode = document.getElementById("generalLocaleStyle");
+const generalFormatsNode = document.getElementById("generalFormats");
+const generalAppendTimestampNode = document.getElementById("generalAppendTimestamp");
+const generalIncludePictureNode = document.getElementById("generalIncludePicture");
+const generalWebPageSizeNode = document.getElementById("generalWebPageSize");
+const generalCLIPageSizeNode = document.getElementById("generalCLIPageSize");
+const generalRawDataDirNode = document.getElementById("generalRawDataDir");
+const generalCacheDirNode = document.getElementById("generalCacheDir");
+const generalOutputDirNode = document.getElementById("generalOutputDir");
 
 // 👇 新增这行 👇
 const backToTopButton = document.getElementById("backToTop");
@@ -175,7 +199,11 @@ function bootstrap() {
   setStatus("选择渠道后输入关键词开始搜索。");
 
   renderSiteWarnings();
+  renderGeneralConfigForm(appState.generalConfig);
   void loadSiteConfigs();
+  void loadGeneralConfig().catch((error) => {
+    setStatus(`全局配置加载失败：${error.message}`);
+  });
 
   searchTabButton.addEventListener("click", () => activateTab("search"));
   tasksTabButton.addEventListener("click", () => activateTab("tasks"));
@@ -216,6 +244,7 @@ function bootstrap() {
 
   detailCloseButton.addEventListener("click", closeDetail);
   detailBackdrop.addEventListener("click", closeDetail);
+  openGeneralConfigButton.addEventListener("click", openGeneralConfig);
   openSiteConfigButton.addEventListener("click", openSiteConfig);
   closeSiteConfigButton.addEventListener("click", closeSiteConfig);
   siteConfigBackdrop.addEventListener("click", closeSiteConfig);
@@ -232,6 +261,21 @@ function bootstrap() {
       setStatus(`保存站点配置失败：${error.message}`);
     }
   });
+  closeGeneralConfigButton.addEventListener("click", closeGeneralConfig);
+  generalConfigBackdrop.addEventListener("click", closeGeneralConfig);
+  openSiteConfigFromGeneralButton.addEventListener("click", () => {
+    closeGeneralConfig();
+    openSiteConfig();
+  });
+  generalConfigForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      await saveGeneralConfig();
+      closeGeneralConfig();
+    } catch (error) {
+      setStatus(`保存全局配置失败：${error.message}`);
+    }
+  });
   toggleSitePasswordButton.addEventListener("click", () => {
     const reveal = sitePasswordNode.type === "password";
     sitePasswordNode.type = reveal ? "text" : "password";
@@ -244,6 +288,10 @@ function bootstrap() {
     }
     if (event.key === "Escape" && !siteConfigOverlay.hidden) {
       closeSiteConfig();
+      return;
+    }
+    if (event.key === "Escape" && !generalConfigOverlay.hidden) {
+      closeGeneralConfig();
     }
   });
 
@@ -1131,6 +1179,82 @@ function openSiteConfig() {
 function closeSiteConfig() {
   siteConfigOverlay.hidden = true;
   document.body.classList.remove("has-overlay");
+}
+
+function openGeneralConfig() {
+  generalConfigOverlay.hidden = false;
+  document.body.classList.add("has-overlay");
+}
+
+function closeGeneralConfig() {
+  generalConfigOverlay.hidden = true;
+  document.body.classList.remove("has-overlay");
+}
+
+function renderGeneralConfigForm(item) {
+  if (!item) {
+    return;
+  }
+  generalWorkersNode.value = String(item.workers || 4);
+  generalTimeoutNode.value = String(item.timeout || 10);
+  generalRequestIntervalNode.value = String(item.request_interval || 0.5);
+  generalMaxConnectionsNode.value = String(item.max_connections || 10);
+  generalMaxRPSNode.value = String(item.max_rps || 5.0);
+  generalRetryTimesNode.value = String(item.retry_times || 3);
+  generalBackoffFactorNode.value = String(item.backoff_factor || 2.0);
+  generalLocaleStyleNode.value = item.locale_style || "simplified";
+  generalFormatsNode.value = Array.isArray(item.formats) ? item.formats.join(",") : "txt,epub";
+  generalAppendTimestampNode.checked = item.append_timestamp !== false;
+  generalIncludePictureNode.checked = item.include_picture !== false;
+  generalWebPageSizeNode.value = String(item.web_page_size || 50);
+  generalCLIPageSizeNode.value = String(item.cli_page_size || 30);
+  generalRawDataDirNode.value = item.raw_data_dir || "./data/raw_data";
+  generalCacheDirNode.value = item.cache_dir || "./data/novel_cache";
+  generalOutputDirNode.value = item.output_dir || "./data/downloads";
+}
+
+async function loadGeneralConfig() {
+  const response = await fetch(`${root}/api/general-config`);
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload.error || "general config load failed");
+  }
+  appState.generalConfig = payload.item || appState.generalConfig;
+  renderGeneralConfigForm(appState.generalConfig);
+}
+
+async function saveGeneralConfig() {
+  const payload = {
+    workers: Math.max(1, Number.parseInt(generalWorkersNode.value || "4", 10) || 4),
+    timeout: Math.max(1, Number.parseFloat(generalTimeoutNode.value || "10") || 10),
+    request_interval: Math.max(0, Number.parseFloat(generalRequestIntervalNode.value || "0.5") || 0.5),
+    max_connections: Math.max(1, Number.parseInt(generalMaxConnectionsNode.value || "10", 10) || 10),
+    max_rps: Math.max(0.1, Number.parseFloat(generalMaxRPSNode.value || "5") || 5),
+    retry_times: Math.max(0, Number.parseInt(generalRetryTimesNode.value || "3", 10) || 3),
+    backoff_factor: Math.max(1, Number.parseFloat(generalBackoffFactorNode.value || "2") || 2),
+    locale_style: (generalLocaleStyleNode.value || "simplified").trim(),
+    formats: (generalFormatsNode.value || "txt,epub").split(",").map((item) => item.trim()).filter(Boolean),
+    append_timestamp: generalAppendTimestampNode.checked,
+    include_picture: generalIncludePictureNode.checked,
+    web_page_size: Math.max(1, Number.parseInt(generalWebPageSizeNode.value || "50", 10) || 50),
+    cli_page_size: Math.max(1, Number.parseInt(generalCLIPageSizeNode.value || "30", 10) || 30),
+    raw_data_dir: generalRawDataDirNode.value.trim(),
+    cache_dir: generalCacheDirNode.value.trim(),
+    output_dir: generalOutputDirNode.value.trim(),
+  };
+
+  const response = await fetch(`${root}/api/general-config`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || "save general config failed");
+  }
+  appState.generalConfig = data.item || payload;
+  renderGeneralConfigForm(appState.generalConfig);
+  setStatus("已保存全局配置。新任务将使用最新参数。");
 }
 
 async function saveSiteConfig() {
