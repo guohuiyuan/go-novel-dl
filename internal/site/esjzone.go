@@ -37,6 +37,8 @@ type ESJZoneSite struct {
 	cookieFile    string
 	sessionMu     sync.RWMutex
 	sessionValid  bool
+	hostMu        sync.RWMutex
+	workingHost   string
 }
 
 type esjCookie struct {
@@ -55,14 +57,15 @@ func NewESJZoneSite(cfg config.ResolvedSiteConfig) *ESJZoneSite {
 		timeout = time.Duration(cfg.General.Timeout * float64(time.Second))
 	}
 
-	bookAliases := []string{"https://www.esjzone.cc", "https://www.esjzone.one"}
-	searchAliases := []string{"https://www.esjzone.cc", "https://www.esjzone.one"}
+	bookAliases := []string{"https://www.esjzone.cc"}
+	searchAliases := []string{"https://www.esjzone.cc"}
 	for _, mirror := range cfg.MirrorHosts {
 		mirror = strings.TrimSpace(strings.TrimRight(mirror, "/"))
 		if mirror == "" {
 			continue
 		}
 		bookAliases = appendUniqueString(bookAliases, mirror)
+		searchAliases = appendUniqueString(searchAliases, mirror)
 	}
 	jar, _ := cookiejar.New(nil)
 	cookieFile := filepath.Join(cfg.General.CacheDir, "esjzone", "esjzone.cookies.json")
@@ -205,13 +208,16 @@ func (s *ESJZoneSite) Search(ctx context.Context, keyword string, limit int) ([]
 
 	encoded := url.PathEscape(keyword)
 	var lastErr error
-	for _, host := range s.searchAliases {
+	for _, host := range s.prioritizedAliases(s.searchAliases) {
+		hostCtx, cancel := context.WithTimeout(ctx, s.perHostTimeout(8*time.Second))
 		pageURL := host + "/tags/" + encoded + "/"
-		markup, err := s.html.Get(ctx, pageURL)
+		markup, err := s.html.Get(hostCtx, pageURL)
+		cancel()
 		if err != nil {
 			lastErr = err
 			continue
 		}
+		s.rememberWorkingHost(pageURL)
 		results, err := s.parseSearchPage(markup, host)
 		if err != nil {
 			lastErr = err
@@ -288,15 +294,19 @@ func (s *ESJZoneSite) enrichSearchResults(ctx context.Context, results []model.S
 
 func (s *ESJZoneSite) fetchBookPage(ctx context.Context, bookID string) (string, string, error) {
 	var lastErr error
-	for _, host := range s.bookAliases {
+	for _, host := range s.prioritizedAliases(s.bookAliases) {
+		hostCtx, cancel := context.WithTimeout(ctx, s.perHostTimeout(10*time.Second))
 		pageURL := host + "/detail/" + bookID + ".html"
-		markup, err := s.html.Get(ctx, pageURL)
+		markup, err := s.html.Get(hostCtx, pageURL)
+		cancel()
 		if err != nil {
 			lastErr = err
 			continue
 		}
 		if redirected := extractMirrorRedirect(markup); redirected != "" {
-			markup, err = s.html.Get(ctx, redirected)
+			rCtx, rCancel := context.WithTimeout(ctx, s.perHostTimeout(10*time.Second))
+			markup, err = s.html.Get(rCtx, redirected)
+			rCancel()
 			if err != nil {
 				lastErr = err
 				continue
@@ -304,6 +314,7 @@ func (s *ESJZoneSite) fetchBookPage(ctx context.Context, bookID string) (string,
 			pageURL = redirected
 		}
 		if strings.Contains(markup, "<div id=\"chapterList\"") || strings.Contains(markup, `<div id="chapterList">`) {
+			s.rememberWorkingHost(pageURL)
 			return markup, pageURL, nil
 		}
 		lastErr = fmt.Errorf("book page not found on %s", host)
@@ -317,19 +328,24 @@ func (s *ESJZoneSite) fetchBookPage(ctx context.Context, bookID string) (string,
 
 func (s *ESJZoneSite) fetchChapterContent(ctx context.Context, bookID, chapterID string) (string, error) {
 	var lastErr error
-	for _, host := range s.bookAliases {
+	for _, host := range s.prioritizedAliases(s.bookAliases) {
+		hostCtx, cancel := context.WithTimeout(ctx, s.perHostTimeout(10*time.Second))
 		pageURL := host + "/forum/" + bookID + "/" + chapterID + ".html"
-		markup, err := s.html.Get(ctx, pageURL)
+		markup, err := s.html.Get(hostCtx, pageURL)
+		cancel()
 		if err != nil {
 			lastErr = err
 			continue
 		}
 		if redirected := extractMirrorRedirect(markup); redirected != "" {
-			markup, err = s.html.Get(ctx, redirected)
+			rCtx, rCancel := context.WithTimeout(ctx, s.perHostTimeout(10*time.Second))
+			markup, err = s.html.Get(rCtx, redirected)
+			rCancel()
 			if err != nil {
 				lastErr = err
 				continue
 			}
+			pageURL = redirected
 		}
 		content, err := parseChapterContent(markup, pageURL, s.cfg.General.Output.IncludePicture)
 		if err != nil {
@@ -348,6 +364,7 @@ func (s *ESJZoneSite) fetchChapterContent(ctx context.Context, bookID, chapterID
 			lastErr = err
 			continue
 		}
+		s.rememberWorkingHost(pageURL)
 		return content, nil
 	}
 
@@ -355,6 +372,53 @@ func (s *ESJZoneSite) fetchChapterContent(ctx context.Context, bookID, chapterID
 		return "", lastErr
 	}
 	return "", fmt.Errorf("chapter not found: %s/%s", bookID, chapterID)
+}
+
+func (s *ESJZoneSite) perHostTimeout(capDuration time.Duration) time.Duration {
+	timeout := 8 * time.Second
+	if s.cfg.General.Timeout > 0 {
+		timeout = time.Duration(s.cfg.General.Timeout * float64(time.Second))
+	}
+	if timeout > capDuration {
+		timeout = capDuration
+	}
+	if timeout < 3*time.Second {
+		return 3 * time.Second
+	}
+	return timeout
+}
+
+func (s *ESJZoneSite) prioritizedAliases(base []string) []string {
+	ordered := uniqueStrings(base)
+	working := strings.TrimSpace(s.getWorkingHost())
+	if working == "" {
+		return ordered
+	}
+	result := []string{working}
+	for _, host := range ordered {
+		if strings.EqualFold(strings.TrimSpace(host), working) {
+			continue
+		}
+		result = append(result, host)
+	}
+	return result
+}
+
+func (s *ESJZoneSite) rememberWorkingHost(rawURL string) {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return
+	}
+	host := parsed.Scheme + "://" + parsed.Host
+	s.hostMu.Lock()
+	s.workingHost = host
+	s.hostMu.Unlock()
+}
+
+func (s *ESJZoneSite) getWorkingHost() string {
+	s.hostMu.RLock()
+	defer s.hostMu.RUnlock()
+	return s.workingHost
 }
 
 func (s *ESJZoneSite) ensureLogin(ctx context.Context) error {

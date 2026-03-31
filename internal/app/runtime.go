@@ -145,6 +145,7 @@ func (r *Runtime) Download(ctx context.Context, siteKey string, books []model.Bo
 			jobs := make(chan int, len(pending))
 			var wg sync.WaitGroup
 			var mu sync.Mutex
+			failedChapters := 0
 
 			for i := 0; i < workerCount; i++ {
 				wg.Add(1)
@@ -157,6 +158,15 @@ func (r *Runtime) Download(ctx context.Context, siteKey string, books []model.Bo
 						mu.Lock()
 						if fetchErr != nil {
 							r.Console.Warnf("跳过章节 %s: %v", chapter.Title, fetchErr)
+							failedChapters++
+							done++
+							r.Progress.OnBookProgress(done, len(book.Chapters), chapter.Title)
+							mu.Unlock()
+							continue
+						}
+						if strings.TrimSpace(loaded.Content) == "" {
+							r.Console.Warnf("章节 %s 内容为空，已跳过", chapter.Title)
+							failedChapters++
 							done++
 							r.Progress.OnBookProgress(done, len(book.Chapters), chapter.Title)
 							mu.Unlock()
@@ -175,9 +185,16 @@ func (r *Runtime) Download(ctx context.Context, siteKey string, books []model.Bo
 			}
 			close(jobs)
 			wg.Wait()
+
+			if failedChapters == len(pending) {
+				return results, fmt.Errorf("渠道 %s 的章节抓取全部失败或为空，请检查登录状态/Cookie/章节可见性", siteKey)
+			}
 		}
 
 		r.Progress.OnBookComplete(done, len(book.Chapters))
+		if !bookHasUsableContent(book) {
+			return results, fmt.Errorf("渠道 %s 导出的正文为空，已中止导出", siteKey)
+		}
 		book.Site = siteKey
 		if book.DownloadedAt.IsZero() {
 			book.DownloadedAt = time.Now().UTC()
@@ -245,11 +262,26 @@ func canReuseChapterContent(content string) bool {
 		case "[\u63d2\u56fe]", "[\u63d2\u5716]", "[\u56fe\u7247]", "[\u5716\u7247]", "[??]":
 			return false
 		}
+		if strings.HasPrefix(trimmed, "[\u63d2\u56fe] ") || strings.HasPrefix(trimmed, "[\u63d2\u5716] ") || strings.HasPrefix(trimmed, "[\u56fe\u7247] ") || strings.HasPrefix(trimmed, "[\u5716\u7247] ") {
+			return false
+		}
 		if strings.HasPrefix(trimmed, "[??] ") {
 			return false
 		}
 	}
 	return strings.TrimSpace(content) != ""
+}
+
+func bookHasUsableContent(book *model.Book) bool {
+	if book == nil {
+		return false
+	}
+	for _, chapter := range book.Chapters {
+		if canReuseChapterContent(chapter.Content) {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Runtime) Search(ctx context.Context, sites []string, keyword string, overallLimit, perSiteLimit int) ([]model.SearchResult, error) {

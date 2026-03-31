@@ -9,8 +9,11 @@
   <link rel="stylesheet" href="{{ .Root }}/style.css">
 </head>
 <body>
-  <button id="openGeneralConfig" class="settings-float" title="设置中心">
-    ⚙
+  <button id="openGeneralConfig" class="settings-float" aria-label="设置中心">
+    <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="3"></circle>
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+    </svg>
   </button>
 
   <div class="page-shell">
@@ -46,7 +49,6 @@
           <div class="selection-toolbar">
             <button type="button" id="selectAllSources" class="tool-button">全选</button>
             <button type="button" id="clearSources" class="tool-button is-ghost">清空</button>
-            <button type="button" id="openSiteConfig" class="tool-button">设置中心</button>
           </div>
 
           <div class="panel-header">
@@ -57,8 +59,8 @@
           </div>
 
           <div id="sourceSelector" class="source-selector"></div>
-          </section>
-          <div id="siteWarningPanel" class="site-warning-stack" hidden aria-live="polite"></div>
+        </section>
+        <div id="siteWarningPanel" class="site-warning-stack" hidden aria-live="polite"></div>
 
         <section class="panel-card results-panel">
           <div class="feedback-stack">
@@ -112,42 +114,61 @@
         <h2 id="siteConfigHeading">设置中心</h2>
         <button type="button" id="closeSiteConfig" class="detail-close">关闭</button>
       </div>
-      <p class="panel-hint">全局参数与站点参数都保存在 SQLite（data/site_catalog.db），Web 与 CLI 共用。</p>
 
       <div class="settings-layout">
         <section class="config-section-card">
           <div class="config-section-head">
             <h3>全局配置</h3>
-            <p class="panel-hint">控制默认下载行为、分页和导出参数。</p>
           </div>
           <form id="generalConfigForm" class="site-config-form">
             <label class="search-field" for="generalWorkers">
-              <span class="field-label">默认下载协程</span>
-              <input id="generalWorkers" class="search-input" type="number" min="1" step="1">
+              <span class="field-label">默认下载协程 (推荐1-10)</span>
+              <div class="range-wrap">
+                <input id="generalWorkers" class="search-input slider" type="range" min="1" max="10" step="1">
+                <span id="generalWorkersVal" class="range-val">4</span>
+              </div>
             </label>
             <label class="search-field" for="generalTimeout">
-              <span class="field-label">超时（秒）</span>
-              <input id="generalTimeout" class="search-input" type="number" min="1" step="1">
+              <span class="field-label">超时时间 (秒)</span>
+              <div class="range-wrap">
+                <input id="generalTimeout" class="search-input slider" type="range" min="1" max="60" step="1">
+                <span id="generalTimeoutVal" class="range-val">10</span>
+              </div>
             </label>
             <label class="search-field" for="generalRequestInterval">
-              <span class="field-label">请求间隔（秒）</span>
-              <input id="generalRequestInterval" class="search-input" type="number" min="0" step="0.1">
+              <span class="field-label">请求间隔 (秒)</span>
+              <div class="range-wrap">
+                <input id="generalRequestInterval" class="search-input slider" type="range" min="0" max="10" step="0.1">
+                <span id="generalRequestIntervalVal" class="range-val">0.5</span>
+              </div>
             </label>
             <label class="search-field" for="generalMaxConnections">
               <span class="field-label">最大连接数</span>
-              <input id="generalMaxConnections" class="search-input" type="number" min="1" step="1">
+              <div class="range-wrap">
+                <input id="generalMaxConnections" class="search-input slider" type="range" min="1" max="100" step="1">
+                <span id="generalMaxConnectionsVal" class="range-val">10</span>
+              </div>
             </label>
             <label class="search-field" for="generalMaxRPS">
               <span class="field-label">最大 RPS</span>
-              <input id="generalMaxRPS" class="search-input" type="number" min="0.1" step="0.1">
+              <div class="range-wrap">
+                <input id="generalMaxRPS" class="search-input slider" type="range" min="0.1" max="50" step="0.1">
+                <span id="generalMaxRPSVal" class="range-val">5.0</span>
+              </div>
             </label>
             <label class="search-field" for="generalRetryTimes">
               <span class="field-label">重试次数</span>
-              <input id="generalRetryTimes" class="search-input" type="number" min="0" step="1">
+              <div class="range-wrap">
+                <input id="generalRetryTimes" class="search-input slider" type="range" min="0" max="10" step="1">
+                <span id="generalRetryTimesVal" class="range-val">3</span>
+              </div>
             </label>
             <label class="search-field" for="generalBackoffFactor">
               <span class="field-label">退避系数</span>
-              <input id="generalBackoffFactor" class="search-input" type="number" min="1" step="0.1">
+              <div class="range-wrap">
+                <input id="generalBackoffFactor" class="search-input slider" type="range" min="1" max="5" step="0.1">
+                <span id="generalBackoffFactorVal" class="range-val">2.0</span>
+              </div>
             </label>
             <label class="search-field" for="generalLocaleStyle">
               <span class="field-label">文本风格</span>
@@ -170,11 +191,17 @@
             </label>
             <label class="search-field" for="generalWebPageSize">
               <span class="field-label">Web 每页数量</span>
-              <input id="generalWebPageSize" class="search-input" type="number" min="1" step="1">
+              <div class="range-wrap">
+                <input id="generalWebPageSize" class="search-input slider" type="range" min="10" max="100" step="1">
+                <span id="generalWebPageSizeVal" class="range-val">50</span>
+              </div>
             </label>
             <label class="search-field" for="generalCLIPageSize">
               <span class="field-label">CLI 每页数量</span>
-              <input id="generalCLIPageSize" class="search-input" type="number" min="1" step="1">
+              <div class="range-wrap">
+                <input id="generalCLIPageSize" class="search-input slider" type="range" min="10" max="100" step="1">
+                <span id="generalCLIPageSizeVal" class="range-val">30</span>
+              </div>
             </label>
             <label class="search-field" for="generalRawDataDir">
               <span class="field-label">Raw 数据目录</span>
@@ -197,56 +224,62 @@
         <section class="config-section-card">
           <div class="config-section-head">
             <h3>站点配置</h3>
-            <p class="panel-hint">为特定站点覆盖登录信息、并发和抓图策略。</p>
           </div>
-          <div id="siteParamStats" class="site-param-stats"></div>
           <form id="siteConfigForm" class="site-config-form">
-        <label class="search-field" for="siteConfigKey">
-          <span class="field-label">站点</span>
-          <select id="siteConfigKey" class="search-input"></select>
-        </label>
+            <label class="search-field" for="siteConfigKey">
+              <span class="field-label">站点</span>
+              <select id="siteConfigKey" class="search-input"></select>
+            </label>
 
-        <label class="site-config-check">
-          <input id="siteLoginRequired" type="checkbox">
-          <span>需要登录</span>
-        </label>
+            <label class="site-config-check">
+              <input id="siteLoginRequired" type="checkbox">
+              <span>需要登录</span>
+            </label>
 
-        <label class="search-field" for="siteWorkerLimit">
-          <span class="field-label">下载协程数（0 使用默认）</span>
-          <input id="siteWorkerLimit" class="search-input" type="number" min="0" step="1" value="0">
-        </label>
+            <label class="search-field" for="siteWorkerLimit">
+              <span class="field-label">下载协程数 (0 为使用全局默认)</span>
+              <div class="range-wrap">
+                <input id="siteWorkerLimit" class="search-input slider" type="range" min="0" max="10" step="1">
+                <span id="siteWorkerLimitVal" class="range-val">0</span>
+              </div>
+            </label>
 
-        <label class="site-config-check">
-          <input id="siteFetchImages" type="checkbox">
-          <span>抓取图片（关闭后仅保留文本）</span>
-        </label>
+            <label class="site-config-check">
+              <input id="siteFetchImages" type="checkbox">
+              <span>抓取图片（关闭后仅保留文本）</span>
+            </label>
 
-        <label class="search-field" for="siteUsername">
-          <span class="field-label">用户名</span>
-          <input id="siteUsername" class="search-input" type="text" autocomplete="off">
-        </label>
+            <label class="search-field" for="siteUsername">
+              <span class="field-label">用户名</span>
+              <input id="siteUsername" class="search-input" type="text" autocomplete="off">
+            </label>
 
-        <label class="search-field" for="sitePassword">
-          <span class="field-label">密码</span>
-          <div class="password-field-wrap">
-            <input id="sitePassword" class="search-input" type="password" autocomplete="off">
-            <button id="toggleSitePassword" type="button" class="tool-button is-ghost">显示</button>
-          </div>
-        </label>
+            <label class="search-field" for="sitePassword">
+              <span class="field-label">密码</span>
+              <div class="input-icon-wrap">
+                <input id="sitePassword" class="search-input" type="password" autocomplete="off">
+                <button id="toggleSitePassword" type="button" class="input-icon-btn" aria-label="切换可见性">
+                  <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                    <circle cx="12" cy="12" r="3"></circle>
+                  </svg>
+                </button>
+              </div>
+            </label>
 
-        <label class="search-field" for="siteCookie">
-          <span class="field-label">Cookie</span>
-          <textarea id="siteCookie" class="site-config-textarea" rows="4" placeholder="name=value; name2=value2"></textarea>
-        </label>
+            <label class="search-field" for="siteCookie">
+              <span class="field-label">Cookie</span>
+              <textarea id="siteCookie" class="site-config-textarea" rows="4" placeholder="name=value; name2=value2"></textarea>
+            </label>
 
-        <label class="search-field" for="siteMirrorHosts">
-          <span class="field-label">镜像地址（每行一个）</span>
-          <textarea id="siteMirrorHosts" class="site-config-textarea" rows="3"></textarea>
-        </label>
+            <label class="search-field" for="siteMirrorHosts">
+              <span class="field-label">镜像地址（每行一个）</span>
+              <textarea id="siteMirrorHosts" class="site-config-textarea" rows="3"></textarea>
+            </label>
 
-        <div class="site-config-actions">
-          <button id="saveSiteConfig" type="submit" class="search-button">保存配置</button>
-        </div>
+            <div class="site-config-actions">
+              <button id="saveSiteConfig" type="submit" class="search-button">保存配置</button>
+            </div>
           </form>
         </section>
       </div>

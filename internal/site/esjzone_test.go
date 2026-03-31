@@ -27,6 +27,21 @@ func TestESJZoneResolveURLSupportsMirror(t *testing.T) {
 	}
 }
 
+func TestESJZoneDefaultAliasesPreferPrimaryHost(t *testing.T) {
+	cfg := config.DefaultConfig().ResolveSiteConfig("esjzone")
+	cfg.MirrorHosts = nil
+	site := NewESJZoneSite(cfg)
+
+	if len(site.searchAliases) == 0 || site.searchAliases[0] != "https://www.esjzone.cc" {
+		t.Fatalf("expected search aliases to prefer esjzone.cc, got %+v", site.searchAliases)
+	}
+	for _, host := range site.searchAliases {
+		if strings.Contains(host, "esjzone.one") {
+			t.Fatalf("did not expect esjzone.one in default aliases, got %+v", site.searchAliases)
+		}
+	}
+}
+
 func TestApplyChapterRange(t *testing.T) {
 	chapters := []model.Chapter{{ID: "1"}, {ID: "2"}, {ID: "3"}, {ID: "4"}}
 	filtered := applyChapterRange(chapters, model.BookRef{StartID: "2", EndID: "4", IgnoreIDs: []string{"3"}})

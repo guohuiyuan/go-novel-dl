@@ -29,3 +29,36 @@ func TestMergeExistingChaptersSkipsLegacyImagePlaceholder(t *testing.T) {
 		t.Fatalf("expected legacy placeholder chapter to be re-fetched, got %+v", target.Chapters[1])
 	}
 }
+
+func TestBookHasUsableContent(t *testing.T) {
+	tests := []struct {
+		name string
+		book *model.Book
+		want bool
+	}{
+		{
+			name: "nil book",
+			book: nil,
+			want: false,
+		},
+		{
+			name: "placeholder only",
+			book: &model.Book{Chapters: []model.Chapter{{ID: "1", Content: "[图片] https://x"}}},
+			want: false,
+		},
+		{
+			name: "has text content",
+			book: &model.Book{Chapters: []model.Chapter{{ID: "1", Content: "第一段正文"}}},
+			want: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := bookHasUsableContent(tc.book)
+			if got != tc.want {
+				t.Fatalf("bookHasUsableContent() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

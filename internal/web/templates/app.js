@@ -60,9 +60,7 @@ const appState = {
 };
 
 function renderSiteWarnings() {
-  if (!siteWarningPanel) {
-    return;
-  }
+  if (!siteWarningPanel) return;
   if (siteWarnings.length === 0) {
     siteWarningPanel.hidden = true;
     siteWarningPanel.innerHTML = "";
@@ -85,7 +83,6 @@ function renderSiteWarnings() {
     const header = document.createElement("div");
     header.className = "site-warning-head";
     header.append(icon, message);
-
     card.appendChild(header);
 
     const stat = siteStats.find((stat) => stat.site_key === warning.site_key);
@@ -116,7 +113,6 @@ function renderSiteWarnings() {
       action.textContent = warning.action_label;
       card.appendChild(action);
     }
-
     siteWarningPanel.appendChild(card);
   });
 }
@@ -146,7 +142,7 @@ const detailOverlay = document.getElementById("detailOverlay");
 const detailBackdrop = document.getElementById("detailBackdrop");
 const detailCloseButton = document.getElementById("detailCloseButton");
 const detailContentNode = document.getElementById("detailContent");
-const openSiteConfigButton = document.getElementById("openSiteConfig");
+
 const openGeneralConfigButton = document.getElementById("openGeneralConfig");
 const siteConfigOverlay = document.getElementById("siteConfigOverlay");
 const siteConfigBackdrop = document.getElementById("siteConfigBackdrop");
@@ -161,8 +157,8 @@ const sitePasswordNode = document.getElementById("sitePassword");
 const toggleSitePasswordButton = document.getElementById("toggleSitePassword");
 const siteCookieNode = document.getElementById("siteCookie");
 const siteMirrorHostsNode = document.getElementById("siteMirrorHosts");
-const siteParamStatsNode = document.getElementById("siteParamStats");
 const generalConfigForm = document.getElementById("generalConfigForm");
+
 const generalWorkersNode = document.getElementById("generalWorkers");
 const generalTimeoutNode = document.getElementById("generalTimeout");
 const generalRequestIntervalNode = document.getElementById("generalRequestInterval");
@@ -180,8 +176,15 @@ const generalRawDataDirNode = document.getElementById("generalRawDataDir");
 const generalCacheDirNode = document.getElementById("generalCacheDir");
 const generalOutputDirNode = document.getElementById("generalOutputDir");
 
-// 👇 新增这行 👇
 const backToTopButton = document.getElementById("backToTop");
+
+function bindRangeValue(inputId) {
+  const input = document.getElementById(inputId);
+  const valDisplay = document.getElementById(inputId + "Val");
+  if (input && valDisplay) {
+    input.addEventListener("input", () => { valDisplay.textContent = input.value; });
+  }
+}
 
 bootstrap();
 
@@ -193,6 +196,9 @@ function bootstrap() {
   renderPaging();
   renderResultMeta();
   setStatus("选择渠道后输入关键词开始搜索。");
+
+  // 绑定滑动条联动显示
+  ['generalWorkers', 'generalTimeout', 'generalRequestInterval', 'generalMaxConnections', 'generalMaxRPS', 'generalRetryTimes', 'generalBackoffFactor', 'generalWebPageSize', 'generalCLIPageSize', 'siteWorkerLimit'].forEach(bindRangeValue);
 
   renderSiteWarnings();
   renderGeneralConfigForm(appState.generalConfig);
@@ -217,17 +223,13 @@ function bootstrap() {
   });
 
   prevPageButton.addEventListener("click", async () => {
-    if (!appState.hasPrev || !appState.lastKeyword) {
-      return;
-    }
+    if (!appState.hasPrev || !appState.lastKeyword) return;
     appState.page -= 1;
     await performSearch();
   });
 
   nextPageButton.addEventListener("click", async () => {
-    if (!appState.hasNext || !appState.lastKeyword) {
-      return;
-    }
+    if (!appState.hasNext || !appState.lastKeyword) return;
     appState.page += 1;
     await performSearch();
   });
@@ -241,62 +243,45 @@ function bootstrap() {
   detailCloseButton.addEventListener("click", closeDetail);
   detailBackdrop.addEventListener("click", closeDetail);
   openGeneralConfigButton.addEventListener("click", openSiteConfig);
-  openSiteConfigButton.addEventListener("click", openSiteConfig);
   closeSiteConfigButton.addEventListener("click", closeSiteConfig);
   siteConfigBackdrop.addEventListener("click", closeSiteConfig);
+  
   siteConfigKeyNode.addEventListener("change", () => {
-    const key = siteConfigKeyNode.value;
-    populateSiteConfigForm(key);
+    populateSiteConfigForm(siteConfigKeyNode.value);
   });
+  
   siteConfigForm.addEventListener("submit", async (event) => {
     event.preventDefault();
-    try {
-      await saveSiteConfig();
-    } catch (error) {
-      setStatus(`保存站点配置失败：${error.message}`);
-    }
+    try { await saveSiteConfig(); } catch (error) { setStatus(`保存站点配置失败：${error.message}`); }
   });
+  
   generalConfigForm.addEventListener("submit", async (event) => {
     event.preventDefault();
-    try {
-      await saveGeneralConfig();
-    } catch (error) {
-      setStatus(`保存全局配置失败：${error.message}`);
-    }
+    try { await saveGeneralConfig(); } catch (error) { setStatus(`保存全局配置失败：${error.message}`); }
   });
+  
+  // 切换密码显示小眼睛图标
   toggleSitePasswordButton.addEventListener("click", () => {
     const reveal = sitePasswordNode.type === "password";
     sitePasswordNode.type = reveal ? "text" : "password";
-    toggleSitePasswordButton.textContent = reveal ? "隐藏" : "显示";
+    toggleSitePasswordButton.innerHTML = reveal 
+      ? `<svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>` 
+      : `<svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>`;
   });
+  
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !detailOverlay.hidden) {
-      closeDetail();
-      return;
-    }
-    if (event.key === "Escape" && !siteConfigOverlay.hidden) {
-      closeSiteConfig();
-    }
+    if (event.key === "Escape" && !detailOverlay.hidden) closeDetail();
+    if (event.key === "Escape" && !siteConfigOverlay.hidden) closeSiteConfig();
   });
 
-  // 👇 新增：回到顶部逻辑 👇
   window.addEventListener("scroll", () => {
-    // 页面向下滚动超过 300px 时显示按钮
-    if (window.scrollY > 300) {
-      backToTopButton.classList.add("is-visible");
-    } else {
-      backToTopButton.classList.remove("is-visible");
-    }
+    if (window.scrollY > 300) backToTopButton.classList.add("is-visible");
+    else backToTopButton.classList.remove("is-visible");
   });
 
   backToTopButton.addEventListener("click", () => {
-    // 平滑滚动回顶部
-    window.scrollTo({
-      top: 0,
-      behavior: "smooth"
-    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
   });
-  // 👆 新增结束 👆
 }
 
 function activateTab(tabName) {
@@ -310,18 +295,11 @@ function activateTab(tabName) {
 
 async function performSearch() {
   const keyword = keywordInput.value.trim();
-  if (!keyword) {
-    setStatus("请输入关键词。");
-    return;
-  }
-  if (appState.selectedSites.size === 0) {
-    setStatus("请至少选择一个渠道。");
-    return;
-  }
+  if (!keyword) return setStatus("请输入关键词。");
+  if (appState.selectedSites.size === 0) return setStatus("请至少选择一个渠道。");
   if (appState.selectedSites.has("esjzone") && !isESJConfigured()) {
     showESJConfigPrompt();
-    setStatus("ESJ Zone 需要先配置 Cookie 或密码。已为你打开配置入口提示。");
-    return;
+    return setStatus("ESJ Zone 需要先配置 Cookie 或密码。已为你打开配置入口提示。");
   }
 
   closeDetail();
@@ -335,11 +313,8 @@ async function performSearch() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        keyword,
-        scope: "all",
-        sites: Array.from(appState.selectedSites),
-        page: appState.page,
-        page_size: appState.pageSize,
+        keyword, scope: "all", sites: Array.from(appState.selectedSites),
+        page: appState.page, page_size: appState.pageSize,
       }),
     });
     const payload = await response.json();
@@ -361,42 +336,27 @@ async function performSearch() {
     renderPaging();
     renderResultMeta();
 
-    if (!appState.results.length) {
-      setStatus("没有找到结果。");
-      return;
-    }
-
-    setStatus(
-      `当前显示第 ${appState.page} 页，共 ${totalLabel(appState.total, appState.totalExact)} 条结果。`,
-    );
+    if (!appState.results.length) return setStatus("没有找到结果。");
+    setStatus(`当前显示第 ${appState.page} 页，共 ${totalLabel(appState.total, appState.totalExact)} 条结果。`);
   } catch (error) {
     if (error && error.payload && error.payload.error_code === "esjzone_config_required") {
       showESJConfigPrompt();
     }
-    appState.results = [];
-    appState.total = 0;
-    appState.totalExact = true;
-    appState.hasPrev = false;
-    appState.hasNext = false;
-    renderResults([]);
-    renderWarnings([]);
-    renderPaging();
-    renderResultMeta();
+    appState.results = []; appState.total = 0; appState.totalExact = true;
+    appState.hasPrev = false; appState.hasNext = false;
+    renderResults([]); renderWarnings([]); renderPaging(); renderResultMeta();
     setStatus(`搜索失败：${error.message}`);
   }
 }
 
 function renderSourceSelector() {
   sourceSelectorNode.innerHTML = "";
-
   allSources.forEach((source) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "source-option";
     button.setAttribute("aria-pressed", String(appState.selectedSites.has(source.key)));
-    if (appState.selectedSites.has(source.key)) {
-      button.classList.add("is-selected");
-    }
+    if (appState.selectedSites.has(source.key)) button.classList.add("is-selected");
 
     const title = document.createElement("span");
     title.className = "source-option-title";
@@ -406,21 +366,16 @@ function renderSourceSelector() {
     key.className = "source-option-key";
     key.textContent = source.key;
 
-    button.appendChild(title);
-    button.appendChild(key);
+    button.appendChild(title); button.appendChild(key);
     button.addEventListener("click", () => toggleSource(source.key));
     sourceSelectorNode.appendChild(button);
   });
-
   sourceSummaryNode.textContent = `已选择 ${appState.selectedSites.size} / ${allSources.length} 个渠道，高亮即已选。`;
 }
 
 function toggleSource(siteKey) {
-  if (appState.selectedSites.has(siteKey)) {
-    appState.selectedSites.delete(siteKey);
-  } else {
-    appState.selectedSites.add(siteKey);
-  }
+  if (appState.selectedSites.has(siteKey)) appState.selectedSites.delete(siteKey);
+  else appState.selectedSites.add(siteKey);
   renderSourceSelector();
 }
 
@@ -437,10 +392,7 @@ function renderWarnings(warnings) {
 
 function renderResults(results) {
   resultsNode.innerHTML = "";
-  if (!results.length) {
-    resultsNode.appendChild(createEmptyState("当前页没有可展示的结果。"));
-    return;
-  }
+  if (!results.length) return resultsNode.appendChild(createEmptyState("当前页没有可展示的结果。"));
 
   results.forEach((result) => {
     const card = document.createElement("article");
@@ -449,13 +401,8 @@ function renderResults(results) {
     const coverButton = document.createElement("button");
     coverButton.type = "button";
     coverButton.className = "result-cover-button";
-    coverButton.setAttribute(
-      "aria-label",
-      `查看 ${displayResultTitle(result)} 的详情`,
-    );
-    coverButton.appendChild(
-      createCoverImage(result.cover_url, displayResultTitle(result), "result-cover"),
-    );
+    coverButton.setAttribute("aria-label", `查看 ${displayResultTitle(result)} 的详情`);
+    coverButton.appendChild(createCoverImage(result.cover_url, displayResultTitle(result), "result-cover"));
 
     const overlay = document.createElement("span");
     overlay.className = "result-cover-overlay";
@@ -478,9 +425,7 @@ function renderResults(results) {
     source.className = "result-source";
     source.textContent = `源：${sourceLabel(result.preferred_site)}`;
 
-    body.appendChild(title);
-    body.appendChild(author);
-    body.appendChild(source);
+    body.appendChild(title); body.appendChild(author); body.appendChild(source);
 
     if (result.latest_chapter) {
       const extra = document.createElement("p");
@@ -488,9 +433,7 @@ function renderResults(results) {
       extra.textContent = `最新：${result.latest_chapter}`;
       body.appendChild(extra);
     }
-
-    card.appendChild(coverButton);
-    card.appendChild(body);
+    card.appendChild(coverButton); card.appendChild(body);
     resultsNode.appendChild(card);
   });
 }
@@ -500,41 +443,29 @@ function openDetail(result, variant) {
   const cacheKey = detailKey(activeVariant);
   appState.detailResult = result;
   appState.activeDetailKey = cacheKey;
-
   detailOverlay.hidden = false;
   document.body.classList.add("has-overlay");
 
   const cached = appState.detailCache.get(cacheKey);
-  if (cached) {
-    renderDetail(result, activeVariant, cached, false, "");
-    return;
-  }
+  if (cached) return renderDetail(result, activeVariant, cached, false, "");
 
   renderDetail(result, activeVariant, null, true, "");
   void loadDetail(result, activeVariant, cacheKey);
 }
 
 function closeDetail() {
-  detailOverlay.hidden = true;
-  document.body.classList.remove("has-overlay");
+  detailOverlay.hidden = true; document.body.classList.remove("has-overlay");
 }
 
 async function loadDetail(result, variant, cacheKey) {
   try {
     const url = new URL(`${window.location.origin}${root}/api/books/detail`);
-    url.searchParams.set("site", variant.site);
-    url.searchParams.set("book_id", variant.book_id);
-
+    url.searchParams.set("site", variant.site); url.searchParams.set("book_id", variant.book_id);
     const response = await fetch(url.toString());
     const payload = await response.json();
-    if (!response.ok) {
-      throw new Error(payload.error || "detail failed");
-    }
-
+    if (!response.ok) throw new Error(payload.error || "detail failed");
     const book = payload.book || null;
-    if (!book) {
-      throw new Error("未返回详情数据");
-    }
+    if (!book) throw new Error("未返回详情数据");
 
     appState.detailCache.set(cacheKey, book);
     if (appState.detailResult === result && appState.activeDetailKey === cacheKey) {
@@ -549,11 +480,8 @@ async function loadDetail(result, variant, cacheKey) {
 
 function renderDetail(result, variant, book, loading, errorMessage) {
   detailContentNode.innerHTML = "";
-
   const activeVariant = variant || result.primary;
-  const variants = Array.isArray(result.variants) && result.variants.length
-    ? result.variants
-    : [result.primary];
+  const variants = Array.isArray(result.variants) && result.variants.length ? result.variants : [result.primary];
   const title = displayDetailTitle(result, activeVariant, book);
   const author = displayDetailAuthor(result, activeVariant, book);
   const description = displayDetailDescription(result, book);
@@ -561,57 +489,35 @@ function renderDetail(result, variant, book, loading, errorMessage) {
 
   const hero = document.createElement("section");
   hero.className = "detail-hero";
-
-  hero.appendChild(
-    createCoverImage(
-      book && book.cover_url ? book.cover_url : result.cover_url,
-      title,
-      "detail-cover",
-    ),
-  );
+  hero.appendChild(createCoverImage(book && book.cover_url ? book.cover_url : result.cover_url, title, "detail-cover"));
 
   const summary = document.createElement("div");
   summary.className = "detail-summary";
 
   const heading = document.createElement("h2");
-  heading.id = "detailHeading";
-  heading.className = "detail-title";
+  heading.id = "detailHeading"; heading.className = "detail-title";
   if (book && book.source_url) {
     const titleLink = document.createElement("a");
-    titleLink.className = "detail-title-link";
-    titleLink.href = book.source_url;
-    titleLink.target = "_blank";
-    titleLink.rel = "noopener noreferrer";
+    titleLink.className = "detail-title-link"; titleLink.href = book.source_url;
+    titleLink.target = "_blank"; titleLink.rel = "noopener noreferrer";
     titleLink.textContent = title;
     heading.appendChild(titleLink);
-  } else {
-    heading.textContent = title;
-  }
+  } else heading.textContent = title;
 
   const authorNode = document.createElement("p");
-  authorNode.className = "detail-author";
-  authorNode.textContent = `作者：${author}`;
+  authorNode.className = "detail-author"; authorNode.textContent = `作者：${author}`;
 
   const sourceNode = document.createElement("p");
-  sourceNode.className = "detail-source";
-  sourceNode.textContent = `当前源：${sourceLabel(activeVariant.site)}`;
+  sourceNode.className = "detail-source"; sourceNode.textContent = `当前源：${sourceLabel(activeVariant.site)}`;
 
-  summary.appendChild(heading);
-  summary.appendChild(authorNode);
-  summary.appendChild(sourceNode);
+  summary.appendChild(heading); summary.appendChild(authorNode); summary.appendChild(sourceNode);
 
   const meta = document.createElement("div");
   meta.className = "detail-meta";
   meta.appendChild(resultBadge(sourceLabel(activeVariant.site)));
-  meta.appendChild(
-    resultBadge(chapters.length ? `${chapters.length} 章` : loading ? "加载章节中" : "暂无章节"),
-  );
-  if (result.latest_chapter) {
-    meta.appendChild(resultBadge(result.latest_chapter));
-  }
-  if (result.source_count > 1) {
-    meta.appendChild(resultBadge(`${result.source_count} 个来源`));
-  }
+  meta.appendChild(resultBadge(chapters.length ? `${chapters.length} 章` : loading ? "加载章节中" : "暂无章节"));
+  if (result.latest_chapter) meta.appendChild(resultBadge(result.latest_chapter));
+  if (result.source_count > 1) meta.appendChild(resultBadge(`${result.source_count} 个来源`));
   summary.appendChild(meta);
 
   if (variants.length > 1) {
@@ -619,11 +525,8 @@ function renderDetail(result, variant, book, loading, errorMessage) {
     switchWrap.className = "detail-source-switch";
     variants.forEach((item) => {
       const button = document.createElement("button");
-      button.type = "button";
-      button.className = "detail-source-button";
-      if (detailKey(item) === detailKey(activeVariant)) {
-        button.classList.add("is-active");
-      }
+      button.type = "button"; button.className = "detail-source-button";
+      if (detailKey(item) === detailKey(activeVariant)) button.classList.add("is-active");
       button.textContent = sourceLabel(item.site);
       button.addEventListener("click", () => openDetail(result, item));
       switchWrap.appendChild(button);
@@ -633,65 +536,37 @@ function renderDetail(result, variant, book, loading, errorMessage) {
 
   const actions = document.createElement("div");
   actions.className = "detail-actions";
-
   const downloadButton = document.createElement("button");
-  downloadButton.type = "button";
-  downloadButton.className = "download-button";
-  downloadButton.textContent = "下载并导出";
+  downloadButton.type = "button"; downloadButton.className = "download-button"; downloadButton.textContent = "下载并导出";
   downloadButton.addEventListener("click", () => {
-    void startDownloadTask(
-      {
-        site: activeVariant.site,
-        book_id: activeVariant.book_id,
-      },
-      downloadButton,
-    );
+    void startDownloadTask({ site: activeVariant.site, book_id: activeVariant.book_id }, downloadButton);
   });
   actions.appendChild(downloadButton);
   summary.appendChild(actions);
 
-  hero.appendChild(summary);
-  detailContentNode.appendChild(hero);
+  hero.appendChild(summary); detailContentNode.appendChild(hero);
 
   const introSection = document.createElement("section");
   introSection.className = "detail-section";
-
-  const introHead = document.createElement("div");
-  introHead.className = "detail-section-head";
-  const introTitle = document.createElement("h3");
-  introTitle.textContent = "小说简介";
-  introHead.appendChild(introTitle);
-  introSection.appendChild(introHead);
+  const introHead = document.createElement("div"); introHead.className = "detail-section-head";
+  const introTitle = document.createElement("h3"); introTitle.textContent = "小说简介";
+  introHead.appendChild(introTitle); introSection.appendChild(introHead);
 
   const introBody = document.createElement("p");
   introBody.className = "detail-description";
-  if (errorMessage && !description.trim()) {
-    introBody.textContent = `详情加载失败：${errorMessage}`;
-  } else {
-    introBody.textContent = description;
-  }
-  introSection.appendChild(introBody);
-  detailContentNode.appendChild(introSection);
+  introBody.textContent = (errorMessage && !description.trim()) ? `详情加载失败：${errorMessage}` : description;
+  introSection.appendChild(introBody); detailContentNode.appendChild(introSection);
 
   const chapterSection = document.createElement("section");
   chapterSection.className = "detail-section";
+  const chapterHead = document.createElement("div"); chapterHead.className = "detail-section-head";
+  const chapterTitle = document.createElement("h3"); chapterTitle.textContent = "章节";
+  chapterHead.appendChild(chapterTitle); chapterSection.appendChild(chapterHead);
 
-  const chapterHead = document.createElement("div");
-  chapterHead.className = "detail-section-head";
-  const chapterTitle = document.createElement("h3");
-  chapterTitle.textContent = "章节";
-  chapterHead.appendChild(chapterTitle);
-  chapterSection.appendChild(chapterHead);
-
-  if (loading) {
-    chapterSection.appendChild(createEmptyInline("正在加载章节列表..."));
-  } else if (errorMessage) {
-    chapterSection.appendChild(createEmptyInline(`详情加载失败：${errorMessage}`));
-  } else if (!chapters.length) {
-    chapterSection.appendChild(createEmptyInline("当前源没有返回章节列表。"));
-  } else {
-    chapterSection.appendChild(renderChapterList(chapters));
-  }
+  if (loading) chapterSection.appendChild(createEmptyInline("正在加载章节列表..."));
+  else if (errorMessage) chapterSection.appendChild(createEmptyInline(`详情加载失败：${errorMessage}`));
+  else if (!chapters.length) chapterSection.appendChild(createEmptyInline("当前源没有返回章节列表。"));
+  else chapterSection.appendChild(renderChapterList(chapters));
 
   detailContentNode.appendChild(chapterSection);
 }
@@ -699,399 +574,204 @@ function renderDetail(result, variant, book, loading, errorMessage) {
 function renderChapterList(chapters) {
   const list = document.createElement("div");
   list.className = "chapter-list";
-
   let lastVolume = "";
   chapters.forEach((chapter, index) => {
     if (chapter.volume && chapter.volume !== lastVolume) {
       lastVolume = chapter.volume;
       const volume = document.createElement("div");
-      volume.className = "chapter-volume";
-      volume.textContent = chapter.volume;
+      volume.className = "chapter-volume"; volume.textContent = chapter.volume;
       list.appendChild(volume);
     }
-
-    const item = document.createElement("div");
-    item.className = "chapter-item";
-
-    const number = document.createElement("span");
-    number.className = "chapter-index";
-    number.textContent = String(chapter.order || index + 1);
-
+    const item = document.createElement("div"); item.className = "chapter-item";
+    const number = document.createElement("span"); number.className = "chapter-index"; number.textContent = String(chapter.order || index + 1);
     const content = document.createElement("div");
-
     const chapterTitle = chapter.title || `第 ${index + 1} 章`;
     if (chapter.url) {
       const titleLink = document.createElement("a");
-      titleLink.className = "chapter-title chapter-title-link";
-      titleLink.href = chapter.url;
-      titleLink.target = "_blank";
-      titleLink.rel = "noopener noreferrer";
-      titleLink.textContent = chapterTitle;
+      titleLink.className = "chapter-title chapter-title-link"; titleLink.href = chapter.url;
+      titleLink.target = "_blank"; titleLink.rel = "noopener noreferrer"; titleLink.textContent = chapterTitle;
       content.appendChild(titleLink);
     } else {
-      const title = document.createElement("span");
-      title.className = "chapter-title";
-      title.textContent = chapterTitle;
+      const title = document.createElement("span"); title.className = "chapter-title"; title.textContent = chapterTitle;
       content.appendChild(title);
     }
-
-    item.appendChild(number);
-    item.appendChild(content);
-    list.appendChild(item);
+    item.appendChild(number); item.appendChild(content); list.appendChild(item);
   });
-
   return list;
 }
 
 function resultBadge(text) {
-  const node = document.createElement("span");
-  node.className = "result-badge";
-  node.textContent = text;
-  return node;
+  const node = document.createElement("span"); node.className = "result-badge"; node.textContent = text; return node;
 }
 
 function renderPaging() {
-  resultCountNode.textContent = appState.lastKeyword
-    ? totalLabel(appState.total, appState.totalExact)
-    : "0";
+  resultCountNode.textContent = appState.lastKeyword ? totalLabel(appState.total, appState.totalExact) : "0";
   pageIndicatorNode.textContent = `第 ${appState.page} 页 · 每页 ${appState.pageSize} 本`;
-  prevPageButton.disabled = !appState.hasPrev;
-  nextPageButton.disabled = !appState.hasNext;
+  prevPageButton.disabled = !appState.hasPrev; nextPageButton.disabled = !appState.hasNext;
 }
 
 function renderResultMeta() {
-  if (!appState.lastKeyword) {
-    resultMetaNode.textContent = "输入关键词后开始搜索。";
-    return;
-  }
-  if (!appState.results.length) {
-    resultMetaNode.textContent = `关键词“${appState.lastKeyword}”暂无结果。`;
-    return;
-  }
-
+  if (!appState.lastKeyword) return resultMetaNode.textContent = "输入关键词后开始搜索。";
+  if (!appState.results.length) return resultMetaNode.textContent = `关键词“${appState.lastKeyword}”暂无结果。`;
   const start = (appState.page - 1) * appState.pageSize + 1;
   const end = start + appState.results.length - 1;
-  resultMetaNode.textContent =
-    `关键词“${appState.lastKeyword}”当前显示 ${start}-${end}，共 ${totalLabel(appState.total, appState.totalExact)} 条。`;
+  resultMetaNode.textContent = `关键词“${appState.lastKeyword}”当前显示 ${start}-${end}，共 ${totalLabel(appState.total, appState.totalExact)} 条。`;
 }
 
 async function startDownloadTask(target, button) {
   const site = target.site || (target.primary && target.primary.site);
   const bookID = target.book_id || (target.primary && target.primary.book_id);
-  if (!site || !bookID) {
-    setStatus("下载目标缺失。");
-    return;
-  }
+  if (!site || !bookID) return setStatus("下载目标缺失。");
 
   const originalText = button ? button.textContent : "";
-  if (button) {
-    button.disabled = true;
-    button.textContent = "正在创建...";
-  }
+  if (button) { button.disabled = true; button.textContent = "正在创建..."; }
 
   try {
     const response = await fetch(`${root}/api/download-tasks`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        site,
-        book_id: bookID,
-      }),
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ site, book_id: bookID }),
     });
     const payload = await response.json();
-    if (!response.ok) {
-      throw new Error(payload.error || "download failed");
-    }
+    if (!response.ok) throw new Error(payload.error || "download failed");
 
-    upsertTask(payload.task);
-    startPollingTask(payload.task.id);
-    closeDetail();
-    activateTab("tasks");
+    upsertTask(payload.task); startPollingTask(payload.task.id); closeDetail(); activateTab("tasks");
     setStatus(`已创建下载任务：${payload.task.site}/${payload.task.book_id}`);
-  } catch (error) {
-    setStatus(`创建下载任务失败：${error.message}`);
-  } finally {
-    if (button) {
-      button.disabled = false;
-      button.textContent = originalText;
-    }
-  }
+  } catch (error) { setStatus(`创建下载任务失败：${error.message}`); } 
+  finally { if (button) { button.disabled = false; button.textContent = originalText; } }
 }
 
 function startPollingTask(taskId) {
-  if (appState.pollers.has(taskId)) {
-    return;
-  }
-
+  if (appState.pollers.has(taskId)) return;
   const poll = async () => {
     try {
       const response = await fetch(`${root}/api/download-tasks/${taskId}`);
       const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload.error || "task fetch failed");
-      }
-
-      const task = payload.task;
-      upsertTask(task);
-      if (task.status === "completed") {
-        stopPollingTask(taskId);
-        setStatus(`下载完成：${task.site}/${task.book_id}`);
-      } else if (task.status === "failed") {
-        stopPollingTask(taskId);
-        setStatus(`下载失败：${task.error}`);
-      }
-    } catch (error) {
-      stopPollingTask(taskId);
-      setStatus(`读取任务状态失败：${error.message}`);
-    }
+      if (!response.ok) throw new Error(payload.error || "task fetch failed");
+      const task = payload.task; upsertTask(task);
+      if (task.status === "completed") { stopPollingTask(taskId); setStatus(`下载完成：${task.site}/${task.book_id}`); } 
+      else if (task.status === "failed") { stopPollingTask(taskId); setStatus(`下载失败：${task.error}`); }
+    } catch (error) { stopPollingTask(taskId); setStatus(`读取任务状态失败：${error.message}`); }
   };
-
   void poll();
-  const handle = window.setInterval(poll, 1000);
-  appState.pollers.set(taskId, handle);
+  appState.pollers.set(taskId, window.setInterval(poll, 1000));
 }
 
 function stopPollingTask(taskId) {
-  if (!appState.pollers.has(taskId)) {
-    return;
-  }
-  window.clearInterval(appState.pollers.get(taskId));
-  appState.pollers.delete(taskId);
+  if (!appState.pollers.has(taskId)) return;
+  window.clearInterval(appState.pollers.get(taskId)); appState.pollers.delete(taskId);
 }
 
-function upsertTask(task) {
-  appState.tasks.set(task.id, task);
-  renderTasks();
-}
+function upsertTask(task) { appState.tasks.set(task.id, task); renderTasks(); }
 
 function renderTasks() {
-  const tasks = Array.from(appState.tasks.values()).sort((left, right) => {
-    return new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime();
-  });
-
-  taskCountNode.textContent = String(tasks.length);
-  taskTabCountNode.textContent = String(tasks.length);
+  const tasks = Array.from(appState.tasks.values()).sort((l, r) => new Date(r.updated_at).getTime() - new Date(l.updated_at).getTime());
+  taskCountNode.textContent = String(tasks.length); taskTabCountNode.textContent = String(tasks.length);
   tasksNode.innerHTML = "";
 
-  if (!tasks.length) {
-    tasksNode.appendChild(createEmptyState("还没有下载任务。", true));
-    return;
-  }
+  if (!tasks.length) return tasksNode.appendChild(createEmptyState("还没有下载任务。", true));
 
   tasks.forEach((task) => {
-    const card = document.createElement("article");
-    card.className = `task-card is-${task.status}`;
+    const card = document.createElement("article"); card.className = `task-card is-${task.status}`;
+    const head = document.createElement("div"); head.className = "task-head";
+    const title = document.createElement("div"); title.className = "task-title"; title.textContent = task.title || `${sourceLabel(task.site)}/${task.book_id}`;
+    const badgeNode = document.createElement("span"); badgeNode.className = `task-status status-${task.status}`; badgeNode.textContent = formatTaskStatus(task);
+    head.appendChild(title); head.appendChild(badgeNode); card.appendChild(head);
 
-    const head = document.createElement("div");
-    head.className = "task-head";
-
-    const title = document.createElement("div");
-    title.className = "task-title";
-    title.textContent = task.title || `${sourceLabel(task.site)}/${task.book_id}`;
-
-    const badgeNode = document.createElement("span");
-    badgeNode.className = `task-status status-${task.status}`;
-    badgeNode.textContent = formatTaskStatus(task);
-
-    head.appendChild(title);
-    head.appendChild(badgeNode);
-    card.appendChild(head);
-
-    const meta = document.createElement("div");
-    meta.className = "task-meta";
-    meta.textContent = `${task.site}/${task.book_id}`;
-    card.appendChild(meta);
+    const meta = document.createElement("div"); meta.className = "task-meta"; meta.textContent = `${task.site}/${task.book_id}`; card.appendChild(meta);
 
     if (task.total_chapters > 0) {
-      const progressWrap = document.createElement("div");
-      progressWrap.className = "task-progress";
-
-      const progressBar = document.createElement("div");
-      progressBar.className = "task-progress-bar";
-
-      const progressFill = document.createElement("div");
-      progressFill.className = "task-progress-fill";
+      const progressWrap = document.createElement("div"); progressWrap.className = "task-progress";
+      const progressBar = document.createElement("div"); progressBar.className = "task-progress-bar";
+      const progressFill = document.createElement("div"); progressFill.className = "task-progress-fill";
       progressFill.style.width = `${taskProgressPercent(task)}%`;
+      progressBar.appendChild(progressFill); progressWrap.appendChild(progressBar);
 
-      progressBar.appendChild(progressFill);
-      progressWrap.appendChild(progressBar);
-
-      const progressText = document.createElement("div");
-      progressText.className = "task-progress-text";
-      let progressMsg = `${task.completed_chapters}/${task.total_chapters}`;
-      if (task.eta) {
-        progressMsg += ` (剩余时间: ${task.eta})`;
-      }
-      progressText.textContent = progressMsg;
-      progressWrap.appendChild(progressText);
-
-      card.appendChild(progressWrap);
+      const progressText = document.createElement("div"); progressText.className = "task-progress-text";
+      progressText.textContent = `${task.completed_chapters}/${task.total_chapters}` + (task.eta ? ` (剩余时间: ${task.eta})` : "");
+      progressWrap.appendChild(progressText); card.appendChild(progressWrap);
     }
 
     if (task.current_chapter) {
-      const current = document.createElement("div");
-      current.className = "task-current";
-      current.textContent = `当前章节：${task.current_chapter}`;
-      card.appendChild(current);
+      const current = document.createElement("div"); current.className = "task-current"; current.textContent = `当前章节：${task.current_chapter}`; card.appendChild(current);
     }
 
     if (task.error) {
-      const error = document.createElement("div");
-      error.className = "task-error";
-      error.textContent = task.error;
-      card.appendChild(error);
+      const error = document.createElement("div"); error.className = "task-error"; error.textContent = task.error; card.appendChild(error);
     }
 
     if (Array.isArray(task.exported) && task.exported.length) {
-      const exported = document.createElement("ul");
-      exported.className = "file-list";
+      const exported = document.createElement("ul"); exported.className = "file-list";
       task.exported.forEach((path) => {
-        const item = document.createElement("li");
-        const link = document.createElement("a");
-        link.className = "file-download-link";
-        link.href = `${root}/api/download-file?path=${encodeURIComponent(path)}`;
-        link.textContent = path.split(/[/\\]/).pop();
-        link.title = path;
-        link.download = "";
-        item.appendChild(link);
-        exported.appendChild(item);
+        const item = document.createElement("li"); const link = document.createElement("a");
+        link.className = "file-download-link"; link.href = `${root}/api/download-file?path=${encodeURIComponent(path)}`;
+        link.textContent = path.split(/[/\\]/).pop(); link.title = path; link.download = "";
+        item.appendChild(link); exported.appendChild(item);
       });
       card.appendChild(exported);
     }
 
     if (Array.isArray(task.messages) && task.messages.length) {
-      const messages = document.createElement("div");
-      messages.className = "task-messages";
-      task.messages.slice(-4).forEach((message) => {
-        const item = document.createElement("div");
-        item.className = `task-message level-${message.level}`;
-        item.textContent = message.text;
-        messages.appendChild(item);
+      const messages = document.createElement("div"); messages.className = "task-messages";
+      task.messages.slice(-4).forEach((msg) => {
+        const item = document.createElement("div"); item.className = `task-message level-${msg.level}`; item.textContent = msg.text; messages.appendChild(item);
       });
       card.appendChild(messages);
     }
-
     tasksNode.appendChild(card);
   });
 }
 
 function formatTaskStatus(task) {
-  if (task.status === "completed") {
-    return "已完成";
-  }
-  if (task.status === "failed") {
-    return "失败";
-  }
-  if (task.phase === "exporting") {
-    return "导出中";
-  }
-  if (task.phase === "loading_chapters") {
-    return "加载章节中";
-  }
-  if (task.status === "running") {
-    return "下载中";
-  }
+  if (task.status === "completed") return "已完成";
+  if (task.status === "failed") return "失败";
+  if (task.phase === "exporting") return "导出中";
+  if (task.phase === "loading_chapters") return "加载章节中";
+  if (task.status === "running") return "下载中";
   return "排队中";
 }
 
 function taskProgressPercent(task) {
-  if (!task.total_chapters) {
-    return 0;
-  }
-  return Math.min(100, Math.round((task.completed_chapters / task.total_chapters) * 100));
+  return !task.total_chapters ? 0 : Math.min(100, Math.round((task.completed_chapters / task.total_chapters) * 100));
 }
 
 function createCoverImage(src, alt, className) {
-  const image = document.createElement("img");
-  image.className = className;
-  image.loading = "lazy";
-  image.alt = alt || "Novel cover";
-  image.src = src || DEFAULT_COVER_SRC;
-  image.addEventListener("error", handleCoverError);
-  return image;
+  const image = document.createElement("img"); image.className = className; image.loading = "lazy";
+  image.alt = alt || "Novel cover"; image.src = src || DEFAULT_COVER_SRC;
+  image.addEventListener("error", handleCoverError); return image;
 }
 
 function handleCoverError(event) {
   const image = event.currentTarget;
-  if (image.dataset.fallbackApplied === "true") {
-    return;
-  }
-  image.dataset.fallbackApplied = "true";
-  image.src = DEFAULT_COVER_SRC;
+  if (image.dataset.fallbackApplied === "true") return;
+  image.dataset.fallbackApplied = "true"; image.src = DEFAULT_COVER_SRC;
 }
 
 function createEmptyState(text, compact) {
-  const node = document.createElement("div");
-  node.className = compact ? "empty-state empty-state-compact" : "empty-state";
-  node.textContent = text;
-  return node;
+  const node = document.createElement("div"); node.className = compact ? "empty-state empty-state-compact" : "empty-state"; node.textContent = text; return node;
 }
 
 function createEmptyInline(text) {
-  const node = document.createElement("div");
-  node.className = "empty-inline";
-  node.textContent = text;
-  return node;
+  const node = document.createElement("div"); node.className = "empty-inline"; node.textContent = text; return node;
 }
 
-function displayResultTitle(result) {
-  return result.title || (result.primary && result.primary.title) || (result.primary && result.primary.book_id) || "未命名小说";
-}
-
-function displayResultAuthor(result) {
-  return result.author || (result.primary && result.primary.author) || "未知作者";
-}
-
-function displayDetailTitle(result, variant, book) {
-  return (book && book.title)
-    || result.title
-    || (variant && variant.title)
-    || (variant && variant.book_id)
-    || "未命名小说";
-}
-
-function displayDetailAuthor(result, variant, book) {
-  return (book && book.author)
-    || result.author
-    || (variant && variant.author)
-    || "未知作者";
-}
-
-function displayDetailDescription(result, book) {
-  return (book && book.description) || result.description || "暂无简介。";
-}
-
-function sourceLabel(siteKey) {
-  return sourceLabelMap.get(siteKey) || siteKey || "未知来源";
-}
-
-function detailKey(variant) {
-  return `${variant.site}/${variant.book_id}`;
-}
-
-function totalLabel(total, exact) {
-  return exact ? `${total}` : `${total}+`;
-}
+function displayResultTitle(result) { return result.title || (result.primary && result.primary.title) || (result.primary && result.primary.book_id) || "未命名小说"; }
+function displayResultAuthor(result) { return result.author || (result.primary && result.primary.author) || "未知作者"; }
+function displayDetailTitle(result, variant, book) { return (book && book.title) || result.title || (variant && variant.title) || (variant && variant.book_id) || "未命名小说"; }
+function displayDetailAuthor(result, variant, book) { return (book && book.author) || result.author || (variant && variant.author) || "未知作者"; }
+function displayDetailDescription(result, book) { return (book && book.description) || result.description || "暂无简介。"; }
+function sourceLabel(siteKey) { return sourceLabelMap.get(siteKey) || siteKey || "未知来源"; }
+function detailKey(variant) { return `${variant.site}/${variant.book_id}`; }
+function totalLabel(total, exact) { return exact ? `${total}` : `${total}+`; }
 
 function isESJConfigured() {
   const item = appState.siteConfigs.get("esjzone");
-  if (!item) {
-    return false;
-  }
-  if (!item.login_required) {
-    return true;
-  }
+  if (!item) return false;
+  if (!item.login_required) return true;
   return Boolean((item.cookie || "").trim() || (item.password || "").trim());
 }
 
 function showESJConfigPrompt() {
-  siteWarnings = [{
-    site_key: "esjzone",
-    level: "config",
-    message: "ESJ Zone 尚未配置 Cookie 或密码，搜索前请先完成站点配置。",
-    action_label: "打开站点配置",
-    action_link: "#site-config",
-  }];
+  siteWarnings = [{ site_key: "esjzone", level: "config", message: "ESJ Zone 尚未配置 Cookie 或密码，搜索前请先完成站点配置。", action_label: "打开站点配置", action_link: "#site-config" }];
   renderSiteWarnings();
 }
 
@@ -1099,89 +779,66 @@ async function loadSiteConfigs() {
   try {
     const response = await fetch(`${root}/api/site-configs`);
     const payload = await response.json();
-    if (!response.ok) {
-      throw new Error(payload.error || "site config load failed");
-    }
+    if (!response.ok) throw new Error(payload.error || "site config load failed");
     const items = Array.isArray(payload.items) ? payload.items : [];
     appState.siteConfigs = new Map(items.map((item) => [item.key, item]));
     appState.paramSupports = Array.isArray(payload.param_supports) ? payload.param_supports : [];
-    renderSiteParamStats();
     renderSiteConfigSelector(items);
-  } catch (error) {
-    setStatus(`站点配置加载失败：${error.message}`);
-  }
-}
-
-function renderSiteParamStats() {
-  if (!siteParamStatsNode) {
-    return;
-  }
-  siteParamStatsNode.innerHTML = "";
-  appState.paramSupports.forEach((item) => {
-    const node = document.createElement("div");
-    node.className = `site-param-item ${item.implemented ? "is-implemented" : ""}`;
-    node.textContent = `${item.label}：${item.implemented ? "已实现" : "未实现"}${item.notes ? `（${item.notes}）` : ""}`;
-    siteParamStatsNode.appendChild(node);
-  });
+  } catch (error) { setStatus(`站点配置加载失败：${error.message}`); }
 }
 
 function renderSiteConfigSelector(items) {
   siteConfigKeyNode.innerHTML = "";
   items.forEach((item) => {
     const option = document.createElement("option");
-    option.value = item.key;
-    option.textContent = sourceLabel(item.key);
+    option.value = item.key; option.textContent = sourceLabel(item.key);
     siteConfigKeyNode.appendChild(option);
   });
   if (items.length > 0) {
-    siteConfigKeyNode.value = items[0].key;
-    populateSiteConfigForm(items[0].key);
+    siteConfigKeyNode.value = items[0].key; populateSiteConfigForm(items[0].key);
   }
+}
+
+function setRangeVal(id, val) {
+  const el = document.getElementById(id);
+  if (el) { el.value = val; document.getElementById(id + "Val").textContent = val; }
 }
 
 function populateSiteConfigForm(siteKey) {
   const item = appState.siteConfigs.get(siteKey);
-  if (!item) {
-    return;
-  }
+  if (!item) return;
   siteLoginRequiredNode.checked = Boolean(item.login_required);
-  siteWorkerLimitNode.value = String(item.worker_limit || 0);
+  setRangeVal("siteWorkerLimit", item.worker_limit || 0);
   siteFetchImagesNode.checked = item.fetch_images !== false;
   siteUsernameNode.value = item.username || "";
   sitePasswordNode.value = item.password || "";
   sitePasswordNode.type = "password";
-  toggleSitePasswordButton.textContent = "显示";
+  
+  // 恢复密码小眼睛状态为隐藏
+  toggleSitePasswordButton.innerHTML = `<svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>`;
+  
   siteCookieNode.value = item.cookie || "";
   siteMirrorHostsNode.value = Array.isArray(item.mirror_hosts) ? item.mirror_hosts.join("\n") : "";
 }
 
-function openSiteConfig() {
-  siteConfigOverlay.hidden = false;
-  document.body.classList.add("has-overlay");
-}
-
-function closeSiteConfig() {
-  siteConfigOverlay.hidden = true;
-  document.body.classList.remove("has-overlay");
-}
+function openSiteConfig() { siteConfigOverlay.hidden = false; document.body.classList.add("has-overlay"); }
+function closeSiteConfig() { siteConfigOverlay.hidden = true; document.body.classList.remove("has-overlay"); }
 
 function renderGeneralConfigForm(item) {
-  if (!item) {
-    return;
-  }
-  generalWorkersNode.value = String(item.workers || 4);
-  generalTimeoutNode.value = String(item.timeout || 10);
-  generalRequestIntervalNode.value = String(item.request_interval || 0.5);
-  generalMaxConnectionsNode.value = String(item.max_connections || 10);
-  generalMaxRPSNode.value = String(item.max_rps || 5.0);
-  generalRetryTimesNode.value = String(item.retry_times || 3);
-  generalBackoffFactorNode.value = String(item.backoff_factor || 2.0);
+  if (!item) return;
+  setRangeVal("generalWorkers", item.workers || 4);
+  setRangeVal("generalTimeout", item.timeout || 10);
+  setRangeVal("generalRequestInterval", item.request_interval || 0.5);
+  setRangeVal("generalMaxConnections", item.max_connections || 10);
+  setRangeVal("generalMaxRPS", item.max_rps || 5.0);
+  setRangeVal("generalRetryTimes", item.retry_times || 3);
+  setRangeVal("generalBackoffFactor", item.backoff_factor || 2.0);
   generalLocaleStyleNode.value = item.locale_style || "simplified";
   generalFormatsNode.value = Array.isArray(item.formats) ? item.formats.join(",") : "txt,epub";
   generalAppendTimestampNode.checked = item.append_timestamp !== false;
   generalIncludePictureNode.checked = item.include_picture !== false;
-  generalWebPageSizeNode.value = String(item.web_page_size || 50);
-  generalCLIPageSizeNode.value = String(item.cli_page_size || 30);
+  setRangeVal("generalWebPageSize", item.web_page_size || 50);
+  setRangeVal("generalCLIPageSize", item.cli_page_size || 30);
   generalRawDataDirNode.value = item.raw_data_dir || "./data/raw_data";
   generalCacheDirNode.value = item.cache_dir || "./data/novel_cache";
   generalOutputDirNode.value = item.output_dir || "./data/downloads";
@@ -1190,9 +847,7 @@ function renderGeneralConfigForm(item) {
 async function loadGeneralConfig() {
   const response = await fetch(`${root}/api/general-config`);
   const payload = await response.json();
-  if (!response.ok) {
-    throw new Error(payload.error || "general config load failed");
-  }
+  if (!response.ok) throw new Error(payload.error || "general config load failed");
   appState.generalConfig = payload.item || appState.generalConfig;
   renderGeneralConfigForm(appState.generalConfig);
 }
@@ -1218,14 +873,11 @@ async function saveGeneralConfig() {
   };
 
   const response = await fetch(`${root}/api/general-config`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    method: "PUT", headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
   const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data.error || "save general config failed");
-  }
+  if (!response.ok) throw new Error(data.error || "save general config failed");
   appState.generalConfig = data.item || payload;
   renderGeneralConfigForm(appState.generalConfig);
   setStatus("已保存全局配置。新任务将使用最新参数。");
@@ -1233,10 +885,7 @@ async function saveGeneralConfig() {
 
 async function saveSiteConfig() {
   const siteKey = siteConfigKeyNode.value;
-  if (!siteKey) {
-    return;
-  }
-
+  if (!siteKey) return;
   const payload = {
     login_required: siteLoginRequiredNode.checked,
     worker_limit: Math.max(0, Number.parseInt(siteWorkerLimitNode.value || "0", 10) || 0),
@@ -1244,35 +893,21 @@ async function saveSiteConfig() {
     username: siteUsernameNode.value.trim(),
     password: sitePasswordNode.value.trim(),
     cookie: siteCookieNode.value.trim(),
-    mirror_hosts: siteMirrorHostsNode.value
-      .split(/\r?\n/)
-      .map((item) => item.trim())
-      .filter(Boolean),
+    mirror_hosts: siteMirrorHostsNode.value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean),
   };
 
   const response = await fetch(`${root}/api/site-configs/${encodeURIComponent(siteKey)}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    method: "PUT", headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
   const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data.error || "save site config failed");
-  }
+  if (!response.ok) throw new Error(data.error || "save site config failed");
 
-  if (data.item) {
-    appState.siteConfigs.set(siteKey, data.item);
-  }
-  if (Array.isArray(data.site_warnings)) {
-    siteWarnings = data.site_warnings;
-  }
-  if (Array.isArray(data.site_stats)) {
-    siteStats = data.site_stats;
-  }
+  if (data.item) appState.siteConfigs.set(siteKey, data.item);
+  if (Array.isArray(data.site_warnings)) siteWarnings = data.site_warnings;
+  if (Array.isArray(data.site_stats)) siteStats = data.site_stats;
   renderSiteWarnings();
   setStatus(`已保存 ${sourceLabel(siteKey)} 配置。`);
 }
 
-function setStatus(text) {
-  statusNode.textContent = text;
-}
+function setStatus(text) { statusNode.textContent = text; }
