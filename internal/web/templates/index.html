@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
-  <title>Novel DL</title>
+  <title>Novel DL 聚合搜索与下载</title>
   <link rel="icon" type="image/png" sizes="256x256" href="{{ .Root }}/icon-256.png">
   <link rel="stylesheet" href="{{ .Root }}/style.css">
 </head>
@@ -42,6 +42,7 @@
           <div class="selection-toolbar">
             <button type="button" id="selectAllSources" class="tool-button">全选</button>
             <button type="button" id="clearSources" class="tool-button is-ghost">清空</button>
+            <button type="button" id="openSiteConfig" class="tool-button">站点配置</button>
           </div>
 
           <div class="panel-header">
@@ -52,7 +53,8 @@
           </div>
 
           <div id="sourceSelector" class="source-selector"></div>
-        </section>
+          </section>
+          <div id="siteWarningPanel" class="site-warning-stack" hidden aria-live="polite"></div>
 
         <section class="panel-card results-panel">
           <div class="feedback-stack">
@@ -99,6 +101,56 @@
     </section>
   </div>
 
+  <div id="siteConfigOverlay" class="site-config-overlay" hidden>
+    <div id="siteConfigBackdrop" class="site-config-backdrop"></div>
+    <section class="site-config-modal" role="dialog" aria-modal="true" aria-labelledby="siteConfigHeading">
+      <div class="site-config-head">
+        <h2 id="siteConfigHeading">站点配置</h2>
+        <button type="button" id="closeSiteConfig" class="detail-close">关闭</button>
+      </div>
+      <p class="panel-hint">配置保存在 SQLite：data/site_catalog.db。Web 与 CLI 共用。</p>
+      <div id="siteParamStats" class="site-param-stats"></div>
+      <form id="siteConfigForm" class="site-config-form">
+        <label class="search-field" for="siteConfigKey">
+          <span class="field-label">站点</span>
+          <select id="siteConfigKey" class="search-input"></select>
+        </label>
+
+        <label class="site-config-check">
+          <input id="siteLoginRequired" type="checkbox">
+          <span>需要登录</span>
+        </label>
+
+        <label class="search-field" for="siteUsername">
+          <span class="field-label">用户名</span>
+          <input id="siteUsername" class="search-input" type="text" autocomplete="off">
+        </label>
+
+        <label class="search-field" for="sitePassword">
+          <span class="field-label">密码</span>
+          <div class="password-field-wrap">
+            <input id="sitePassword" class="search-input" type="password" autocomplete="off">
+            <button id="toggleSitePassword" type="button" class="tool-button is-ghost">显示</button>
+          </div>
+        </label>
+
+        <label class="search-field" for="siteCookie">
+          <span class="field-label">Cookie</span>
+          <textarea id="siteCookie" class="site-config-textarea" rows="4" placeholder="name=value; name2=value2"></textarea>
+        </label>
+
+        <label class="search-field" for="siteMirrorHosts">
+          <span class="field-label">镜像地址（每行一个）</span>
+          <textarea id="siteMirrorHosts" class="site-config-textarea" rows="3"></textarea>
+        </label>
+
+        <div class="site-config-actions">
+          <button id="saveSiteConfig" type="submit" class="search-button">保存配置</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
   <div id="detailOverlay" class="detail-overlay" hidden>
     <div id="detailBackdrop" class="detail-backdrop"></div>
     <aside class="detail-panel" role="dialog" aria-modal="true" aria-labelledby="detailHeading">
@@ -122,6 +174,8 @@
       root: {{ toJSON .Root }},
       defaultSources: {{ toJSON .DefaultSources }},
       allSources: {{ toJSON .AllSources }},
+      siteWarnings: {{ toJSON .SiteWarnings }},
+      siteStats: {{ toJSON .SiteStats }},
       pageSize: {{ toJSON .PageSize }}
     };
   </script>

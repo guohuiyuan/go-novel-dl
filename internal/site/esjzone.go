@@ -35,6 +35,8 @@ type ESJZoneSite struct {
 	searchAliases []string
 	bookAliases   []string
 	cookieFile    string
+	sessionMu     sync.RWMutex
+	sessionValid  bool
 }
 
 type esjCookie struct {
@@ -80,6 +82,9 @@ func NewESJZoneSite(cfg config.ResolvedSiteConfig) *ESJZoneSite {
 	_ = site.loadCookies()
 	if cfg.Cookie != "" {
 		site.injectCookieString(cfg.Cookie)
+	}
+	if site.hasAuthCookies() {
+		site.markSessionValid(true)
 	}
 	return site
 }
@@ -227,12 +232,15 @@ func (s *ESJZoneSite) Search(ctx context.Context, keyword string, limit int) ([]
 
 func (s *ESJZoneSite) enrichSearchResults(ctx context.Context, results []model.SearchResult) {
 	maxItems := len(results)
-	if maxItems > 6 {
-		maxItems = 6
+	if maxItems > 2 {
+		maxItems = 2
 	}
 	if maxItems == 0 {
 		return
 	}
+
+	enrichCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
 
 	var wg sync.WaitGroup
 	for idx := 0; idx < maxItems; idx++ {
@@ -246,11 +254,11 @@ func (s *ESJZoneSite) enrichSearchResults(ctx context.Context, results []model.S
 		wg.Add(1)
 		go func(item *model.SearchResult) {
 			defer wg.Done()
-			if ctx.Err() != nil {
+			if enrichCtx.Err() != nil {
 				return
 			}
 
-			markup, pageURL, err := s.fetchBookPage(ctx, item.BookID)
+			markup, pageURL, err := s.fetchBookPage(enrichCtx, item.BookID)
 			if err != nil {
 				return
 			}
@@ -353,9 +361,20 @@ func (s *ESJZoneSite) ensureLogin(ctx context.Context) error {
 	if !s.cfg.General.LoginRequired {
 		return nil
 	}
+	if strings.TrimSpace(s.cfg.Cookie) == "" && strings.TrimSpace(s.cfg.Password) == "" {
+		return fmt.Errorf("ESJ Zone 未配置 Cookie 或密码，请先在站点配置中补全")
+	}
+	if s.isSessionValid() {
+		return nil
+	}
 	loggedIn, err := s.checkLoginStatus(ctx)
 	if err == nil && loggedIn {
+		s.markSessionValid(true)
+		_ = s.saveCookiesToConfigStore()
 		return nil
+	}
+	if s.cfg.Cookie != "" && (s.cfg.Username == "" || s.cfg.Password == "") {
+		return fmt.Errorf("esjzone cookie 似乎不可用, 请重置 Cookie 或提供登录凭据")
 	}
 	if s.cfg.Username == "" || s.cfg.Password == "" {
 		return fmt.Errorf("esjzone login required but username/password not configured")
@@ -363,7 +382,21 @@ func (s *ESJZoneSite) ensureLogin(ctx context.Context) error {
 	if err := s.login(ctx, s.cfg.Username, s.cfg.Password); err != nil {
 		return err
 	}
+	s.markSessionValid(true)
+	_ = s.saveCookiesToConfigStore()
 	return nil
+}
+
+func (s *ESJZoneSite) isSessionValid() bool {
+	s.sessionMu.RLock()
+	defer s.sessionMu.RUnlock()
+	return s.sessionValid
+}
+
+func (s *ESJZoneSite) markSessionValid(valid bool) {
+	s.sessionMu.Lock()
+	defer s.sessionMu.Unlock()
+	s.sessionValid = valid
 }
 
 func (s *ESJZoneSite) login(ctx context.Context, username, password string) error {
@@ -556,6 +589,58 @@ func (s *ESJZoneSite) saveCookies() error {
 		return err
 	}
 	return os.WriteFile(s.cookieFile, data, 0o644)
+}
+
+func (s *ESJZoneSite) saveCookiesToConfigStore() error {
+	cookie := s.cookieHeaderString()
+	if cookie == "" {
+		return nil
+	}
+	_, err := config.UpsertSiteCatalog("esjzone", config.SiteCatalogUpdate{
+		Cookie: &cookie,
+	})
+	return err
+}
+
+func (s *ESJZoneSite) cookieHeaderString() string {
+	if s.httpClient == nil || s.httpClient.Jar == nil {
+		return ""
+	}
+	parsed, err := url.Parse(s.primaryHost)
+	if err != nil {
+		return ""
+	}
+	cookies := s.httpClient.Jar.Cookies(parsed)
+	if len(cookies) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(cookies))
+	for _, cookie := range cookies {
+		name := strings.TrimSpace(cookie.Name)
+		value := strings.TrimSpace(cookie.Value)
+		if name == "" || value == "" {
+			continue
+		}
+		parts = append(parts, name+"="+value)
+	}
+	return strings.Join(parts, "; ")
+}
+
+func (s *ESJZoneSite) hasAuthCookies() bool {
+	if s.httpClient == nil || s.httpClient.Jar == nil {
+		return false
+	}
+	parsed, err := url.Parse(s.primaryHost)
+	if err != nil {
+		return false
+	}
+	for _, cookie := range s.httpClient.Jar.Cookies(parsed) {
+		name := strings.ToLower(strings.TrimSpace(cookie.Name))
+		if strings.Contains(name, "sess") || strings.Contains(name, "token") || strings.Contains(name, "auth") {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *ESJZoneSite) loadCookies() error {

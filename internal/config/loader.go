@@ -75,10 +75,17 @@ func parseConfig(raw map[string]any) (*Config, error) {
 			parsedSites[siteKey] = siteConfig
 		}
 		result.Sites = parsedSites
+		if err := SyncSiteCatalogFromConfig(parsedSites); err != nil {
+			return nil, err
+		}
 	}
 
 	if pluginsRaw := asMap(raw["plugins"]); pluginsRaw != nil {
 		applyPlugins(&result.Plugins, pluginsRaw)
+	}
+
+	if err := mergeSiteCatalog(&result); err != nil {
+		return nil, err
 	}
 
 	return &result, nil

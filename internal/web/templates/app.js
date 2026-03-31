@@ -5,6 +5,15 @@ const defaultPageSize = window.__NOVEL_DL__.pageSize || 50;
 const sourceLabelMap = new Map(
   allSources.map((source) => [source.key, source.display_name || source.key]),
 );
+let siteWarnings = window.__NOVEL_DL__.siteWarnings || [];
+let siteStats = window.__NOVEL_DL__.siteStats || [];
+const siteWarningPanel = document.getElementById("siteWarningPanel");
+
+const warningLevelIcons = {
+  danger: "⚠️",
+  info: "ℹ️",
+  config: "🛠️",
+};
 
 const DEFAULT_COVER_SRC = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 480">
@@ -44,7 +53,71 @@ const appState = {
   detailCache: new Map(),
   detailResult: null,
   activeDetailKey: "",
+  siteConfigs: new Map(),
+  paramSupports: [],
 };
+
+function renderSiteWarnings() {
+  if (!siteWarningPanel) {
+    return;
+  }
+  if (siteWarnings.length === 0) {
+    siteWarningPanel.hidden = true;
+    siteWarningPanel.innerHTML = "";
+    return;
+  }
+  siteWarningPanel.hidden = false;
+  siteWarningPanel.innerHTML = "";
+  siteWarnings.forEach((warning) => {
+    const card = document.createElement("article");
+    card.className = `site-warning-card site-warning-${warning.level || "info"}`;
+
+    const icon = document.createElement("span");
+    icon.className = "site-warning-icon";
+    icon.textContent = warningLevelIcons[warning.level] || "ℹ️";
+
+    const message = document.createElement("p");
+    message.className = "site-warning-message";
+    message.textContent = warning.message;
+
+    const header = document.createElement("div");
+    header.className = "site-warning-head";
+    header.append(icon, message);
+
+    card.appendChild(header);
+
+    const stat = siteStats.find((stat) => stat.site_key === warning.site_key);
+    if (stat && stat.enabled.length) {
+      const detail = document.createElement("p");
+      detail.className = "site-warning-detail";
+      detail.textContent = `已自动配置字段：${stat.enabled.join("、")}`;
+      card.appendChild(detail);
+    }
+
+    if (warning.action_label && warning.action_link) {
+      const action = document.createElement("a");
+      action.className = "site-warning-action";
+      action.href = warning.action_link;
+      if (warning.action_link === "#site-config") {
+        action.addEventListener("click", (event) => {
+          event.preventDefault();
+          openSiteConfig();
+          if (siteConfigKeyNode) {
+            siteConfigKeyNode.value = warning.site_key || "esjzone";
+            populateSiteConfigForm(siteConfigKeyNode.value);
+          }
+        });
+      } else {
+        action.target = "_blank";
+        action.rel = "noopener noreferrer";
+      }
+      action.textContent = warning.action_label;
+      card.appendChild(action);
+    }
+
+    siteWarningPanel.appendChild(card);
+  });
+}
 
 const keywordInput = document.getElementById("keyword");
 const searchForm = document.getElementById("searchForm");
@@ -71,6 +144,19 @@ const detailOverlay = document.getElementById("detailOverlay");
 const detailBackdrop = document.getElementById("detailBackdrop");
 const detailCloseButton = document.getElementById("detailCloseButton");
 const detailContentNode = document.getElementById("detailContent");
+const openSiteConfigButton = document.getElementById("openSiteConfig");
+const siteConfigOverlay = document.getElementById("siteConfigOverlay");
+const siteConfigBackdrop = document.getElementById("siteConfigBackdrop");
+const closeSiteConfigButton = document.getElementById("closeSiteConfig");
+const siteConfigForm = document.getElementById("siteConfigForm");
+const siteConfigKeyNode = document.getElementById("siteConfigKey");
+const siteLoginRequiredNode = document.getElementById("siteLoginRequired");
+const siteUsernameNode = document.getElementById("siteUsername");
+const sitePasswordNode = document.getElementById("sitePassword");
+const toggleSitePasswordButton = document.getElementById("toggleSitePassword");
+const siteCookieNode = document.getElementById("siteCookie");
+const siteMirrorHostsNode = document.getElementById("siteMirrorHosts");
+const siteParamStatsNode = document.getElementById("siteParamStats");
 
 // 👇 新增这行 👇
 const backToTopButton = document.getElementById("backToTop");
@@ -85,6 +171,9 @@ function bootstrap() {
   renderPaging();
   renderResultMeta();
   setStatus("选择渠道后输入关键词开始搜索。");
+
+  renderSiteWarnings();
+  void loadSiteConfigs();
 
   searchTabButton.addEventListener("click", () => activateTab("search"));
   tasksTabButton.addEventListener("click", () => activateTab("tasks"));
@@ -125,9 +214,34 @@ function bootstrap() {
 
   detailCloseButton.addEventListener("click", closeDetail);
   detailBackdrop.addEventListener("click", closeDetail);
+  openSiteConfigButton.addEventListener("click", openSiteConfig);
+  closeSiteConfigButton.addEventListener("click", closeSiteConfig);
+  siteConfigBackdrop.addEventListener("click", closeSiteConfig);
+  siteConfigKeyNode.addEventListener("change", () => {
+    const key = siteConfigKeyNode.value;
+    populateSiteConfigForm(key);
+  });
+  siteConfigForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      await saveSiteConfig();
+      closeSiteConfig();
+    } catch (error) {
+      setStatus(`保存站点配置失败：${error.message}`);
+    }
+  });
+  toggleSitePasswordButton.addEventListener("click", () => {
+    const reveal = sitePasswordNode.type === "password";
+    sitePasswordNode.type = reveal ? "text" : "password";
+    toggleSitePasswordButton.textContent = reveal ? "隐藏" : "显示";
+  });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !detailOverlay.hidden) {
       closeDetail();
+      return;
+    }
+    if (event.key === "Escape" && !siteConfigOverlay.hidden) {
+      closeSiteConfig();
     }
   });
 
@@ -170,6 +284,11 @@ async function performSearch() {
     setStatus("请至少选择一个渠道。");
     return;
   }
+  if (appState.selectedSites.has("esjzone") && !isESJConfigured()) {
+    showESJConfigPrompt();
+    setStatus("ESJ Zone 需要先配置 Cookie 或密码。已为你打开配置入口提示。");
+    return;
+  }
 
   closeDetail();
   appState.lastKeyword = keyword;
@@ -191,7 +310,9 @@ async function performSearch() {
     });
     const payload = await response.json();
     if (!response.ok) {
-      throw new Error(payload.error || "search failed");
+      const err = new Error(payload.error || "search failed");
+      err.payload = payload;
+      throw err;
     }
 
     appState.results = payload.results || [];
@@ -215,6 +336,9 @@ async function performSearch() {
       `当前显示第 ${appState.page} 页，共 ${totalLabel(appState.total, appState.totalExact)} 条结果。`,
     );
   } catch (error) {
+    if (error && error.payload && error.payload.error_code === "esjzone_config_required") {
+      showESJConfigPrompt();
+    }
     appState.results = [];
     appState.total = 0;
     appState.totalExact = true;
@@ -913,6 +1037,136 @@ function detailKey(variant) {
 
 function totalLabel(total, exact) {
   return exact ? `${total}` : `${total}+`;
+}
+
+function isESJConfigured() {
+  const item = appState.siteConfigs.get("esjzone");
+  if (!item) {
+    return false;
+  }
+  if (!item.login_required) {
+    return true;
+  }
+  return Boolean((item.cookie || "").trim() || (item.password || "").trim());
+}
+
+function showESJConfigPrompt() {
+  siteWarnings = [{
+    site_key: "esjzone",
+    level: "config",
+    message: "ESJ Zone 尚未配置 Cookie 或密码，搜索前请先完成站点配置。",
+    action_label: "打开站点配置",
+    action_link: "#site-config",
+  }];
+  renderSiteWarnings();
+}
+
+async function loadSiteConfigs() {
+  try {
+    const response = await fetch(`${root}/api/site-configs`);
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.error || "site config load failed");
+    }
+    const items = Array.isArray(payload.items) ? payload.items : [];
+    appState.siteConfigs = new Map(items.map((item) => [item.key, item]));
+    appState.paramSupports = Array.isArray(payload.param_supports) ? payload.param_supports : [];
+    renderSiteParamStats();
+    renderSiteConfigSelector(items);
+  } catch (error) {
+    setStatus(`站点配置加载失败：${error.message}`);
+  }
+}
+
+function renderSiteParamStats() {
+  if (!siteParamStatsNode) {
+    return;
+  }
+  siteParamStatsNode.innerHTML = "";
+  appState.paramSupports.forEach((item) => {
+    const node = document.createElement("div");
+    node.className = `site-param-item ${item.implemented ? "is-implemented" : ""}`;
+    node.textContent = `${item.label}：${item.implemented ? "已实现" : "未实现"}${item.notes ? `（${item.notes}）` : ""}`;
+    siteParamStatsNode.appendChild(node);
+  });
+}
+
+function renderSiteConfigSelector(items) {
+  siteConfigKeyNode.innerHTML = "";
+  items.forEach((item) => {
+    const option = document.createElement("option");
+    option.value = item.key;
+    option.textContent = sourceLabel(item.key);
+    siteConfigKeyNode.appendChild(option);
+  });
+  if (items.length > 0) {
+    siteConfigKeyNode.value = items[0].key;
+    populateSiteConfigForm(items[0].key);
+  }
+}
+
+function populateSiteConfigForm(siteKey) {
+  const item = appState.siteConfigs.get(siteKey);
+  if (!item) {
+    return;
+  }
+  siteLoginRequiredNode.checked = Boolean(item.login_required);
+  siteUsernameNode.value = item.username || "";
+  sitePasswordNode.value = item.password || "";
+  sitePasswordNode.type = "password";
+  toggleSitePasswordButton.textContent = "显示";
+  siteCookieNode.value = item.cookie || "";
+  siteMirrorHostsNode.value = Array.isArray(item.mirror_hosts) ? item.mirror_hosts.join("\n") : "";
+}
+
+function openSiteConfig() {
+  siteConfigOverlay.hidden = false;
+  document.body.classList.add("has-overlay");
+}
+
+function closeSiteConfig() {
+  siteConfigOverlay.hidden = true;
+  document.body.classList.remove("has-overlay");
+}
+
+async function saveSiteConfig() {
+  const siteKey = siteConfigKeyNode.value;
+  if (!siteKey) {
+    return;
+  }
+
+  const payload = {
+    login_required: siteLoginRequiredNode.checked,
+    username: siteUsernameNode.value.trim(),
+    password: sitePasswordNode.value.trim(),
+    cookie: siteCookieNode.value.trim(),
+    mirror_hosts: siteMirrorHostsNode.value
+      .split(/\r?\n/)
+      .map((item) => item.trim())
+      .filter(Boolean),
+  };
+
+  const response = await fetch(`${root}/api/site-configs/${encodeURIComponent(siteKey)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || "save site config failed");
+  }
+
+  if (data.item) {
+    appState.siteConfigs.set(siteKey, data.item);
+  }
+  if (Array.isArray(data.site_warnings)) {
+    siteWarnings = data.site_warnings;
+  }
+  if (Array.isArray(data.site_stats)) {
+    siteStats = data.site_stats;
+  }
+  renderSiteWarnings();
+  setStatus(`已保存 ${sourceLabel(siteKey)} 配置。`);
 }
 
 function setStatus(text) {

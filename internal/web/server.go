@@ -34,11 +34,29 @@ const defaultWebPageSize = 50
 
 type Service struct {
 	Config         *config.Config
+	ConfigPath     string
 	Runtime        *app.Runtime
 	DefaultSources []site.SiteDescriptor
 	AllSources     []site.SiteDescriptor
 	Tasks          *DownloadTaskStore
 	PageSize       int
+	SiteWarnings   []SiteWarning
+	SiteStats      []SiteStat
+	SiteConfigs    []config.SiteCatalogRecord
+	ParamSupports  []config.SiteParameterSupport
+}
+
+type SiteWarning struct {
+	SiteKey     string `json:"site_key"`
+	Message     string `json:"message"`
+	Level       string `json:"level"`
+	ActionLabel string `json:"action_label,omitempty"`
+	ActionLink  string `json:"action_link,omitempty"`
+}
+
+type SiteStat struct {
+	SiteKey string   `json:"site_key"`
+	Enabled []string `json:"enabled"`
 }
 
 type searchRequest struct {
@@ -112,14 +130,109 @@ func newService(configPath string) (*Service, error) {
 		pageSize = defaultWebPageSize
 	}
 
+	warnings := collectSiteWarnings(runtime)
+	stats := collectSiteStats(runtime)
+	siteConfigs, _ := config.ListSiteCatalog()
+	paramSupports := config.SiteParameterSupports()
+
 	return &Service{
 		Config:         cfg,
+		ConfigPath:     configPath,
 		Runtime:        runtime,
 		DefaultSources: defaultSources,
 		AllSources:     allSources,
 		Tasks:          NewDownloadTaskStore(),
 		PageSize:       pageSize,
+		SiteWarnings:   warnings,
+		SiteStats:      stats,
+		SiteConfigs:    siteConfigs,
+		ParamSupports:  paramSupports,
 	}, nil
+}
+
+func (s *Service) reloadRuntime() error {
+	console := ui.NewConsole(strings.NewReader(""), io.Discard, io.Discard)
+	cfg, _, err := app.LoadOrInitConfig(console, s.ConfigPath)
+	if err != nil {
+		return err
+	}
+	runtime := app.NewRuntime(cfg, console)
+	runtime.Progress = progress.NullReporter{}
+
+	s.Config = cfg
+	s.Runtime = runtime
+	s.SiteWarnings = collectSiteWarnings(runtime)
+	s.SiteStats = collectSiteStats(runtime)
+	s.SiteConfigs, _ = config.ListSiteCatalog()
+	s.ParamSupports = config.SiteParameterSupports()
+	return nil
+}
+
+func (s *Service) hasESJAuthConfigured() bool {
+	if s == nil || s.Config == nil {
+		return false
+	}
+	resolved := s.Config.ResolveSiteConfig("esjzone")
+	if !resolved.General.LoginRequired {
+		return true
+	}
+	hasCookie := strings.TrimSpace(resolved.Cookie) != ""
+	hasPassword := strings.TrimSpace(resolved.Password) != ""
+	return hasCookie || hasPassword
+}
+
+func collectSiteWarnings(runtime *app.Runtime) []SiteWarning {
+	if runtime == nil || runtime.Config == nil {
+		return nil
+	}
+	resolved := runtime.Config.ResolveSiteConfig("esjzone")
+	if !resolved.General.LoginRequired {
+		return nil
+	}
+	if strings.TrimSpace(resolved.Cookie) != "" {
+		return nil
+	}
+	if strings.TrimSpace(resolved.Username) == "" || strings.TrimSpace(resolved.Password) == "" {
+		return []SiteWarning{{
+			SiteKey:     "esjzone",
+			Message:     "ESJ Zone 需要 Cookie 或 用户名/密码 才能访问，请在配置文件或数据库中完成设置。",
+			Level:       "danger",
+			ActionLabel: "打开站点配置",
+			ActionLink:  "#site-config",
+		}}
+	}
+	return nil
+}
+
+func collectSiteStats(runtime *app.Runtime) []SiteStat {
+	if runtime == nil || runtime.Config == nil || runtime.Registry == nil {
+		return nil
+	}
+	descriptors := runtime.Registry.AllSiteDescriptors()
+	stats := make([]SiteStat, 0, len(descriptors))
+	for _, descriptor := range descriptors {
+		resolved := runtime.Config.ResolveSiteConfig(descriptor.Key)
+		fields := make([]string, 0, 4)
+		if strings.TrimSpace(resolved.Username) != "" {
+			fields = append(fields, "用户名")
+		}
+		if strings.TrimSpace(resolved.Password) != "" {
+			fields = append(fields, "密码")
+		}
+		if strings.TrimSpace(resolved.Cookie) != "" {
+			fields = append(fields, "Cookie")
+		}
+		if len(resolved.MirrorHosts) > 0 {
+			fields = append(fields, "镜像")
+		}
+		if len(fields) > 0 {
+			stats = append(stats, SiteStat{
+				SiteKey: descriptor.Key,
+				Enabled: fields,
+			})
+		}
+	}
+	return stats
 }
 
 func newRouter(service *Service) *gin.Engine {
@@ -149,6 +262,8 @@ func newRouter(service *Service) *gin.Engine {
 			"DefaultSources": service.DefaultSources,
 			"AllSources":     service.AllSources,
 			"PageSize":       service.PageSize,
+			"SiteWarnings":   service.SiteWarnings,
+			"SiteStats":      service.SiteStats,
 		})
 	})
 	group.GET("/style.css", func(c *gin.Context) {
@@ -167,6 +282,65 @@ func newRouter(service *Service) *gin.Engine {
 		c.JSON(http.StatusOK, gin.H{
 			"default_sources": service.DefaultSources,
 			"all_sources":     service.AllSources,
+			"site_warnings":   service.SiteWarnings,
+			"site_stats":      service.SiteStats,
+		})
+	})
+	group.GET("/api/site-configs", func(c *gin.Context) {
+		configs, err := config.ListSiteCatalog()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"items":            configs,
+			"param_supports":   config.SiteParameterSupports(),
+			"managed_site_key": config.SiteCatalogSupportedKeys(),
+		})
+	})
+	group.PUT("/api/site-configs/:site", func(c *gin.Context) {
+		siteKey := strings.TrimSpace(c.Param("site"))
+		if siteKey == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "site is required"})
+			return
+		}
+
+		var req struct {
+			LoginRequired *bool    `json:"login_required"`
+			Username      *string  `json:"username"`
+			Password      *string  `json:"password"`
+			Cookie        *string  `json:"cookie"`
+			MirrorHosts   []string `json:"mirror_hosts"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+			return
+		}
+
+		update := config.SiteCatalogUpdate{
+			LoginRequired: req.LoginRequired,
+			Username:      req.Username,
+			Password:      req.Password,
+			Cookie:        req.Cookie,
+		}
+		if req.MirrorHosts != nil {
+			mirrors := req.MirrorHosts
+			update.MirrorHosts = &mirrors
+		}
+
+		item, err := config.UpsertSiteCatalog(siteKey, update)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if err := service.reloadRuntime(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"item":          item,
+			"site_warnings": service.SiteWarnings,
+			"site_stats":    service.SiteStats,
 		})
 	})
 	group.GET("/api/books/detail", func(c *gin.Context) {
