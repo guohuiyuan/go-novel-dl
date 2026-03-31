@@ -6,14 +6,18 @@
 
 `go-novel-dl` 是一个以 Go 实现的多源聚合小说下载器，提供命令行和 Web 两种界面。
 
+项目当前以 SQLite 配置中心为主：全局参数与站点参数统一存储，Web 与 CLI 共用同一套配置数据。
+
 ## 功能特性
 
 - **多源聚合搜索**：并发搜索多个小说站点，结果自动聚合去重
 - **交互式 TUI**：基于 Bubble Tea 的终端交互界面，支持翻页、选择、批量下载
 - **Web UI**：现代化 Web 界面，支持搜索、详情查看、任务队列、浏览器下载
+- **统一设置中心**：全局配置与站点配置在同一页面编辑，无需切换
 - **多格式导出**：支持 TXT / EPUB 格式
 - **章节范围下载**：可指定起止章节
 - **可配置分页**：CLI 和 Web 分页大小可通过配置或命令行调整
+- **ESJ 优化链路**：支持 Cookie 优先登录、并发章节抓取、图片抓取开关
 
 ## 快速开始
 
@@ -23,7 +27,7 @@
 go run ./cmd/novel-dl config init
 ```
 
-配置文件默认写入 `data/settings.toml`。
+默认会初始化并使用 SQLite 配置库：`data/site_catalog.db`。
 
 ### 2. 交互式搜索下载
 
@@ -85,6 +89,8 @@ novel-dl download [url|book_id] # 直接下载
 novel-dl export [book_id]       # 导出已下载内容
 novel-dl web                    # 启动 Web 服务
 novel-dl config init            # 初始化配置
+novel-dl config sites           # 查看站点配置与参数实现状态
+novel-dl config site-set ...    # 修改站点配置
 novel-dl config set-lang zh_CN  # 设置语言
 novel-dl clean [state|logs|cache|book]  # 清理数据
 ```
@@ -129,6 +135,8 @@ novel-dl clean [state|logs|cache|book]  # 清理数据
 - **详情查看**：点击封面查看小说简介、章节目录
 - **任务队列**：下载任务实时显示进度
 - **浏览器下载**：已完成的任务可直接点击文件名下载
+- **统一设置中心**：右上角设置按钮或左侧“设置中心”按钮，均打开同一设置弹窗
+- **同页编辑**：全局参数与站点参数同屏展示、分别保存
 
 ### Web API
 
@@ -166,7 +174,14 @@ GET /novel/api/download-file?path=/path/to/file
 
 ## 配置说明
 
-配置文件：`data/settings.toml`
+### 运行时配置来源
+
+- 运行时读取：`data/site_catalog.db`
+- 全局参数：SQLite `config_kvs`（键 `general_config`）
+- 站点参数：SQLite `site_catalog` 表
+- `internal/config/resources/settings.sample.toml` 作为字段示例与迁移参考，不是主运行时配置来源
+
+### 全局参数（示例）
 
 ```toml
 [general]
@@ -191,7 +206,22 @@ username = "your_username"
 password = "your_password"
 ```
 
-完整配置示例见 `internal/config/resources/settings.sample.toml`。
+完整字段示例见 `internal/config/resources/settings.sample.toml`。
+
+### 站点参数命令示例
+
+```bash
+# 查看站点配置
+go run ./cmd/novel-dl config sites
+
+# 修改 ESJ 站点配置
+go run ./cmd/novel-dl config site-set esjzone \
+  --login-required \
+  --username your_name \
+  --password your_password \
+  --workers 8 \
+  --fetch-images=true
+```
 
 ## 站点能力矩阵
 
@@ -225,13 +255,35 @@ password = "your_password"
 
 ```text
 data/
-├── settings.toml              # 配置文件
+├── site_catalog.db            # SQLite 配置数据库（全局+站点）
 ├── raw_data/<site>/<book>/    # 原始数据
 ├── downloads/                 # 导出文件
 ├── novel_cache/               # 缓存
 ├── logs/                      # 日志
 └── go-novel-dl/state.json    # 状态
 ```
+
+## 架构概览
+
+```text
+cmd/novel-dl/          # CLI 入口
+internal/app/          # Runtime、任务编排、下载流程
+internal/site/         # 各站点抓取器与解析器（含 ESJ）
+internal/config/       # 配置模型、SQLite 存储、加载逻辑
+internal/exporter/     # TXT/HTML/EPUB 导出
+internal/web/          # Web API 与前端模板
+internal/store/        # 本地书籍存储
+internal/pipeline/     # 处理链
+internal/textconv/     # 文本规范化
+```
+
+下载主流程：
+
+1. 聚合搜索或直接解析 URL 得到 `site/book_id`
+2. Runtime 按站点配置建立抓取客户端
+3. 站点层抓取目录并并发下载章节
+4. Pipeline 处理正文
+5. Exporter 导出 TXT/EPUB（含图片资源处理）
 
 ## Docker 部署
 
@@ -258,6 +310,15 @@ go test ./...
 # 构建可执行文件
 go build -o novel-dl ./cmd/novel-dl
 ```
+
+## 致敬与参考
+
+本项目在设计和演进过程中，参考并致敬以下优秀开源项目：
+
+- [saudadez21/novel-downloader](https://github.com/saudadez21/novel-downloader)
+- [mikoto710/esj-novel-downloader](https://github.com/mikoto710/esj-novel-downloader)
+
+感谢两位作者对小说下载生态与工程实现思路的贡献。
 
 ## 注意事项
 

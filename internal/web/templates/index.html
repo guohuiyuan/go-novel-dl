@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="{{ .Root }}/style.css">
 </head>
 <body>
-  <button id="openGeneralConfig" class="settings-float" title="全局配置">
+  <button id="openGeneralConfig" class="settings-float" title="设置中心">
     ⚙
   </button>
 
@@ -46,7 +46,7 @@
           <div class="selection-toolbar">
             <button type="button" id="selectAllSources" class="tool-button">全选</button>
             <button type="button" id="clearSources" class="tool-button is-ghost">清空</button>
-            <button type="button" id="openSiteConfig" class="tool-button">站点配置</button>
+            <button type="button" id="openSiteConfig" class="tool-button">设置中心</button>
           </div>
 
           <div class="panel-header">
@@ -109,12 +109,98 @@
     <div id="siteConfigBackdrop" class="site-config-backdrop"></div>
     <section class="site-config-modal" role="dialog" aria-modal="true" aria-labelledby="siteConfigHeading">
       <div class="site-config-head">
-        <h2 id="siteConfigHeading">站点配置</h2>
+        <h2 id="siteConfigHeading">设置中心</h2>
         <button type="button" id="closeSiteConfig" class="detail-close">关闭</button>
       </div>
-      <p class="panel-hint">配置保存在 SQLite：data/site_catalog.db。Web 与 CLI 共用。</p>
-      <div id="siteParamStats" class="site-param-stats"></div>
-      <form id="siteConfigForm" class="site-config-form">
+      <p class="panel-hint">全局参数与站点参数都保存在 SQLite（data/site_catalog.db），Web 与 CLI 共用。</p>
+
+      <div class="settings-layout">
+        <section class="config-section-card">
+          <div class="config-section-head">
+            <h3>全局配置</h3>
+            <p class="panel-hint">控制默认下载行为、分页和导出参数。</p>
+          </div>
+          <form id="generalConfigForm" class="site-config-form">
+            <label class="search-field" for="generalWorkers">
+              <span class="field-label">默认下载协程</span>
+              <input id="generalWorkers" class="search-input" type="number" min="1" step="1">
+            </label>
+            <label class="search-field" for="generalTimeout">
+              <span class="field-label">超时（秒）</span>
+              <input id="generalTimeout" class="search-input" type="number" min="1" step="1">
+            </label>
+            <label class="search-field" for="generalRequestInterval">
+              <span class="field-label">请求间隔（秒）</span>
+              <input id="generalRequestInterval" class="search-input" type="number" min="0" step="0.1">
+            </label>
+            <label class="search-field" for="generalMaxConnections">
+              <span class="field-label">最大连接数</span>
+              <input id="generalMaxConnections" class="search-input" type="number" min="1" step="1">
+            </label>
+            <label class="search-field" for="generalMaxRPS">
+              <span class="field-label">最大 RPS</span>
+              <input id="generalMaxRPS" class="search-input" type="number" min="0.1" step="0.1">
+            </label>
+            <label class="search-field" for="generalRetryTimes">
+              <span class="field-label">重试次数</span>
+              <input id="generalRetryTimes" class="search-input" type="number" min="0" step="1">
+            </label>
+            <label class="search-field" for="generalBackoffFactor">
+              <span class="field-label">退避系数</span>
+              <input id="generalBackoffFactor" class="search-input" type="number" min="1" step="0.1">
+            </label>
+            <label class="search-field" for="generalLocaleStyle">
+              <span class="field-label">文本风格</span>
+              <select id="generalLocaleStyle" class="search-input">
+                <option value="simplified">simplified</option>
+                <option value="traditional">traditional</option>
+              </select>
+            </label>
+            <label class="search-field" for="generalFormats">
+              <span class="field-label">默认导出格式（逗号分隔）</span>
+              <input id="generalFormats" class="search-input" type="text" placeholder="txt,epub">
+            </label>
+            <label class="site-config-check">
+              <input id="generalAppendTimestamp" type="checkbox">
+              <span>文件名追加时间戳</span>
+            </label>
+            <label class="site-config-check">
+              <input id="generalIncludePicture" type="checkbox">
+              <span>默认抓取图片</span>
+            </label>
+            <label class="search-field" for="generalWebPageSize">
+              <span class="field-label">Web 每页数量</span>
+              <input id="generalWebPageSize" class="search-input" type="number" min="1" step="1">
+            </label>
+            <label class="search-field" for="generalCLIPageSize">
+              <span class="field-label">CLI 每页数量</span>
+              <input id="generalCLIPageSize" class="search-input" type="number" min="1" step="1">
+            </label>
+            <label class="search-field" for="generalRawDataDir">
+              <span class="field-label">Raw 数据目录</span>
+              <input id="generalRawDataDir" class="search-input" type="text">
+            </label>
+            <label class="search-field" for="generalCacheDir">
+              <span class="field-label">缓存目录</span>
+              <input id="generalCacheDir" class="search-input" type="text">
+            </label>
+            <label class="search-field" for="generalOutputDir">
+              <span class="field-label">导出目录</span>
+              <input id="generalOutputDir" class="search-input" type="text">
+            </label>
+            <div class="site-config-actions">
+              <button id="saveGeneralConfig" type="submit" class="search-button">保存全局配置</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="config-section-card">
+          <div class="config-section-head">
+            <h3>站点配置</h3>
+            <p class="panel-hint">为特定站点覆盖登录信息、并发和抓图策略。</p>
+          </div>
+          <div id="siteParamStats" class="site-param-stats"></div>
+          <form id="siteConfigForm" class="site-config-form">
         <label class="search-field" for="siteConfigKey">
           <span class="field-label">站点</span>
           <select id="siteConfigKey" class="search-input"></select>
@@ -161,91 +247,9 @@
         <div class="site-config-actions">
           <button id="saveSiteConfig" type="submit" class="search-button">保存配置</button>
         </div>
-      </form>
-    </section>
-  </div>
-
-  <div id="generalConfigOverlay" class="site-config-overlay" hidden>
-    <div id="generalConfigBackdrop" class="site-config-backdrop"></div>
-    <section class="site-config-modal" role="dialog" aria-modal="true" aria-labelledby="generalConfigHeading">
-      <div class="site-config-head">
-        <h2 id="generalConfigHeading">全局配置</h2>
-        <button type="button" id="closeGeneralConfig" class="detail-close">关闭</button>
+          </form>
+        </section>
       </div>
-      <p class="panel-hint">全局参数保存在 SQLite，CLI/Web 共用；CLI 通常可直接使用默认值。</p>
-      <form id="generalConfigForm" class="site-config-form">
-        <label class="search-field" for="generalWorkers">
-          <span class="field-label">默认下载协程</span>
-          <input id="generalWorkers" class="search-input" type="number" min="1" step="1">
-        </label>
-        <label class="search-field" for="generalTimeout">
-          <span class="field-label">超时（秒）</span>
-          <input id="generalTimeout" class="search-input" type="number" min="1" step="1">
-        </label>
-        <label class="search-field" for="generalRequestInterval">
-          <span class="field-label">请求间隔（秒）</span>
-          <input id="generalRequestInterval" class="search-input" type="number" min="0" step="0.1">
-        </label>
-        <label class="search-field" for="generalMaxConnections">
-          <span class="field-label">最大连接数</span>
-          <input id="generalMaxConnections" class="search-input" type="number" min="1" step="1">
-        </label>
-        <label class="search-field" for="generalMaxRPS">
-          <span class="field-label">最大 RPS</span>
-          <input id="generalMaxRPS" class="search-input" type="number" min="0.1" step="0.1">
-        </label>
-        <label class="search-field" for="generalRetryTimes">
-          <span class="field-label">重试次数</span>
-          <input id="generalRetryTimes" class="search-input" type="number" min="0" step="1">
-        </label>
-        <label class="search-field" for="generalBackoffFactor">
-          <span class="field-label">退避系数</span>
-          <input id="generalBackoffFactor" class="search-input" type="number" min="1" step="0.1">
-        </label>
-        <label class="search-field" for="generalLocaleStyle">
-          <span class="field-label">文本风格</span>
-          <select id="generalLocaleStyle" class="search-input">
-            <option value="simplified">simplified</option>
-            <option value="traditional">traditional</option>
-          </select>
-        </label>
-        <label class="search-field" for="generalFormats">
-          <span class="field-label">默认导出格式（逗号分隔）</span>
-          <input id="generalFormats" class="search-input" type="text" placeholder="txt,epub">
-        </label>
-        <label class="site-config-check">
-          <input id="generalAppendTimestamp" type="checkbox">
-          <span>文件名追加时间戳</span>
-        </label>
-        <label class="site-config-check">
-          <input id="generalIncludePicture" type="checkbox">
-          <span>默认抓取图片</span>
-        </label>
-        <label class="search-field" for="generalWebPageSize">
-          <span class="field-label">Web 每页数量</span>
-          <input id="generalWebPageSize" class="search-input" type="number" min="1" step="1">
-        </label>
-        <label class="search-field" for="generalCLIPageSize">
-          <span class="field-label">CLI 每页数量</span>
-          <input id="generalCLIPageSize" class="search-input" type="number" min="1" step="1">
-        </label>
-        <label class="search-field" for="generalRawDataDir">
-          <span class="field-label">Raw 数据目录</span>
-          <input id="generalRawDataDir" class="search-input" type="text">
-        </label>
-        <label class="search-field" for="generalCacheDir">
-          <span class="field-label">缓存目录</span>
-          <input id="generalCacheDir" class="search-input" type="text">
-        </label>
-        <label class="search-field" for="generalOutputDir">
-          <span class="field-label">导出目录</span>
-          <input id="generalOutputDir" class="search-input" type="text">
-        </label>
-        <div class="site-config-actions">
-          <button id="openSiteConfigFromGeneral" type="button" class="tool-button">站点配置</button>
-          <button id="saveGeneralConfig" type="submit" class="search-button">保存全局配置</button>
-        </div>
-      </form>
     </section>
   </div>
 

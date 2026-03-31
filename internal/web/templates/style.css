@@ -312,6 +312,26 @@ h4 { font-size: 15px; }
   justify-content: space-between;
 }
 
+.settings-layout {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.config-section-card {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 14px;
+  background: #f8fafc;
+}
+
+.config-section-head {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
 .site-param-stats {
   margin-top: 12px;
   display: grid;
@@ -336,6 +356,12 @@ h4 { font-size: 15px; }
   margin-top: 14px;
   display: grid;
   gap: 12px;
+}
+
+@media (max-width: 960px) {
+  .settings-layout {
+    grid-template-columns: 1fr;
+  }
 }
 
 .site-config-check {

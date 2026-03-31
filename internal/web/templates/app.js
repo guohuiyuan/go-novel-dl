@@ -162,11 +162,7 @@ const toggleSitePasswordButton = document.getElementById("toggleSitePassword");
 const siteCookieNode = document.getElementById("siteCookie");
 const siteMirrorHostsNode = document.getElementById("siteMirrorHosts");
 const siteParamStatsNode = document.getElementById("siteParamStats");
-const generalConfigOverlay = document.getElementById("generalConfigOverlay");
-const generalConfigBackdrop = document.getElementById("generalConfigBackdrop");
-const closeGeneralConfigButton = document.getElementById("closeGeneralConfig");
 const generalConfigForm = document.getElementById("generalConfigForm");
-const openSiteConfigFromGeneralButton = document.getElementById("openSiteConfigFromGeneral");
 const generalWorkersNode = document.getElementById("generalWorkers");
 const generalTimeoutNode = document.getElementById("generalTimeout");
 const generalRequestIntervalNode = document.getElementById("generalRequestInterval");
@@ -244,7 +240,7 @@ function bootstrap() {
 
   detailCloseButton.addEventListener("click", closeDetail);
   detailBackdrop.addEventListener("click", closeDetail);
-  openGeneralConfigButton.addEventListener("click", openGeneralConfig);
+  openGeneralConfigButton.addEventListener("click", openSiteConfig);
   openSiteConfigButton.addEventListener("click", openSiteConfig);
   closeSiteConfigButton.addEventListener("click", closeSiteConfig);
   siteConfigBackdrop.addEventListener("click", closeSiteConfig);
@@ -256,22 +252,14 @@ function bootstrap() {
     event.preventDefault();
     try {
       await saveSiteConfig();
-      closeSiteConfig();
     } catch (error) {
       setStatus(`保存站点配置失败：${error.message}`);
     }
-  });
-  closeGeneralConfigButton.addEventListener("click", closeGeneralConfig);
-  generalConfigBackdrop.addEventListener("click", closeGeneralConfig);
-  openSiteConfigFromGeneralButton.addEventListener("click", () => {
-    closeGeneralConfig();
-    openSiteConfig();
   });
   generalConfigForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     try {
       await saveGeneralConfig();
-      closeGeneralConfig();
     } catch (error) {
       setStatus(`保存全局配置失败：${error.message}`);
     }
@@ -288,10 +276,6 @@ function bootstrap() {
     }
     if (event.key === "Escape" && !siteConfigOverlay.hidden) {
       closeSiteConfig();
-      return;
-    }
-    if (event.key === "Escape" && !generalConfigOverlay.hidden) {
-      closeGeneralConfig();
     }
   });
 
@@ -1178,16 +1162,6 @@ function openSiteConfig() {
 
 function closeSiteConfig() {
   siteConfigOverlay.hidden = true;
-  document.body.classList.remove("has-overlay");
-}
-
-function openGeneralConfig() {
-  generalConfigOverlay.hidden = false;
-  document.body.classList.add("has-overlay");
-}
-
-function closeGeneralConfig() {
-  generalConfigOverlay.hidden = true;
   document.body.classList.remove("has-overlay");
 }
 
