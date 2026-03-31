@@ -53,8 +53,8 @@ func NewESJZoneSite(cfg config.ResolvedSiteConfig) *ESJZoneSite {
 		timeout = time.Duration(cfg.General.Timeout * float64(time.Second))
 	}
 
-	bookAliases := []string{"https://www.esjzone.cc", "https://www.esjzone.me"}
-	searchAliases := []string{"https://www.esjzone.cc", "https://www.esjzone.me"}
+	bookAliases := []string{"https://www.esjzone.cc", "https://www.esjzone.one"}
+	searchAliases := []string{"https://www.esjzone.cc", "https://www.esjzone.one"}
 	for _, mirror := range cfg.MirrorHosts {
 		mirror = strings.TrimSpace(strings.TrimRight(mirror, "/"))
 		if mirror == "" {
@@ -979,7 +979,7 @@ func normalizeURL(rawURL string) (*url.URL, error) {
 
 func isESJHost(host string) bool {
 	host = strings.TrimPrefix(strings.ToLower(host), "www.")
-	return host == "esjzone.cc" || host == "esjzone.me"
+	return host == "esjzone.cc" || host == "esjzone.one"
 }
 
 func extractMirrorRedirect(markup string) string {

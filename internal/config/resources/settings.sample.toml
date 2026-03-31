@@ -56,7 +56,7 @@ remove_invisible = true
 [sites.esjzone]
 book_ids = ["1660702902"]
 login_required = true
-mirror_hosts = ["https://www.esjzone.me", "https://esjzone.me"]
+mirror_hosts = ["https://www.esjzone.one"]
 username = "xxxxx"
 password = "xxxxx"
 # cookie = "optional pre-exported cookie string"

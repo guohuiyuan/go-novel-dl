@@ -722,7 +722,7 @@ function renderTasks() {
 
   tasks.forEach((task) => {
     const card = document.createElement("article");
-    card.className = "task-card";
+    card.className = `task-card is-${task.status}`;
 
     const head = document.createElement("div");
     head.className = "task-head";

@@ -84,7 +84,7 @@ func DefaultConfig() Config {
 			"esjzone": {
 				BookIDs:       []model.BookRef{{BookID: "1660702902"}},
 				LoginRequired: boolPtr(true),
-				MirrorHosts:   []string{"https://www.esjzone.me", "https://esjzone.me"},
+				MirrorHosts:   []string{"https://www.esjzone.one"},
 			},
 			"westnovel": {
 				BookIDs: []model.BookRef{{BookID: "wuxia-ynyh"}},

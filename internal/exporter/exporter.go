@@ -6,7 +6,6 @@ import (
 	"crypto/sha1"
 	"fmt"
 	"html/template"
-	"image/png"
 	"io"
 	"mime"
 	"net/http"
@@ -20,7 +19,7 @@ import (
 
 	"github.com/guohuiyuan/go-novel-dl/internal/config"
 	"github.com/guohuiyuan/go-novel-dl/internal/model"
-	xwebp "golang.org/x/image/webp"
+	//xwebp "golang.org/x/image/webp"
 )
 
 type Service struct{}
@@ -440,27 +439,10 @@ func downloadAsset(client *http.Client, rawURL string) ([]byte, string, string, 
 
 func normalizeAssetData(data []byte, mediaType, rawURL string) ([]byte, string, error) {
 	mediaType = strings.ToLower(strings.TrimSpace(mediaType))
-	if !shouldTranscodeToPNG(mediaType, rawURL) {
-		return data, mediaType, nil
-	}
-	imageData, err := xwebp.Decode(bytes.NewReader(data))
-	if err != nil {
-		return nil, "", err
-	}
-	var buf bytes.Buffer
-	if err := png.Encode(&buf, imageData); err != nil {
-		return nil, "", err
-	}
-	return buf.Bytes(), "image/png", nil
+	return data, mediaType, nil
 }
 
 func shouldTranscodeToPNG(mediaType, rawURL string) bool {
-	if mediaType == "image/webp" {
-		return true
-	}
-	if parsed, err := neturl.Parse(rawURL); err == nil {
-		return strings.EqualFold(path.Ext(parsed.Path), ".webp")
-	}
 	return false
 }
 
@@ -473,7 +455,7 @@ func assetExtension(mediaType, rawURL string) string {
 	case "image/gif":
 		return ".gif"
 	case "image/webp":
-		return ".png"
+		return ".webp"
 	case "image/svg+xml":
 		return ".svg"
 	}

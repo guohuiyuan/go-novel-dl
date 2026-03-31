@@ -21,7 +21,7 @@ func TestESJZoneResolveURLSupportsMirror(t *testing.T) {
 		t.Fatalf("unexpected primary resolve result: %+v ok=%v", resolved, ok)
 	}
 
-	resolved, ok = site.ResolveURL("https://www.esjzone.me/forum/1660702902/294593.html")
+	resolved, ok = site.ResolveURL("https://www.esjzone.one/forum/1660702902/294593.html")
 	if !ok || resolved.BookID != "1660702902" || resolved.ChapterID != "294593" || !resolved.Mirror {
 		t.Fatalf("unexpected mirror resolve result: %+v ok=%v", resolved, ok)
 	}

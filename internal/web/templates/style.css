@@ -211,20 +211,33 @@ h4 { font-size: 15px; }
 .result-author, .result-source, .result-extra { font-size: 12px; }
 
 /* 彩色化任务列表 */
-.task-card { padding: 20px; background: #fff; }
-.task-title { font-weight: 800; font-size: 16px; color: #1e293b; }
+.task-card { 
+  padding: 20px; 
+  background: #fff; 
+  border-radius: 16px;
+  border-left: 4px solid var(--accent);
+  transition: all 0.2s ease;
+}
+.task-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 24px -8px rgba(0,0,0,0.1);
+}
+.task-title { font-weight: 800; font-size: 16px; color: #1e293b; margin-bottom: 4px; }
 .status-running { background: #eff6ff; color: #2563eb; } /* 蓝色 */
-.status-completed { background: #ecfdf5; color: #10b981; } /* 绿色 */
-.status-failed { background: #fef2f2; color: #ef4444; } /* 红色 */
-.status-queued { background: #fdf4ff; color: #d946ef; } /* 紫色 */
+.status-completed { background: #ecfdf5; color: #10b981; border-left-color: #10b981; } /* 绿色 */
+.status-failed { background: #fef2f2; color: #ef4444; border-left-color: #ef4444; } /* 红色 */
+.status-queued { background: #fdf4ff; color: #d946ef; border-left-color: #d946ef; } /* 紫色 */
 
 .task-progress { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
-.task-progress-bar { width: 100%; height: 8px; border-radius: 999px; background: #f1f5f9; overflow: hidden; }
-.task-progress-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #34d399 0%, #10b981 100%); transition: width 0.3s ease; }
+.task-progress-bar { width: 100%; height: 8px; border-radius: 999px; background: #f1f5f9; overflow: hidden; box-shadow: inset 0 1px 2px rgba(0,0,0,0.05); }
+.task-progress-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #3b82f6 0%, #2563eb 100%); transition: width 0.4s ease; }
+.task-card.is-completed .task-progress-fill { background: linear-gradient(90deg, #34d399 0%, #10b981 100%); }
+.task-card.is-failed .task-progress-fill { background: linear-gradient(90deg, #f87171 0%, #ef4444 100%); }
 
-.file-list { margin: 12px 0 0; padding-left: 20px; color: var(--info); }
-.file-download-link { color: var(--purple); text-decoration: none; font-weight: 700; }
+.file-list { margin: 12px 0 0; padding: 12px; background: #f8fafc; border-radius: 8px; color: var(--info); border: 1px solid #e2e8f0; }    
+.file-download-link { color: var(--purple); text-decoration: none; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; }
 .file-download-link:hover { text-decoration: underline; color: #7c3aed; }
+.file-download-link::before { content: '📦'; font-size: 14px; }
 
 .empty-state, .empty-inline {
   padding: 40px 20px; text-align: center; color: var(--muted); background: #f8fafc;

@@ -55,7 +55,7 @@ Each site adapter supports:
 - search
 - URL resolution
 
-The first full implementation is `esjzone`, including mirror-aware URL resolution for `esjzone.cc` and `esjzone.me`, authenticated login, cookie reuse, and protected chapter unlock hooks.
+The first full implementation is `esjzone`, including mirror-aware URL resolution for `esjzone.cc` and `esjzone.one`, authenticated login, cookie reuse, and protected chapter unlock hooks.
 
 ### `internal/store`
 

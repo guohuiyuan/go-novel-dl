@@ -68,9 +68,9 @@ func (r *Registry) Keys() []string {
 func NewDefaultRegistry() *Registry {
 	registry := NewRegistry()
 	// Disabled: connection issues
-	// registry.Register("esjzone", func(cfg config.ResolvedSiteConfig) Site {
-	// 	return NewESJZoneSite(cfg)
-	// })
+	registry.Register("esjzone", func(cfg config.ResolvedSiteConfig) Site {
+	        return NewESJZoneSite(cfg)
+	})
 	// registry.Register("westnovel", func(cfg config.ResolvedSiteConfig) Site {
 	// 	return NewWestNovelSite(cfg)
 	// })
