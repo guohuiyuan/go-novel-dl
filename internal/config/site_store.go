@@ -29,6 +29,8 @@ type siteCatalogEntry struct {
 	DisplayName   string    `gorm:"size:128"`
 	MirrorHosts   string    `gorm:"type:text"`
 	LoginRequired bool      `gorm:"default:false"`
+	WorkerLimit   int       `gorm:"default:0"`
+	FetchImages   bool      `gorm:"default:true"`
 	Username      string    `gorm:"size:256"`
 	Password      string    `gorm:"size:256"`
 	Cookie        string    `gorm:"type:text"`
@@ -39,6 +41,8 @@ type SiteCatalogRecord struct {
 	Key           string    `json:"key"`
 	DisplayName   string    `json:"display_name"`
 	LoginRequired bool      `json:"login_required"`
+	WorkerLimit   int       `json:"worker_limit"`
+	FetchImages   bool      `json:"fetch_images"`
 	Username      string    `json:"username"`
 	Password      string    `json:"password"`
 	Cookie        string    `json:"cookie"`
@@ -49,6 +53,8 @@ type SiteCatalogRecord struct {
 type SiteCatalogUpdate struct {
 	DisplayName   *string
 	LoginRequired *bool
+	WorkerLimit   *int
+	FetchImages   *bool
 	Username      *string
 	Password      *string
 	Cookie        *string
@@ -66,20 +72,22 @@ type defaultSiteCatalogRow struct {
 	Key           string
 	DisplayName   string
 	LoginRequired bool
+	WorkerLimit   int
+	FetchImages   bool
 	MirrorHosts   []string
 }
 
 var defaultSiteCatalog = []defaultSiteCatalogRow{
-	{Key: "esjzone", DisplayName: "ESJ Zone", LoginRequired: true, MirrorHosts: []string{"https://www.esjzone.one"}},
-	{Key: "linovelib", DisplayName: "Linovelib"},
-	{Key: "n23qb", DisplayName: "N23QB"},
-	{Key: "ruochu", DisplayName: "若初"},
-	{Key: "fanqienovel", DisplayName: "番茄小说"},
-	{Key: "sfacg", DisplayName: "SFACG"},
-	{Key: "ciyuanji", DisplayName: "次元纪"},
-	{Key: "ciweimao", DisplayName: "刺猬猫"},
-	{Key: "novalpie", DisplayName: "Novalpie", LoginRequired: true},
-	{Key: "n17k", DisplayName: "17K"},
+	{Key: "esjzone", DisplayName: "ESJ Zone", LoginRequired: true, WorkerLimit: 8, FetchImages: true, MirrorHosts: []string{"https://www.esjzone.one"}},
+	{Key: "linovelib", DisplayName: "Linovelib", WorkerLimit: 4, FetchImages: true},
+	{Key: "n23qb", DisplayName: "N23QB", WorkerLimit: 4, FetchImages: true},
+	{Key: "ruochu", DisplayName: "若初", WorkerLimit: 4, FetchImages: true},
+	{Key: "fanqienovel", DisplayName: "番茄小说", WorkerLimit: 4, FetchImages: true},
+	{Key: "sfacg", DisplayName: "SFACG", WorkerLimit: 4, FetchImages: true},
+	{Key: "ciyuanji", DisplayName: "次元纪", WorkerLimit: 4, FetchImages: true},
+	{Key: "ciweimao", DisplayName: "刺猬猫", WorkerLimit: 4, FetchImages: true},
+	{Key: "novalpie", DisplayName: "Novalpie", LoginRequired: true, WorkerLimit: 4, FetchImages: true},
+	{Key: "n17k", DisplayName: "17K", WorkerLimit: 4, FetchImages: true},
 }
 
 var supportedSiteKeys = func() map[string]struct{} {
@@ -115,8 +123,10 @@ func SiteParameterSupports() []SiteParameterSupport {
 		{Key: "password", Label: "密码", Implemented: true, Notes: "登录型站点使用"},
 		{Key: "cookie", Label: "Cookie", Implemented: true, Notes: "可用于免登录访问"},
 		{Key: "login_required", Label: "登录必需", Implemented: true, Notes: "控制是否执行登录流程"},
+		{Key: "worker_limit", Label: "下载协程", Implemented: true, Notes: "每个站点的章节并发抓取数"},
+		{Key: "fetch_images", Label: "抓取图片", Implemented: true, Notes: "控制章节抓取时是否保留图片"},
 		{Key: "mirror_hosts", Label: "镜像地址", Implemented: true, Notes: "用于站点镜像回退"},
-		{Key: "book_ids", Label: "Book IDs", Implemented: false, Notes: "不纳入 site_catalog.db，由命令参数或 settings.toml 管理"},
+		{Key: "book_ids", Label: "Book IDs", Implemented: false, Notes: "不纳入 site_catalog.db，由命令参数管理"},
 	}
 }
 
@@ -161,11 +171,13 @@ func seedSiteCatalog(db *gorm.DB) error {
 			DisplayName:   item.DisplayName,
 			MirrorHosts:   mirrored,
 			LoginRequired: item.LoginRequired,
+			WorkerLimit:   item.WorkerLimit,
+			FetchImages:   item.FetchImages,
 		})
 	}
 	return db.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "key"}},
-		DoUpdates: clause.AssignmentColumns([]string{"display_name", "login_required", "mirror_hosts", "updated_at"}),
+		DoNothing: true,
 	}).Create(&records).Error
 }
 
@@ -218,6 +230,16 @@ func UpsertSiteCatalog(siteKey string, patch SiteCatalogUpdate) (SiteCatalogReco
 	if patch.LoginRequired != nil {
 		current.LoginRequired = *patch.LoginRequired
 	}
+	if patch.WorkerLimit != nil {
+		if *patch.WorkerLimit < 0 {
+			current.WorkerLimit = 0
+		} else {
+			current.WorkerLimit = *patch.WorkerLimit
+		}
+	}
+	if patch.FetchImages != nil {
+		current.FetchImages = *patch.FetchImages
+	}
 	if patch.Username != nil {
 		current.Username = strings.TrimSpace(*patch.Username)
 	}
@@ -259,6 +281,24 @@ func SyncSiteCatalogFromConfig(sites map[string]SiteConfig) error {
 		if siteCfg.LoginRequired != nil {
 			if current.LoginRequired != *siteCfg.LoginRequired {
 				current.LoginRequired = *siteCfg.LoginRequired
+				changed = true
+			}
+		}
+
+		if siteCfg.Workers != nil {
+			workers := *siteCfg.Workers
+			if workers < 0 {
+				workers = 0
+			}
+			if current.WorkerLimit != workers {
+				current.WorkerLimit = workers
+				changed = true
+			}
+		}
+
+		if siteCfg.Output != nil && siteCfg.Output.IncludePicture != nil {
+			if current.FetchImages != *siteCfg.Output.IncludePicture {
+				current.FetchImages = *siteCfg.Output.IncludePicture
 				changed = true
 			}
 		}
@@ -305,6 +345,8 @@ func toSiteCatalogRecord(entry siteCatalogEntry) SiteCatalogRecord {
 		Key:           entry.Key,
 		DisplayName:   entry.DisplayName,
 		LoginRequired: entry.LoginRequired,
+		WorkerLimit:   entry.WorkerLimit,
+		FetchImages:   entry.FetchImages,
 		Username:      entry.Username,
 		Password:      entry.Password,
 		Cookie:        entry.Cookie,
@@ -354,6 +396,9 @@ func mergeSiteCatalog(cfg *Config) error {
 		if entry.LoginRequired {
 			siteCfg.LoginRequired = boolPtr(true)
 		}
+		if entry.WorkerLimit > 0 {
+			siteCfg.Workers = intPtr(entry.WorkerLimit)
+		}
 		if entry.Username != "" {
 			siteCfg.Username = entry.Username
 		}
@@ -366,9 +411,17 @@ func mergeSiteCatalog(cfg *Config) error {
 		if hosts := parseMirrorHosts(entry.MirrorHosts); len(hosts) > 0 {
 			siteCfg.MirrorHosts = hosts
 		}
+		if siteCfg.Output == nil {
+			siteCfg.Output = &OutputOverride{}
+		}
+		siteCfg.Output.IncludePicture = boolPtr(entry.FetchImages)
 		cfg.Sites[entry.Key] = siteCfg
 	}
 	return nil
+}
+
+func intPtr(v int) *int {
+	return &v
 }
 
 func parseMirrorHosts(raw string) []string {

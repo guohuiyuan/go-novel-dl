@@ -121,7 +121,7 @@ func TestExtractForumContentFromFragment(t *testing.T) {
 
 func TestParseChapterContentSupportsSectionOnly(t *testing.T) {
 	markup := `<section class="forum-content mt-3" id=""><section>???</section><section>???</section></section>`
-	content, err := parseChapterContent(markup, "https://www.esjzone.cc/forum/1/2.html")
+	content, err := parseChapterContent(markup, "https://www.esjzone.cc/forum/1/2.html", true)
 	if err != nil {
 		t.Fatalf("parse chapter content: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestParseChapterContentSupportsSectionOnly(t *testing.T) {
 
 func TestParseChapterContentSupportsImageOnlyParagraph(t *testing.T) {
 	markup := `<div class="forum-content mt-3"><p><img src="a.jpg"></p></div>`
-	content, err := parseChapterContent(markup, "https://www.esjzone.cc/forum/1/2.html")
+	content, err := parseChapterContent(markup, "https://www.esjzone.cc/forum/1/2.html", true)
 	if err != nil {
 		t.Fatalf("parse image-only content: %v", err)
 	}

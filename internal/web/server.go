@@ -195,7 +195,7 @@ func collectSiteWarnings(runtime *app.Runtime) []SiteWarning {
 	if strings.TrimSpace(resolved.Username) == "" || strings.TrimSpace(resolved.Password) == "" {
 		return []SiteWarning{{
 			SiteKey:     "esjzone",
-			Message:     "ESJ Zone 需要 Cookie 或 用户名/密码 才能访问，请在配置文件或数据库中完成设置。",
+			Message:     "ESJ Zone 需要 Cookie 或 用户名/密码 才能访问，请在数据库配置中完成设置。",
 			Level:       "danger",
 			ActionLabel: "打开站点配置",
 			ActionLink:  "#site-config",
@@ -212,7 +212,7 @@ func collectSiteStats(runtime *app.Runtime) []SiteStat {
 	stats := make([]SiteStat, 0, len(descriptors))
 	for _, descriptor := range descriptors {
 		resolved := runtime.Config.ResolveSiteConfig(descriptor.Key)
-		fields := make([]string, 0, 4)
+		fields := make([]string, 0, 6)
 		if strings.TrimSpace(resolved.Username) != "" {
 			fields = append(fields, "用户名")
 		}
@@ -224,6 +224,12 @@ func collectSiteStats(runtime *app.Runtime) []SiteStat {
 		}
 		if len(resolved.MirrorHosts) > 0 {
 			fields = append(fields, "镜像")
+		}
+		if resolved.General.Workers > 0 {
+			fields = append(fields, fmt.Sprintf("协程=%d", resolved.General.Workers))
+		}
+		if !resolved.General.Output.IncludePicture {
+			fields = append(fields, "不抓图")
 		}
 		if len(fields) > 0 {
 			stats = append(stats, SiteStat{
@@ -307,6 +313,8 @@ func newRouter(service *Service) *gin.Engine {
 
 		var req struct {
 			LoginRequired *bool    `json:"login_required"`
+			WorkerLimit   *int     `json:"worker_limit"`
+			FetchImages   *bool    `json:"fetch_images"`
 			Username      *string  `json:"username"`
 			Password      *string  `json:"password"`
 			Cookie        *string  `json:"cookie"`
@@ -319,6 +327,8 @@ func newRouter(service *Service) *gin.Engine {
 
 		update := config.SiteCatalogUpdate{
 			LoginRequired: req.LoginRequired,
+			WorkerLimit:   req.WorkerLimit,
+			FetchImages:   req.FetchImages,
 			Username:      req.Username,
 			Password:      req.Password,
 			Cookie:        req.Cookie,

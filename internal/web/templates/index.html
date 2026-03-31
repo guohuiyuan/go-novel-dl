@@ -121,6 +121,16 @@
           <span>需要登录</span>
         </label>
 
+        <label class="search-field" for="siteWorkerLimit">
+          <span class="field-label">下载协程数（0 使用默认）</span>
+          <input id="siteWorkerLimit" class="search-input" type="number" min="0" step="1" value="0">
+        </label>
+
+        <label class="site-config-check">
+          <input id="siteFetchImages" type="checkbox">
+          <span>抓取图片（关闭后仅保留文本）</span>
+        </label>
+
         <label class="search-field" for="siteUsername">
           <span class="field-label">用户名</span>
           <input id="siteUsername" class="search-input" type="text" autocomplete="off">

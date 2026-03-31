@@ -331,14 +331,14 @@ func (s *ESJZoneSite) fetchChapterContent(ctx context.Context, bookID, chapterID
 				continue
 			}
 		}
-		content, err := parseChapterContent(markup, pageURL)
+		content, err := parseChapterContent(markup, pageURL, s.cfg.General.Output.IncludePicture)
 		if err != nil {
 			if isEncryptedChapter(markup) {
 				password, perr := s.lookupChapterPassword(markup, bookID, chapterID)
 				if perr == nil && password != "" {
 					unlocked, uerr := s.unlockChapter(ctx, pageURL, password)
 					if uerr == nil {
-						content, err = parseChapterContent(unlocked, pageURL)
+						content, err = parseChapterContent(unlocked, pageURL, s.cfg.General.Output.IncludePicture)
 						if err == nil {
 							return content, nil
 						}
@@ -801,7 +801,7 @@ func parseESJSearchDetailPage(markup, bookURL, bookID string) (*model.Book, erro
 	}, nil
 }
 
-func parseChapterContent(markup, pageURL string) (string, error) {
+func parseChapterContent(markup, pageURL string, includeImages bool) (string, error) {
 	if isLoginPage(markup) {
 		return "", fmt.Errorf("login required for chapter")
 	}
@@ -816,46 +816,53 @@ func parseChapterContent(markup, pageURL string) (string, error) {
 	container := findFirst(doc, byClass("forum-content"))
 	if container == nil {
 		if body := extractForumContentFromFragment(markup); body != "" {
-			return parseChapterContent(body, pageURL)
+			return parseChapterContent(body, pageURL, includeImages)
 		}
 		return "", fmt.Errorf("chapter content container not found")
 	}
 
 	paragraphs := make([]string, 0)
 	for child := container.FirstChild; child != nil; child = child.NextSibling {
-		collectReadableParagraphs(child, &paragraphs, pageURL)
+		collectReadableParagraphs(child, &paragraphs, pageURL, includeImages)
 	}
 	if len(paragraphs) == 0 {
+		fallback := cleanText(nodeTextPreserveLineBreaks(container))
+		if fallback != "" {
+			return fallback, nil
+		}
 		return "", fmt.Errorf("no readable chapter content found")
 	}
 	return strings.Join(paragraphs, "\n\n"), nil
 }
 
-func collectReadableParagraphs(node *html.Node, paragraphs *[]string, pageURL string) {
+func collectReadableParagraphs(node *html.Node, paragraphs *[]string, pageURL string, includeImages bool) {
 	if node == nil {
 		return
 	}
 	if node.Type == html.ElementNode {
 		switch node.Data {
 		case "p":
-			appendReadableNode(node, paragraphs, pageURL)
+			appendReadableNode(node, paragraphs, pageURL, includeImages)
 			return
 		case "div", "section", "article", "blockquote":
 			if !hasElementDescendant(node, "p") {
-				appendReadableNode(node, paragraphs, pageURL)
+				appendReadableNode(node, paragraphs, pageURL, includeImages)
 				return
 			}
 		}
 	}
 	for child := node.FirstChild; child != nil; child = child.NextSibling {
-		collectReadableParagraphs(child, paragraphs, pageURL)
+		collectReadableParagraphs(child, paragraphs, pageURL, includeImages)
 	}
 }
 
-func appendReadableNode(node *html.Node, paragraphs *[]string, pageURL string) {
+func appendReadableNode(node *html.Node, paragraphs *[]string, pageURL string, includeImages bool) {
 	text := cleanText(nodeTextPreserveLineBreaks(node))
 	if text != "" {
 		*paragraphs = append(*paragraphs, text)
+	}
+	if !includeImages {
+		return
 	}
 	for _, imageURL := range collectImageSources(node, pageURL) {
 		*paragraphs = append(*paragraphs, formatImagePlaceholder(imageURL))

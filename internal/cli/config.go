@@ -1,10 +1,7 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -75,6 +72,10 @@ func newConfigSiteSetCmd() *cobra.Command {
 		configPath    string
 		loginRequired bool
 		setLogin      bool
+		workerLimit   int
+		setWorkers    bool
+		fetchImages   bool
+		setImages     bool
 		username      string
 		password      string
 		cookie        string
@@ -103,6 +104,18 @@ func newConfigSiteSetCmd() *cobra.Command {
 			if setLogin {
 				update.LoginRequired = &loginRequired
 			}
+			if cmd.Flags().Changed("workers") {
+				setWorkers = true
+			}
+			if setWorkers {
+				update.WorkerLimit = &workerLimit
+			}
+			if cmd.Flags().Changed("fetch-images") {
+				setImages = true
+			}
+			if setImages {
+				update.FetchImages = &fetchImages
+			}
 			if cmd.Flags().Changed("username") {
 				value := username
 				update.Username = &value
@@ -124,13 +137,15 @@ func newConfigSiteSetCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			console.Successf("Updated %s: login_required=%v username=%q mirrors=%d cookie=%v password=%v", item.Key, item.LoginRequired, item.Username, len(item.MirrorHosts), item.Cookie != "", item.Password != "")
+			console.Successf("Updated %s: login_required=%v workers=%d fetch_images=%v username=%q mirrors=%d cookie=%v password=%v", item.Key, item.LoginRequired, item.WorkerLimit, item.FetchImages, item.Username, len(item.MirrorHosts), item.Cookie != "", item.Password != "")
 			return nil
 		},
 	}
 
 	cmd.Flags().StringVar(&configPath, "config", "", "Path to the configuration file")
 	cmd.Flags().BoolVar(&loginRequired, "login-required", false, "Whether this site requires login")
+	cmd.Flags().IntVar(&workerLimit, "workers", 0, "Per-site chapter download worker limit (0 means fallback)")
+	cmd.Flags().BoolVar(&fetchImages, "fetch-images", true, "Whether to keep/fetch images in chapter content")
 	cmd.Flags().StringVar(&username, "username", "", "Username for site login")
 	cmd.Flags().StringVar(&password, "password", "", "Password for site login")
 	cmd.Flags().StringVar(&cookie, "cookie", "", "Cookie header for site requests")
@@ -142,7 +157,7 @@ func newConfigInitCmd() *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "Initialize default configuration in the current directory",
+		Short: "Initialize SQLite-backed configuration database",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			console := newConsole()
 			runtime := app.NewRuntime(configPtr(), console)
@@ -174,25 +189,13 @@ func newConfigSetLangCmd() *cobra.Command {
 
 func configInit(runtime *app.Runtime, force bool) error {
 	console := runtime.Console
-	target := filepath.Join(".", config.DefaultConfigFilename)
-	if _, err := os.Stat(target); err == nil && !force {
-		console.Infof("File already exists: %s", config.DefaultConfigFilename)
-		confirm, err := console.Confirm("Do you want to overwrite settings.toml?", false)
-		if err != nil {
-			return err
-		}
-		if !confirm {
-			console.Warnf("Skipped: %s", config.DefaultConfigFilename)
-			return nil
-		}
-	}
-	if err := config.WriteDefault(target, true); err != nil {
-		if errors.Is(err, os.ErrExist) {
-			return nil
-		}
+	_ = force
+	items, err := config.ListSiteCatalog()
+	if err != nil {
 		return err
 	}
-	console.Successf("Copied: %s", config.DefaultConfigFilename)
+	console.Successf("Initialized site catalog database: %s", config.SiteCatalogPath())
+	console.Infof("Managed sites: %d", len(items))
 	return nil
 }
 

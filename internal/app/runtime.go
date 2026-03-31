@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/guohuiyuan/go-novel-dl/internal/config"
@@ -121,23 +122,61 @@ func (r *Runtime) Download(ctx context.Context, siteKey string, books []model.Bo
 		book = textconv.NormalizeBookLocale(book, resolved.General.LocaleStyle)
 		r.Progress.OnBookStart(siteKey, ref.BookID, book.Title, len(book.Chapters))
 		done := 0
+
+		workerCount := resolved.General.Workers
+		if workerCount <= 0 {
+			workerCount = 4
+		}
+		if workerCount > 24 {
+			workerCount = 24
+		}
+
+		pending := make([]int, 0, len(book.Chapters))
 		for idx, chapter := range book.Chapters {
 			if chapter.Downloaded && chapter.Content != "" {
 				done++
 				r.Progress.OnBookProgress(done, len(book.Chapters), chapter.Title)
 				continue
 			}
-			loaded, err := client.FetchChapter(ctx, ref.BookID, chapter)
-			if err != nil {
-				r.Console.Warnf("跳过章节 %s: %v", chapter.Title, err)
-				done++
-				r.Progress.OnBookProgress(done, len(book.Chapters), chapter.Title)
-				continue
-			}
-			book.Chapters[idx] = loaded
-			done++
-			r.Progress.OnBookProgress(done, len(book.Chapters), loaded.Title)
+			pending = append(pending, idx)
 		}
+
+		if len(pending) > 0 {
+			jobs := make(chan int, len(pending))
+			var wg sync.WaitGroup
+			var mu sync.Mutex
+
+			for i := 0; i < workerCount; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					for idx := range jobs {
+						chapter := book.Chapters[idx]
+						loaded, fetchErr := client.FetchChapter(ctx, ref.BookID, chapter)
+
+						mu.Lock()
+						if fetchErr != nil {
+							r.Console.Warnf("跳过章节 %s: %v", chapter.Title, fetchErr)
+							done++
+							r.Progress.OnBookProgress(done, len(book.Chapters), chapter.Title)
+							mu.Unlock()
+							continue
+						}
+						book.Chapters[idx] = loaded
+						done++
+						r.Progress.OnBookProgress(done, len(book.Chapters), loaded.Title)
+						mu.Unlock()
+					}
+				}()
+			}
+
+			for _, idx := range pending {
+				jobs <- idx
+			}
+			close(jobs)
+			wg.Wait()
+		}
+
 		r.Progress.OnBookComplete(done, len(book.Chapters))
 		book.Site = siteKey
 		if book.DownloadedAt.IsZero() {

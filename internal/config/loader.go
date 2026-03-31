@@ -6,33 +6,16 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"github.com/BurntSushi/toml"
-
 	"github.com/guohuiyuan/go-novel-dl/internal/model"
 )
 
 func Load(explicitPath string) (*Config, string, error) {
-	path, err := FindConfigPath(explicitPath)
-	if err != nil {
-		return nil, "", err
+	_ = explicitPath
+	cfg := DefaultConfig()
+	if err := mergeSiteCatalog(&cfg); err != nil {
+		return nil, "", fmt.Errorf("load db site catalog: %w", err)
 	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, "", err
-	}
-
-	var raw map[string]any
-	if _, err := toml.Decode(string(data), &raw); err != nil {
-		return nil, "", fmt.Errorf("decode config: %w", err)
-	}
-
-	cfg, err := parseConfig(raw)
-	if err != nil {
-		return nil, "", err
-	}
-
-	return cfg, path, nil
+	return &cfg, SiteCatalogPath(), nil
 }
 
 func FindConfigPath(explicitPath string) (string, error) {
