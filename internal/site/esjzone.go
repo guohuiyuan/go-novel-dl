@@ -37,6 +37,7 @@ type ESJZoneSite struct {
 	cookieFile    string
 	sessionMu     sync.RWMutex
 	sessionValid  bool
+	lastAuthCheck time.Time
 	hostMu        sync.RWMutex
 	workingHost   string
 }
@@ -452,14 +453,17 @@ func (s *ESJZoneSite) ensureLogin(ctx context.Context) error {
 	if !hasConfiguredCookie && !hasRuntimeCookies && !hasConfiguredCreds {
 		return fmt.Errorf("ESJ Zone 未配置 Cookie 或密码，请先在站点配置中补全")
 	}
+	if s.isSessionFresh(20 * time.Second) {
+		return nil
+	}
 
 	loggedIn, err := s.checkLoginStatus(ctx)
 	if err == nil && loggedIn {
-		s.markSessionValid(true)
+		s.markSessionValidAt(true, time.Now().UTC())
 		_ = s.saveCookiesToConfigStore()
 		return nil
 	}
-	s.markSessionValid(false)
+	s.markSessionValidAt(false, time.Now().UTC())
 
 	if !hasConfiguredCreds {
 		if hasConfiguredCookie || hasRuntimeCookies {
@@ -471,7 +475,7 @@ func (s *ESJZoneSite) ensureLogin(ctx context.Context) error {
 	if err := s.login(ctx, s.cfg.Username, s.cfg.Password); err != nil {
 		return err
 	}
-	s.markSessionValid(true)
+	s.markSessionValidAt(true, time.Now().UTC())
 	_ = s.saveCookiesToConfigStore()
 	return nil
 }
@@ -486,6 +490,22 @@ func (s *ESJZoneSite) markSessionValid(valid bool) {
 	s.sessionMu.Lock()
 	defer s.sessionMu.Unlock()
 	s.sessionValid = valid
+}
+
+func (s *ESJZoneSite) markSessionValidAt(valid bool, checkedAt time.Time) {
+	s.sessionMu.Lock()
+	defer s.sessionMu.Unlock()
+	s.sessionValid = valid
+	s.lastAuthCheck = checkedAt
+}
+
+func (s *ESJZoneSite) isSessionFresh(maxAge time.Duration) bool {
+	s.sessionMu.RLock()
+	defer s.sessionMu.RUnlock()
+	if !s.sessionValid || s.lastAuthCheck.IsZero() {
+		return false
+	}
+	return time.Since(s.lastAuthCheck) <= maxAge
 }
 
 func (s *ESJZoneSite) login(ctx context.Context, username, password string) error {
@@ -557,7 +577,9 @@ func (s *ESJZoneSite) login(ctx context.Context, username, password string) erro
 func (s *ESJZoneSite) checkLoginStatus(ctx context.Context) (bool, error) {
 	var lastErr error
 	for _, host := range s.authHosts() {
-		markup, err := s.html.Get(ctx, host+"/my/favorite")
+		hostCtx, cancel := context.WithTimeout(ctx, s.perHostTimeout(6*time.Second))
+		markup, err := s.html.Get(hostCtx, host+"/my/favorite")
+		cancel()
 		if err != nil {
 			lastErr = err
 			continue
