@@ -913,8 +913,8 @@ async function saveSiteConfig() {
   if (!response.ok) throw new Error(data.error || "save site config failed");
 
   if (data.item) appState.siteConfigs.set(siteKey, data.item);
-  if (Array.isArray(data.site_warnings)) siteWarnings = data.site_warnings;
-  if (Array.isArray(data.site_stats)) siteStats = data.site_stats;
+  siteWarnings = Array.isArray(data.site_warnings) ? data.site_warnings : [];
+  siteStats = Array.isArray(data.site_stats) ? data.site_stats : [];
   renderSiteWarnings();
   setStatus(`已保存 ${sourceLabel(siteKey)} 配置。`);
 }
