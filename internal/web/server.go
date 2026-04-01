@@ -677,15 +677,27 @@ func (s *Service) bookDetail(ctx context.Context, siteKey, bookID string) (*mode
 }
 
 type taskReporter struct {
-	store  *DownloadTaskStore
-	taskID string
+	store    *DownloadTaskStore
+	taskID   string
+	lastEmit time.Time
+	lastDone int
 }
 
 func (r *taskReporter) OnBookStart(siteKey, bookID, title string, total int) {
+	r.lastEmit = time.Time{}
+	r.lastDone = 0
 	r.store.MarkRunning(r.taskID, siteKey, bookID, title, total)
 }
 
 func (r *taskReporter) OnBookProgress(done, total int, chapterTitle string) {
+	now := time.Now().UTC()
+	if total > 0 && done < total {
+		if !r.lastEmit.IsZero() && now.Sub(r.lastEmit) < 350*time.Millisecond && done-r.lastDone < 3 {
+			return
+		}
+	}
+	r.lastEmit = now
+	r.lastDone = done
 	r.store.MarkProgress(r.taskID, done, total, chapterTitle)
 }
 

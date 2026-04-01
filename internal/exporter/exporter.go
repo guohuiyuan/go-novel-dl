@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/guohuiyuan/go-novel-dl/internal/config"
@@ -54,9 +55,17 @@ type epubAssetFetcher struct {
 	client       *http.Client
 	assets       []*epubAsset
 	byURL        map[string]*epubAsset
+	inflight     map[string]*assetFetchFuture
 	counter      int
 	referer      string
 	aggressiveES bool
+	mu           sync.Mutex
+}
+
+type assetFetchFuture struct {
+	done  chan struct{}
+	asset *epubAsset
+	err   error
 }
 
 const defaultAssetUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
@@ -259,6 +268,10 @@ func buildEPUBContent(book *model.Book) (*epubPackage, error) {
 	navPoints := []string{`<li><a href="cover.xhtml">Cover</a></li>`}
 	ncxPoints := []string{`<navPoint id="nav-cover" playOrder="1"><navLabel><text>Cover</text></navLabel><content src="cover.xhtml"/></navPoint>`}
 	chapterFiles := make(map[string]string, len(book.Chapters))
+	chapterBlocksByFile := make(map[string][]chapterBlock, len(book.Chapters))
+	chapterByFile := make(map[string]model.Chapter, len(book.Chapters))
+	imageURLs := make([]string, 0)
+	seenImageURL := make(map[string]struct{})
 
 	coverImageHref := ""
 	coverImageID := ""
@@ -271,11 +284,28 @@ func buildEPUBContent(book *model.Book) (*epubPackage, error) {
 	for idx, chapter := range book.Chapters {
 		fileName := fmt.Sprintf("chapter-%03d.xhtml", idx+1)
 		itemID := fmt.Sprintf("chapter-%03d", idx+1)
+		blocks := parseChapterBlocks(chapter.Content)
+		chapterBlocksByFile[fileName] = blocks
+		chapterByFile[fileName] = chapter
+		for _, block := range blocks {
+			if block.ImageURL == "" {
+				continue
+			}
+			if _, ok := seenImageURL[block.ImageURL]; ok {
+				continue
+			}
+			seenImageURL[block.ImageURL] = struct{}{}
+			imageURLs = append(imageURLs, block.ImageURL)
+		}
 		manifestItems = append(manifestItems, fmt.Sprintf(`<item id="%s" href="%s" media-type="application/xhtml+xml"/>`, itemID, fileName))
 		spineItems = append(spineItems, fmt.Sprintf(`<itemref idref="%s"/>`, itemID))
 		navPoints = append(navPoints, fmt.Sprintf(`<li><a href="%s">%s</a></li>`, fileName, escapeHTML(chapter.Title)))
 		ncxPoints = append(ncxPoints, fmt.Sprintf(`<navPoint id="nav-%03d" playOrder="%d"><navLabel><text>%s</text></navLabel><content src="%s"/></navPoint>`, idx+1, idx+2, escapeHTML(chapter.Title), fileName))
-		chapterFiles[fileName] = buildChapterPage(book.Title, chapter, fetcher)
+	}
+
+	fetcher.PrefetchImages(imageURLs, 6)
+	for fileName, chapter := range chapterByFile {
+		chapterFiles[fileName] = buildChapterPageWithBlocks(book.Title, chapter, chapterBlocksByFile[fileName], fetcher)
 	}
 
 	for _, asset := range fetcher.Assets() {
@@ -340,8 +370,7 @@ func buildCoverPage(title, author, description, coverImageHref string) string {
 </html>`, escapeHTML(title), image, escapeHTML(title), escapeHTML(author), escapeHTML(description))
 }
 
-func buildChapterPage(bookTitle string, chapter model.Chapter, fetcher *epubAssetFetcher) string {
-	blocks := parseChapterBlocks(chapter.Content)
+func buildChapterPageWithBlocks(bookTitle string, chapter model.Chapter, blocks []chapterBlock, fetcher *epubAssetFetcher) string {
 	body := make([]string, 0, len(blocks))
 	for _, block := range blocks {
 		if block.ImageURL == "" {
@@ -447,6 +476,7 @@ func newEPUBAssetFetcher(book *model.Book) *epubAssetFetcher {
 	return &epubAssetFetcher{
 		client:       &http.Client{Timeout: 45 * time.Second},
 		byURL:        make(map[string]*epubAsset),
+		inflight:     make(map[string]*assetFetchFuture),
 		referer:      referer,
 		aggressiveES: aggressiveES,
 	}
@@ -461,25 +491,43 @@ func (f *epubAssetFetcher) ResolveImage(rawURL string) (*epubAsset, error) {
 	if rawURL == "" {
 		return nil, nil
 	}
+
+	f.mu.Lock()
 	if asset, ok := f.byURL[rawURL]; ok {
+		f.mu.Unlock()
 		return asset, nil
 	}
+	if pending, ok := f.inflight[rawURL]; ok {
+		f.mu.Unlock()
+		<-pending.done
+		return pending.asset, pending.err
+	}
+	future := &assetFetchFuture{done: make(chan struct{})}
+	f.inflight[rawURL] = future
+	f.mu.Unlock()
 
 	data, mediaType, finalURL, err := downloadAsset(f.client, rawURL, f.referer)
 	if err != nil {
+		f.finishInflight(rawURL, nil, err)
 		return nil, err
 	}
 	data, mediaType, err = transcodeRasterToJPEG(data, mediaType)
 	if err != nil {
+		f.finishInflight(rawURL, nil, err)
 		return nil, err
 	}
 	data, mediaType, err = optimizeImageForEPUB(data, mediaType, f.aggressiveES)
 	if err != nil {
+		f.finishInflight(rawURL, nil, err)
 		return nil, err
 	}
 	if mediaType != "image/jpeg" {
-		return nil, fmt.Errorf("unsupported epub image media type: %s", mediaType)
+		err = fmt.Errorf("unsupported epub image media type: %s", mediaType)
+		f.finishInflight(rawURL, nil, err)
+		return nil, err
 	}
+
+	f.mu.Lock()
 	f.counter++
 	ext := assetExtension(mediaType, finalURL)
 	asset := &epubAsset{
@@ -490,7 +538,51 @@ func (f *epubAssetFetcher) ResolveImage(rawURL string) (*epubAsset, error) {
 	}
 	f.byURL[rawURL] = asset
 	f.assets = append(f.assets, asset)
+	f.mu.Unlock()
+	f.finishInflight(rawURL, asset, nil)
 	return asset, nil
+}
+
+func (f *epubAssetFetcher) finishInflight(rawURL string, asset *epubAsset, err error) {
+	f.mu.Lock()
+	pending, ok := f.inflight[rawURL]
+	if ok {
+		pending.asset = asset
+		pending.err = err
+		delete(f.inflight, rawURL)
+	}
+	f.mu.Unlock()
+	if ok {
+		close(pending.done)
+	}
+}
+
+func (f *epubAssetFetcher) PrefetchImages(urls []string, workers int) {
+	if len(urls) == 0 {
+		return
+	}
+	if workers <= 0 {
+		workers = 4
+	}
+	if workers > 8 {
+		workers = 8
+	}
+	jobs := make(chan string, len(urls))
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for rawURL := range jobs {
+				_, _ = f.ResolveImage(rawURL)
+			}
+		}()
+	}
+	for _, rawURL := range urls {
+		jobs <- rawURL
+	}
+	close(jobs)
+	wg.Wait()
 }
 
 func downloadAsset(client *http.Client, rawURL, referer string) ([]byte, string, string, error) {
