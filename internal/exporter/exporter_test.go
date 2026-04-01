@@ -2,7 +2,11 @@ package exporter
 
 import (
 	"archive/zip"
+	"bytes"
 	"encoding/base64"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +19,18 @@ import (
 	"github.com/guohuiyuan/go-novel-dl/internal/config"
 	"github.com/guohuiyuan/go-novel-dl/internal/model"
 )
+
+func tinyPNGBytes(t *testing.T) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 1, 1))
+	img.Set(0, 0, color.RGBA{R: 255, G: 255, B: 255, A: 255})
+	var buf bytes.Buffer
+	enc := png.Encoder{CompressionLevel: png.BestSpeed}
+	if err := enc.Encode(&buf, img); err != nil {
+		t.Fatalf("encode tiny png: %v", err)
+	}
+	return buf.Bytes()
+}
 
 func TestEPUBExportCreatesValidArchive(t *testing.T) {
 	service := New()
@@ -69,13 +85,14 @@ func TestEPUBExportCreatesValidArchive(t *testing.T) {
 }
 
 func TestEPUBExportEmbedsChapterImages(t *testing.T) {
+	pngBytes := tinyPNGBytes(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/image.png" {
 			http.NotFound(w, r)
 			return
 		}
 		w.Header().Set("Content-Type", "image/png")
-		_, _ = w.Write([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'})
+		_, _ = w.Write(pngBytes)
 	}))
 	defer server.Close()
 

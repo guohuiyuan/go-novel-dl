@@ -131,22 +131,40 @@ func (s *DownloadTaskStore) MarkProgress(id string, done int, total int, chapter
 
 		now := time.Now().UTC()
 		if done > 0 && !task.StartTime.IsZero() {
+			elapsed := now.Sub(task.StartTime).Seconds()
+			if elapsed < 1e-6 {
+				elapsed = 1e-6
+			}
+			avgRate := float64(done) / elapsed
 			deltaChapters := done - previousDone
 			if deltaChapters > 0 {
 				if !task.lastProgressAt.IsZero() {
 					deltaSeconds := now.Sub(task.lastProgressAt).Seconds()
-					if deltaSeconds > 1e-6 {
+					if deltaSeconds >= 0.8 {
 						instantRate := float64(deltaChapters) / deltaSeconds
 						if instantRate > 0 && isFiniteFloat(instantRate) {
+							candidateRate := 0.6*avgRate + 0.4*instantRate
 							if task.smoothedRate <= 0 || !isFiniteFloat(task.smoothedRate) {
-								task.smoothedRate = instantRate
+								task.smoothedRate = candidateRate
 							} else {
-								task.smoothedRate = 0.75*task.smoothedRate + 0.25*instantRate
+								lower := task.smoothedRate * 0.75
+								upper := task.smoothedRate * 1.35
+								if candidateRate < lower {
+									candidateRate = lower
+								}
+								if candidateRate > upper {
+									candidateRate = upper
+								}
+								task.smoothedRate = 0.85*task.smoothedRate + 0.15*candidateRate
 							}
 						}
 					}
 				}
 				task.lastProgressAt = now
+			}
+
+			if task.smoothedRate <= 0 || !isFiniteFloat(task.smoothedRate) {
+				task.smoothedRate = avgRate
 			}
 
 			if task.smoothedRate > 0 && isFiniteFloat(task.smoothedRate) {

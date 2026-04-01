@@ -261,8 +261,10 @@ func buildEPUBContent(book *model.Book) (*epubPackage, error) {
 	chapterFiles := make(map[string]string, len(book.Chapters))
 
 	coverImageHref := ""
+	coverImageID := ""
 	if asset, err := fetcher.ResolveImage(book.CoverURL); err == nil && asset != nil {
 		coverImageHref = asset.Href
+		coverImageID = asset.ID
 		manifestItems = append(manifestItems, fmt.Sprintf(`<item id="%s" href="%s" media-type="%s" properties="cover-image"/>`, asset.ID, asset.Href, asset.MediaType))
 	}
 
@@ -283,11 +285,17 @@ func buildEPUBContent(book *model.Book) (*epubPackage, error) {
 		manifestItems = append(manifestItems, fmt.Sprintf(`<item id="%s" href="%s" media-type="%s"/>`, asset.ID, asset.Href, asset.MediaType))
 	}
 
+	coverMeta := ""
+	if coverImageID != "" {
+		coverMeta = fmt.Sprintf(`<meta name="cover" content="%s"/>`, coverImageID)
+	}
+
 	bookUUID := makeBookUUID(book)
 	opf := fmt.Sprintf(contentOPFTemplate,
 		bookUUID,
 		escapeHTML(fallback(book.Title, book.ID)),
 		escapeHTML(fallback(book.Author, "unknown")),
+		coverMeta,
 		strings.Join(manifestItems, "\n    "),
 		strings.Join(spineItems, "\n    "),
 	)
@@ -469,6 +477,9 @@ func (f *epubAssetFetcher) ResolveImage(rawURL string) (*epubAsset, error) {
 	if err != nil {
 		return nil, err
 	}
+	if mediaType != "image/jpeg" {
+		return nil, fmt.Errorf("unsupported epub image media type: %s", mediaType)
+	}
 	f.counter++
 	ext := assetExtension(mediaType, finalURL)
 	asset := &epubAsset{
@@ -492,7 +503,7 @@ func downloadAsset(client *http.Client, rawURL, referer string) ([]byte, string,
 		return nil, "", rawURL, err
 	}
 	req.Header.Set("User-Agent", defaultAssetUserAgent)
-	req.Header.Set("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+	req.Header.Set("Accept", "image/jpeg,image/png,image/webp,image/*,*/*;q=0.8")
 	if strings.TrimSpace(referer) != "" {
 		req.Header.Set("Referer", strings.TrimSpace(referer))
 	} else if parsed, err := neturl.Parse(rawURL); err == nil && parsed.Scheme != "" && parsed.Host != "" {
@@ -563,14 +574,14 @@ func transcodeRasterToJPEG(data []byte, mediaType string) ([]byte, string, error
 	}
 	img, err := decodeRasterImage(data, mediaType)
 	if err != nil {
-		return data, mediaType, nil
+		return nil, "", err
 	}
 	var out bytes.Buffer
 	if err := jpeg.Encode(&out, img, &jpeg.Options{Quality: 88}); err != nil {
 		return data, mediaType, nil
 	}
 	if out.Len() == 0 {
-		return data, mediaType, nil
+		return nil, "", fmt.Errorf("jpeg encode produced empty output")
 	}
 	return out.Bytes(), "image/jpeg", nil
 }
@@ -590,10 +601,8 @@ func assetExtension(mediaType, rawURL string) string {
 	switch strings.ToLower(strings.TrimSpace(mediaType)) {
 	case "image/jpeg":
 		return ".jpg"
-	case "image/png", "image/gif", "image/webp":
+	case "image/png", "image/gif", "image/webp", "image/avif", "image/svg+xml":
 		return ".jpg"
-	case "image/svg+xml":
-		return ".svg"
 	}
 	if parsed, err := neturl.Parse(rawURL); err == nil {
 		if ext := strings.ToLower(path.Ext(parsed.Path)); ext != "" {
@@ -610,18 +619,16 @@ func assetExtension(mediaType, rawURL string) string {
 			}
 		}
 	}
-	return ".img"
+	return ".jpg"
 }
 
 func assetMediaType(mediaType, ext string) string {
 	mediaType = strings.ToLower(strings.TrimSpace(mediaType))
-	if strings.HasPrefix(mediaType, "image/") {
+	if mediaType == "image/jpeg" || mediaType == "image/jpg" {
 		return mediaType
 	}
-	if guessed := mime.TypeByExtension(ext); guessed != "" {
-		return guessed
-	}
-	return "application/octet-stream"
+	_ = ext
+	return "image/jpeg"
 }
 
 func optimizeImageForEPUB(data []byte, mediaType string, aggressiveES bool) ([]byte, string, error) {
@@ -739,6 +746,7 @@ const contentOPFTemplate = `<?xml version="1.0" encoding="utf-8"?>
     <dc:title>%s</dc:title>
     <dc:creator>%s</dc:creator>
     <dc:language>zh-CN</dc:language>
+		%s
   </metadata>
   <manifest>
     %s
@@ -746,6 +754,9 @@ const contentOPFTemplate = `<?xml version="1.0" encoding="utf-8"?>
   <spine toc="ncx">
     %s
   </spine>
+	<guide>
+		<reference type="cover" title="Cover" href="cover.xhtml"/>
+	</guide>
 </package>`
 
 const navTemplate = `<?xml version="1.0" encoding="utf-8"?>
