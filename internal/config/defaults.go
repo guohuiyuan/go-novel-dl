@@ -1,37 +1,28 @@
 package config
 
 import (
-	_ "embed"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/guohuiyuan/go-novel-dl/internal/model"
 )
 
 const (
 	DataDir               = "data"
-	DefaultConfigFilename = "data/settings.toml"
+	DefaultConfigFilename = "data/site_catalog.db"
 )
 
-//go:embed resources/settings.sample.toml
-var sampleConfig string
-
-func SampleConfig() string {
-	return sampleConfig
-}
-
 func WriteDefault(path string, force bool) error {
-	if !force {
-		if _, err := os.Stat(path); err == nil {
-			return os.ErrExist
-		}
+	_ = force
+	if strings.TrimSpace(path) == "" {
+		path = DefaultConfigFilename
 	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-
-	return os.WriteFile(path, []byte(sampleConfig), 0o644)
+	return nil
 }
 
 func DefaultConfig() Config {

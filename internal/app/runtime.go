@@ -71,12 +71,12 @@ func LoadOrInitConfig(console *ui.Console, explicitPath string) (*config.Config,
 		if absErr != nil {
 			absPath = target
 		}
-		console.Warnf("未找到配置文件，正在创建默认配置：%s", absPath)
+		console.Warnf("未找到配置数据库，正在初始化：%s", absPath)
 
 		if err := config.WriteDefault(target, false); err != nil {
 			return nil, "", err
 		}
-		console.Successf("已创建默认配置：%s", absPath)
+		console.Successf("已完成默认配置初始化：%s", absPath)
 		return config.Load(target)
 	}
 

@@ -179,7 +179,7 @@ GET /novel/api/download-file?path=/path/to/file
 - 运行时读取：`data/site_catalog.db`
 - 全局参数：SQLite `config_kvs`（键 `general_config`）
 - 站点参数：SQLite `site_catalog` 表
-- 首次检测到 `data/site_catalog.db` 不存在时，会用内嵌 `internal/config/resources/settings.sample.toml` 初始化数据库；后续运行只从 SQLite 读取和修改配置
+- 首次检测到 `data/site_catalog.db` 不存在时，会用 `internal/config/defaults.go` 里的 `DefaultConfig()` 初始化数据库；后续运行只从 SQLite 读取和修改配置
 
 ### 全局参数（示例）
 
@@ -206,7 +206,7 @@ username = "your_username"
 password = "your_password"
 ```
 
-完整字段示例见 `internal/config/resources/settings.sample.toml`。
+默认配置由 `internal/config/defaults.go` 的 `DefaultConfig()` 定义，并直接用于 SQLite 初始化。
 
 ### 站点参数命令示例
 

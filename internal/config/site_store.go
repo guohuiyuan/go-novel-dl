@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BurntSushi/toml"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -186,78 +185,15 @@ func ensureSiteCatalogDB() error {
 			return
 		}
 		if firstInit {
-			siteCatalogErr = seedFromEmbeddedSample(db)
+			siteCatalogErr = seedFromDefaults(db)
 		}
 	})
 	return siteCatalogErr
 }
 
-type sampleSeedConfig struct {
-	General sampleSeedGeneral         `toml:"general"`
-	Sites   map[string]sampleSeedSite `toml:"sites"`
-}
-
-type sampleSeedGeneral struct {
-	RawDataDir      string           `toml:"raw_data_dir"`
-	OutputDir       string           `toml:"output_dir"`
-	CacheDir        string           `toml:"cache_dir"`
-	RequestInterval float64          `toml:"request_interval"`
-	Workers         int              `toml:"workers"`
-	MaxConnections  int              `toml:"max_connections"`
-	MaxRPS          float64          `toml:"max_rps"`
-	RetryTimes      int              `toml:"retry_times"`
-	BackoffFactor   float64          `toml:"backoff_factor"`
-	Timeout         float64          `toml:"timeout"`
-	WebPageSize     int              `toml:"web_page_size"`
-	CLIPageSize     int              `toml:"cli_page_size"`
-	LocaleStyle     string           `toml:"locale_style"`
-	Output          sampleSeedOutput `toml:"output"`
-}
-
-type sampleSeedOutput struct {
-	Formats         []string `toml:"formats"`
-	AppendTimestamp bool     `toml:"append_timestamp"`
-	IncludePicture  bool     `toml:"include_picture"`
-}
-
-type sampleSeedSite struct {
-	LoginRequired *bool    `toml:"login_required"`
-	Workers       *int     `toml:"workers"`
-	Username      string   `toml:"username"`
-	Password      string   `toml:"password"`
-	Cookie        string   `toml:"cookie"`
-	MirrorHosts   []string `toml:"mirror_hosts"`
-	Output        struct {
-		IncludePicture *bool `toml:"include_picture"`
-	} `toml:"output"`
-}
-
-func seedFromEmbeddedSample(db *gorm.DB) error {
-	seed := sampleSeedConfig{}
-	if _, err := toml.Decode(SampleConfig(), &seed); err != nil {
-		return fmt.Errorf("decode embedded sample config: %w", err)
-	}
-
-	defaults := defaultGeneralRecord(DefaultConfig().General)
-	general := GeneralConfigRecord{
-		RawDataDir:      chooseDefault(strings.TrimSpace(seed.General.RawDataDir), defaults.RawDataDir),
-		OutputDir:       chooseDefault(strings.TrimSpace(seed.General.OutputDir), defaults.OutputDir),
-		CacheDir:        chooseDefault(strings.TrimSpace(seed.General.CacheDir), defaults.CacheDir),
-		RequestInterval: seed.General.RequestInterval,
-		Workers:         seed.General.Workers,
-		MaxConnections:  seed.General.MaxConnections,
-		MaxRPS:          seed.General.MaxRPS,
-		RetryTimes:      seed.General.RetryTimes,
-		BackoffFactor:   seed.General.BackoffFactor,
-		Timeout:         seed.General.Timeout,
-		WebPageSize:     seed.General.WebPageSize,
-		CLIPageSize:     seed.General.CLIPageSize,
-		LocaleStyle:     chooseDefault(strings.TrimSpace(seed.General.LocaleStyle), defaults.LocaleStyle),
-		Formats:         cloneStrings(seed.General.Output.Formats),
-		AppendTimestamp: seed.General.Output.AppendTimestamp,
-		IncludePicture:  seed.General.Output.IncludePicture,
-	}
-	general = normalizeGeneralRecord(general)
+func seedFromDefaults(db *gorm.DB) error {
+	seed := DefaultConfig()
+	general := normalizeGeneralRecord(defaultGeneralRecord(seed.General))
 	payload, err := json.Marshal(general)
 	if err != nil {
 		return err
@@ -266,7 +202,7 @@ func seedFromEmbeddedSample(db *gorm.DB) error {
 		return err
 	}
 
-	for siteKey, sampleSite := range seed.Sites {
+	for siteKey, siteCfg := range seed.Sites {
 		if _, ok := supportedSiteKeys[siteKey]; !ok {
 			continue
 		}
@@ -274,33 +210,33 @@ func seedFromEmbeddedSample(db *gorm.DB) error {
 		if err := db.Where("key = ?", siteKey).Take(&current).Error; err != nil {
 			return err
 		}
-		if sampleSite.LoginRequired != nil {
-			current.LoginRequired = *sampleSite.LoginRequired
+		if siteCfg.LoginRequired != nil {
+			current.LoginRequired = *siteCfg.LoginRequired
 		}
 		if siteKey == "esjzone" {
 			current.LoginRequired = true
 		}
-		if sampleSite.Workers != nil {
-			workers := *sampleSite.Workers
+		if siteCfg.Workers != nil {
+			workers := *siteCfg.Workers
 			if workers < 0 {
 				workers = 0
 			}
 			current.WorkerLimit = workers
 		}
-		if sampleSite.Output.IncludePicture != nil {
-			current.FetchImages = *sampleSite.Output.IncludePicture
+		if siteCfg.Output != nil && siteCfg.Output.IncludePicture != nil {
+			current.FetchImages = *siteCfg.Output.IncludePicture
 		}
-		if value := strings.TrimSpace(sampleSite.Username); value != "" {
+		if value := strings.TrimSpace(siteCfg.Username); value != "" {
 			current.Username = value
 		}
-		if value := strings.TrimSpace(sampleSite.Password); value != "" {
+		if value := strings.TrimSpace(siteCfg.Password); value != "" {
 			current.Password = value
 		}
-		if value := strings.TrimSpace(sampleSite.Cookie); value != "" {
+		if value := strings.TrimSpace(siteCfg.Cookie); value != "" {
 			current.Cookie = value
 		}
-		if len(sampleSite.MirrorHosts) > 0 {
-			current.MirrorHosts = encodeMirrorHosts(sampleSite.MirrorHosts)
+		if len(siteCfg.MirrorHosts) > 0 {
+			current.MirrorHosts = encodeMirrorHosts(siteCfg.MirrorHosts)
 		}
 		if err := db.Save(&current).Error; err != nil {
 			return err
