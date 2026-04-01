@@ -6,8 +6,11 @@ import (
 	"crypto/sha1"
 	"fmt"
 	"html/template"
+	"image"
+	"image/jpeg"
 	"image/png"
 	"io"
+	"math"
 	"mime"
 	"net/http"
 	neturl "net/url"
@@ -20,6 +23,7 @@ import (
 
 	"github.com/guohuiyuan/go-novel-dl/internal/config"
 	"github.com/guohuiyuan/go-novel-dl/internal/model"
+	xdraw "golang.org/x/image/draw"
 	xwebp "golang.org/x/image/webp"
 )
 
@@ -47,10 +51,12 @@ type chapterBlock struct {
 }
 
 type epubAssetFetcher struct {
-	client  *http.Client
-	assets  []*epubAsset
-	byURL   map[string]*epubAsset
-	counter int
+	client       *http.Client
+	assets       []*epubAsset
+	byURL        map[string]*epubAsset
+	counter      int
+	referer      string
+	aggressiveES bool
 }
 
 const defaultAssetUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
@@ -69,6 +75,9 @@ var chapterImageRe = regexp.MustCompile(fmt.Sprintf("^\\[(?:%s|%s|%s|%s|\\?\\?)\
 	chapterIllustrationLabelSimplified,
 	chapterIllustrationLabelTraditional,
 ))
+
+var markdownImageRe = regexp.MustCompile(`!\[[^\]]*\]\(([^)\s]+)\)`)
+var htmlImageRe = regexp.MustCompile(`(?i)<img[^>]+(?:src|data-src)=["']([^"']+)["'][^>]*>`)
 
 func New() *Service {
 	return &Service{}
@@ -239,7 +248,7 @@ func renderEPUB(path string, book *model.Book) error {
 }
 
 func buildEPUBContent(book *model.Book) (*epubPackage, error) {
-	fetcher := newEPUBAssetFetcher()
+	fetcher := newEPUBAssetFetcher(book)
 	manifestItems := []string{
 		`<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>`,
 		`<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>`,
@@ -354,13 +363,57 @@ func parseChapterBlocks(content string) []chapterBlock {
 		if part == "" {
 			continue
 		}
-		if imageURL := parseImagePlaceholder(part); imageURL != "" {
-			blocks = append(blocks, chapterBlock{ImageURL: imageURL})
-			continue
+		paragraphLines := make([]string, 0)
+		for _, line := range strings.Split(part, "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			if imageURL := parseImagePlaceholder(line); imageURL != "" {
+				blocks = append(blocks, chapterBlock{ImageURL: imageURL})
+				continue
+			}
+			inlineURLs := collectInlineImageURLs(line)
+			for _, imageURL := range inlineURLs {
+				blocks = append(blocks, chapterBlock{ImageURL: imageURL})
+			}
+			cleanedLine := strings.TrimSpace(stripInlineImageMarkup(line))
+			if cleanedLine != "" {
+				paragraphLines = append(paragraphLines, cleanedLine)
+			}
 		}
-		blocks = append(blocks, chapterBlock{Paragraph: part})
+		if len(paragraphLines) > 0 {
+			blocks = append(blocks, chapterBlock{Paragraph: strings.Join(paragraphLines, "\n")})
+		}
 	}
 	return blocks
+}
+
+func collectInlineImageURLs(text string) []string {
+	urls := make([]string, 0)
+	for _, match := range markdownImageRe.FindAllStringSubmatch(text, -1) {
+		if len(match) == 2 {
+			value := strings.TrimSpace(match[1])
+			if value != "" {
+				urls = append(urls, value)
+			}
+		}
+	}
+	for _, match := range htmlImageRe.FindAllStringSubmatch(text, -1) {
+		if len(match) == 2 {
+			value := strings.TrimSpace(match[1])
+			if value != "" {
+				urls = append(urls, value)
+			}
+		}
+	}
+	return urls
+}
+
+func stripInlineImageMarkup(text string) string {
+	text = markdownImageRe.ReplaceAllString(text, "")
+	text = htmlImageRe.ReplaceAllString(text, "")
+	return text
 }
 
 func parseImagePlaceholder(value string) string {
@@ -371,10 +424,23 @@ func parseImagePlaceholder(value string) string {
 	return strings.TrimSpace(match[1])
 }
 
-func newEPUBAssetFetcher() *epubAssetFetcher {
+func newEPUBAssetFetcher(book *model.Book) *epubAssetFetcher {
+	referer := ""
+	aggressiveES := false
+	if book != nil {
+		switch strings.ToLower(strings.TrimSpace(book.Site)) {
+		case "linovelib":
+			referer = "https://www.linovelib.com/"
+		case "esjzone":
+			referer = "https://www.esjzone.cc/"
+			aggressiveES = true
+		}
+	}
 	return &epubAssetFetcher{
-		client: &http.Client{Timeout: 45 * time.Second},
-		byURL:  make(map[string]*epubAsset),
+		client:       &http.Client{Timeout: 45 * time.Second},
+		byURL:        make(map[string]*epubAsset),
+		referer:      referer,
+		aggressiveES: aggressiveES,
 	}
 }
 
@@ -391,7 +457,15 @@ func (f *epubAssetFetcher) ResolveImage(rawURL string) (*epubAsset, error) {
 		return asset, nil
 	}
 
-	data, mediaType, finalURL, err := downloadAsset(f.client, rawURL)
+	data, mediaType, finalURL, err := downloadAsset(f.client, rawURL, f.referer)
+	if err != nil {
+		return nil, err
+	}
+	data, mediaType, err = transcodeRasterToJPEG(data, mediaType)
+	if err != nil {
+		return nil, err
+	}
+	data, mediaType, err = optimizeImageForEPUB(data, mediaType, f.aggressiveES)
 	if err != nil {
 		return nil, err
 	}
@@ -408,14 +482,20 @@ func (f *epubAssetFetcher) ResolveImage(rawURL string) (*epubAsset, error) {
 	return asset, nil
 }
 
-func downloadAsset(client *http.Client, rawURL string) ([]byte, string, string, error) {
+func downloadAsset(client *http.Client, rawURL, referer string) ([]byte, string, string, error) {
+	rawURL = normalizeAssetURL(rawURL, referer)
+	if rawURL == "" {
+		return nil, "", "", fmt.Errorf("empty asset url")
+	}
 	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, "", rawURL, err
 	}
 	req.Header.Set("User-Agent", defaultAssetUserAgent)
 	req.Header.Set("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
-	if parsed, err := neturl.Parse(rawURL); err == nil && parsed.Scheme != "" && parsed.Host != "" {
+	if strings.TrimSpace(referer) != "" {
+		req.Header.Set("Referer", strings.TrimSpace(referer))
+	} else if parsed, err := neturl.Parse(rawURL); err == nil && parsed.Scheme != "" && parsed.Host != "" {
 		req.Header.Set("Referer", parsed.Scheme+"://"+parsed.Host+"/")
 	}
 	resp, err := client.Do(req)
@@ -438,6 +518,25 @@ func downloadAsset(client *http.Client, rawURL string) ([]byte, string, string, 
 	return data, mediaType, resp.Request.URL.String(), nil
 }
 
+func normalizeAssetURL(rawURL, referer string) string {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return ""
+	}
+	if strings.HasPrefix(rawURL, "//") {
+		return "https:" + rawURL
+	}
+	if strings.HasPrefix(rawURL, "http://") || strings.HasPrefix(rawURL, "https://") {
+		return rawURL
+	}
+	if strings.HasPrefix(rawURL, "/") {
+		if parsed, err := neturl.Parse(strings.TrimSpace(referer)); err == nil && parsed.Scheme != "" && parsed.Host != "" {
+			return parsed.Scheme + "://" + parsed.Host + rawURL
+		}
+	}
+	return rawURL
+}
+
 func normalizeAssetData(data []byte, mediaType, rawURL string) ([]byte, string, error) {
 	mediaType = strings.ToLower(strings.TrimSpace(mediaType))
 	if !shouldTranscodeToPNG(mediaType, rawURL) {
@@ -457,6 +556,25 @@ func normalizeAssetData(data []byte, mediaType, rawURL string) ([]byte, string, 
 	return buf.Bytes(), "image/png", nil
 }
 
+func transcodeRasterToJPEG(data []byte, mediaType string) ([]byte, string, error) {
+	mediaType = strings.ToLower(strings.TrimSpace(mediaType))
+	if !strings.HasPrefix(mediaType, "image/") || mediaType == "image/svg+xml" {
+		return data, mediaType, nil
+	}
+	img, err := decodeRasterImage(data, mediaType)
+	if err != nil {
+		return data, mediaType, nil
+	}
+	var out bytes.Buffer
+	if err := jpeg.Encode(&out, img, &jpeg.Options{Quality: 88}); err != nil {
+		return data, mediaType, nil
+	}
+	if out.Len() == 0 {
+		return data, mediaType, nil
+	}
+	return out.Bytes(), "image/jpeg", nil
+}
+
 func shouldTranscodeToPNG(mediaType, rawURL string) bool {
 	if strings.EqualFold(strings.TrimSpace(mediaType), "image/webp") {
 		return true
@@ -472,12 +590,8 @@ func assetExtension(mediaType, rawURL string) string {
 	switch strings.ToLower(strings.TrimSpace(mediaType)) {
 	case "image/jpeg":
 		return ".jpg"
-	case "image/png":
-		return ".png"
-	case "image/gif":
-		return ".gif"
-	case "image/webp":
-		return ".webp"
+	case "image/png", "image/gif", "image/webp":
+		return ".jpg"
 	case "image/svg+xml":
 		return ".svg"
 	}
@@ -486,9 +600,9 @@ func assetExtension(mediaType, rawURL string) string {
 			switch ext {
 			case ".jpeg":
 				return ".jpg"
-			case ".webp":
-				return ".png"
-			case ".jpg", ".png", ".gif", ".svg":
+			case ".webp", ".png", ".gif":
+				return ".jpg"
+			case ".jpg", ".svg":
 				return ext
 			}
 			if mime.TypeByExtension(ext) != "" {
@@ -508,6 +622,67 @@ func assetMediaType(mediaType, ext string) string {
 		return guessed
 	}
 	return "application/octet-stream"
+}
+
+func optimizeImageForEPUB(data []byte, mediaType string, aggressiveES bool) ([]byte, string, error) {
+	mediaType = strings.ToLower(strings.TrimSpace(mediaType))
+	if !aggressiveES {
+		return data, mediaType, nil
+	}
+	if !strings.HasPrefix(mediaType, "image/") || mediaType == "image/gif" || mediaType == "image/svg+xml" {
+		return data, mediaType, nil
+	}
+	if len(data) < 450*1024 {
+		return data, mediaType, nil
+	}
+
+	img, err := decodeRasterImage(data, mediaType)
+	if err != nil {
+		return data, mediaType, nil
+	}
+
+	bounds := img.Bounds()
+	width := bounds.Dx()
+	height := bounds.Dy()
+	if width <= 0 || height <= 0 {
+		return data, mediaType, nil
+	}
+
+	const maxWidth = 1400
+	target := img
+	if width > maxWidth {
+		ratio := float64(maxWidth) / float64(width)
+		targetHeight := int(math.Round(float64(height) * ratio))
+		if targetHeight < 1 {
+			targetHeight = 1
+		}
+		rgba := image.NewRGBA(image.Rect(0, 0, maxWidth, targetHeight))
+		xdraw.ApproxBiLinear.Scale(rgba, rgba.Bounds(), img, bounds, xdraw.Over, nil)
+		target = rgba
+	}
+
+	var out bytes.Buffer
+	if err := jpeg.Encode(&out, target, &jpeg.Options{Quality: 80}); err != nil {
+		return data, mediaType, nil
+	}
+	if out.Len() >= len(data) {
+		return data, mediaType, nil
+	}
+	return out.Bytes(), "image/jpeg", nil
+}
+
+func decodeRasterImage(data []byte, mediaType string) (image.Image, error) {
+	switch mediaType {
+	case "image/jpeg", "image/jpg":
+		return jpeg.Decode(bytes.NewReader(data))
+	case "image/png":
+		return png.Decode(bytes.NewReader(data))
+	case "image/webp":
+		return xwebp.Decode(bytes.NewReader(data))
+	default:
+		img, _, err := image.Decode(bytes.NewReader(data))
+		return img, err
+	}
 }
 
 func writeStoredFile(zw *zip.Writer, name string, data []byte) error {

@@ -159,16 +159,12 @@ func (r *Runtime) Download(ctx context.Context, siteKey string, books []model.Bo
 						if fetchErr != nil {
 							r.Console.Warnf("跳过章节 %s: %v", chapter.Title, fetchErr)
 							failedChapters++
-							done++
-							r.Progress.OnBookProgress(done, len(book.Chapters), chapter.Title)
 							mu.Unlock()
 							continue
 						}
 						if strings.TrimSpace(loaded.Content) == "" {
 							r.Console.Warnf("章节 %s 内容为空，已跳过", chapter.Title)
 							failedChapters++
-							done++
-							r.Progress.OnBookProgress(done, len(book.Chapters), chapter.Title)
 							mu.Unlock()
 							continue
 						}

@@ -109,7 +109,7 @@ func TestEPUBExportEmbedsChapterImages(t *testing.T) {
 	foundReference := false
 	for _, file := range r.File {
 		switch {
-		case strings.HasPrefix(file.Name, "OEBPS/images/image-") && strings.HasSuffix(file.Name, ".png"):
+		case strings.HasPrefix(file.Name, "OEBPS/images/image-") && strings.HasSuffix(file.Name, ".jpg"):
 			foundImage = true
 		case file.Name == "OEBPS/chapter-001.xhtml":
 			rc, err := file.Open()
@@ -121,7 +121,7 @@ func TestEPUBExportEmbedsChapterImages(t *testing.T) {
 			if err != nil {
 				t.Fatalf("read chapter file: %v", err)
 			}
-			if strings.Contains(string(body), `img src="images/image-001.png"`) {
+			if strings.Contains(string(body), `img src="images/image-001.jpg"`) {
 				foundReference = true
 			}
 		}
@@ -134,7 +134,7 @@ func TestEPUBExportEmbedsChapterImages(t *testing.T) {
 	}
 }
 
-func TestEPUBExportTranscodesWebPImagesToPNG(t *testing.T) {
+func TestEPUBExportTranscodesWebPImagesToJPEG(t *testing.T) {
 	webpBytes, err := base64.StdEncoding.DecodeString("UklGRjwAAABXRUJQVlA4IDAAAADQAQCdASoCAAIAAUAmJaACdLoB+AADsAD+8ut//NgVzXPv9//S4P0uD9Lg/9KQAAA=")
 	if err != nil {
 		t.Fatalf("decode webp fixture: %v", err)
@@ -176,13 +176,13 @@ func TestEPUBExportTranscodesWebPImagesToPNG(t *testing.T) {
 	}
 	defer r.Close()
 
-	foundPNG := false
+	foundJPG := false
 	foundWebP := false
 	foundReference := false
 	for _, file := range r.File {
 		switch {
-		case strings.HasPrefix(file.Name, "OEBPS/images/image-") && strings.HasSuffix(file.Name, ".png"):
-			foundPNG = true
+		case strings.HasPrefix(file.Name, "OEBPS/images/image-") && strings.HasSuffix(file.Name, ".jpg"):
+			foundJPG = true
 		case strings.HasPrefix(file.Name, "OEBPS/images/image-") && strings.HasSuffix(file.Name, ".webp"):
 			foundWebP = true
 		case file.Name == "OEBPS/chapter-001.xhtml":
@@ -195,18 +195,18 @@ func TestEPUBExportTranscodesWebPImagesToPNG(t *testing.T) {
 			if err != nil {
 				t.Fatalf("read chapter file: %v", err)
 			}
-			if strings.Contains(string(body), `img src="images/image-001.png"`) {
+			if strings.Contains(string(body), `img src="images/image-001.jpg"`) {
 				foundReference = true
 			}
 		}
 	}
-	if !foundPNG {
-		t.Fatalf("expected webp source to be transcoded to png")
+	if !foundJPG {
+		t.Fatalf("expected webp source to be transcoded to jpg")
 	}
 	if foundWebP {
 		t.Fatalf("expected epub to avoid embedded webp resources")
 	}
 	if !foundReference {
-		t.Fatalf("expected chapter page to reference transcoded png image")
+		t.Fatalf("expected chapter page to reference transcoded jpg image")
 	}
 }

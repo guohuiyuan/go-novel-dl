@@ -36,6 +36,8 @@ type DownloadTask struct {
 	UpdatedAt         time.Time             `json:"updated_at"`
 	FinishedAt        *time.Time            `json:"finished_at,omitempty"`
 	StartTime         time.Time             `json:"start_time,omitempty"`
+	lastProgressAt    time.Time             `json:"-"`
+	smoothedRate      float64               `json:"-"`
 }
 
 type DownloadTaskStore struct {
@@ -100,6 +102,8 @@ func (s *DownloadTaskStore) MarkRunning(id string, siteKey string, bookID string
 		task.CompletedChapters = 0
 		task.CurrentChapter = ""
 		task.StartTime = now
+		task.lastProgressAt = now
+		task.smoothedRate = 0
 		appendTaskMessage(task, "info", fmt.Sprintf("开始下载（%d章）", total))
 	})
 }
@@ -118,27 +122,42 @@ func (s *DownloadTaskStore) MarkProgress(id string, done int, total int, chapter
 	s.update(id, func(task *DownloadTask) {
 		task.Status = "running"
 		task.Phase = "downloading"
+		previousDone := task.CompletedChapters
 		task.CompletedChapters = done
 		if total > 0 {
 			task.TotalChapters = total
 		}
 		task.CurrentChapter = strings.TrimSpace(chapterTitle)
 
+		now := time.Now().UTC()
 		if done > 0 && !task.StartTime.IsZero() {
-			elapsed := time.Since(task.StartTime)
-			seconds := elapsed.Seconds()
-			if seconds > 1e-6 {
-				rate := float64(done) / seconds
-				if rate > 0 && isFiniteFloat(rate) {
-					remaining := task.TotalChapters - done
-					etaSeconds := float64(remaining) / rate
-					if etaSeconds < 0 || !isFiniteFloat(etaSeconds) {
-						task.ETA = ""
-					} else {
-						task.ETA = formatETADuration(time.Duration(etaSeconds) * time.Second)
+			deltaChapters := done - previousDone
+			if deltaChapters > 0 {
+				if !task.lastProgressAt.IsZero() {
+					deltaSeconds := now.Sub(task.lastProgressAt).Seconds()
+					if deltaSeconds > 1e-6 {
+						instantRate := float64(deltaChapters) / deltaSeconds
+						if instantRate > 0 && isFiniteFloat(instantRate) {
+							if task.smoothedRate <= 0 || !isFiniteFloat(task.smoothedRate) {
+								task.smoothedRate = instantRate
+							} else {
+								task.smoothedRate = 0.75*task.smoothedRate + 0.25*instantRate
+							}
+						}
 					}
-					task.Speed = rate
 				}
+				task.lastProgressAt = now
+			}
+
+			if task.smoothedRate > 0 && isFiniteFloat(task.smoothedRate) {
+				remaining := task.TotalChapters - done
+				etaSeconds := float64(remaining) / task.smoothedRate
+				if etaSeconds < 0 || !isFiniteFloat(etaSeconds) {
+					task.ETA = ""
+				} else {
+					task.ETA = formatETADuration(time.Duration(etaSeconds) * time.Second)
+				}
+				task.Speed = task.smoothedRate
 			}
 		}
 
