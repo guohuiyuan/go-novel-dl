@@ -211,35 +211,17 @@ func (s *ESJZoneSite) Search(ctx context.Context, keyword string, limit int) ([]
 	}
 
 	encoded := url.PathEscape(keyword)
-	var lastErr error
-	for _, host := range s.prioritizedAliases(s.searchAliases) {
-		hostCtx, cancel := context.WithTimeout(ctx, s.perHostTimeout(8*time.Second))
-		pageURL := host + "/tags/" + encoded + "/"
-		markup, err := s.html.Get(hostCtx, pageURL)
-		cancel()
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		s.rememberWorkingHost(pageURL)
-		results, err := s.parseSearchPage(markup, host)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		if limit > 0 && len(results) > limit {
-			results = results[:limit]
-		}
-		if shouldEnrichESJSearch(ctx, limit, len(results)) {
-			s.enrichSearchResults(ctx, results)
-		}
-		return results, nil
+	results, err := s.fetchSearchFromAnyHost(ctx, encoded)
+	if err != nil {
+		return nil, err
 	}
-
-	if lastErr != nil {
-		return nil, lastErr
+	if limit > 0 && len(results) > limit {
+		results = results[:limit]
 	}
-	return nil, fmt.Errorf("search failed for keyword %q", keyword)
+	if shouldEnrichESJSearch(ctx, limit, len(results)) {
+		s.enrichSearchResults(ctx, results)
+	}
+	return results, nil
 }
 
 func (s *ESJZoneSite) enrichSearchResults(ctx context.Context, results []model.SearchResult) {
@@ -314,84 +296,188 @@ func (s *ESJZoneSite) fetchBookPage(ctx context.Context, bookID string) (string,
 	if err := s.ensureLogin(ctx); err != nil {
 		return "", "", err
 	}
-	var lastErr error
-	for _, host := range s.prioritizedAliases(s.bookAliases) {
-		hostCtx, cancel := context.WithTimeout(ctx, s.perHostTimeout(10*time.Second))
-		pageURL := host + "/detail/" + bookID + ".html"
-		markup, err := s.html.Get(hostCtx, pageURL)
-		cancel()
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		if redirected := extractMirrorRedirect(markup); redirected != "" {
-			rCtx, rCancel := context.WithTimeout(ctx, s.perHostTimeout(10*time.Second))
-			markup, err = s.html.Get(rCtx, redirected)
-			rCancel()
-			if err != nil {
-				lastErr = err
-				continue
-			}
-			pageURL = redirected
-		}
-		if strings.Contains(markup, "<div id=\"chapterList\"") || strings.Contains(markup, `<div id="chapterList">`) {
-			s.rememberWorkingHost(pageURL)
-			return markup, pageURL, nil
-		}
-		lastErr = fmt.Errorf("book page not found on %s", host)
-	}
-
-	if lastErr != nil {
-		return "", "", lastErr
-	}
-	return "", "", fmt.Errorf("book page not found for %s", bookID)
+	return s.fetchBookPageFromAnyHost(ctx, bookID)
 }
 
 func (s *ESJZoneSite) fetchChapterContent(ctx context.Context, bookID, chapterID string) (string, error) {
 	if err := s.ensureLogin(ctx); err != nil {
 		return "", err
 	}
-	var lastErr error
-	for _, host := range s.prioritizedAliases(s.bookAliases) {
-		hostCtx, cancel := context.WithTimeout(ctx, s.perHostTimeout(10*time.Second))
-		pageURL := host + "/forum/" + bookID + "/" + chapterID + ".html"
-		markup, err := s.html.Get(hostCtx, pageURL)
-		cancel()
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		if redirected := extractMirrorRedirect(markup); redirected != "" {
-			rCtx, rCancel := context.WithTimeout(ctx, s.perHostTimeout(10*time.Second))
-			markup, err = s.html.Get(rCtx, redirected)
-			rCancel()
+	return s.fetchChapterFromAnyHost(ctx, bookID, chapterID)
+}
+
+func (s *ESJZoneSite) fetchSearchFromAnyHost(ctx context.Context, encodedKeyword string) ([]model.SearchResult, error) {
+	hosts := s.prioritizedAliases(s.searchAliases)
+	if len(hosts) == 0 {
+		return nil, fmt.Errorf("no esj search hosts configured")
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	type result struct {
+		items []model.SearchResult
+		err   error
+	}
+	ch := make(chan result, len(hosts))
+	for _, host := range hosts {
+		host := host
+		go func() {
+			hostCtx, hostCancel := context.WithTimeout(ctx, s.perHostTimeout(8*time.Second))
+			defer hostCancel()
+			pageURL := host + "/tags/" + encodedKeyword + "/"
+			markup, err := s.html.Get(hostCtx, pageURL)
 			if err != nil {
-				lastErr = err
-				continue
+				ch <- result{err: err}
+				return
 			}
-			pageURL = redirected
+			items, err := s.parseSearchPage(markup, host)
+			if err != nil {
+				ch <- result{err: err}
+				return
+			}
+			s.rememberWorkingHost(pageURL)
+			ch <- result{items: items}
+		}()
+	}
+
+	var lastErr error
+	for i := 0; i < len(hosts); i++ {
+		res := <-ch
+		if res.err == nil {
+			cancel()
+			return res.items, nil
 		}
-		content, err := parseChapterContent(markup, pageURL, s.cfg.General.Output.IncludePicture)
-		if err != nil {
-			if isEncryptedChapter(markup) {
-				password, perr := s.lookupChapterPassword(markup, bookID, chapterID)
-				if perr == nil && password != "" {
-					unlocked, uerr := s.unlockChapter(ctx, pageURL, password)
-					if uerr == nil {
-						content, err = parseChapterContent(unlocked, pageURL, s.cfg.General.Output.IncludePicture)
-						if err == nil {
-							return content, nil
+		lastErr = res.err
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, fmt.Errorf("search failed")
+}
+
+func (s *ESJZoneSite) fetchBookPageFromAnyHost(ctx context.Context, bookID string) (string, string, error) {
+	hosts := s.prioritizedAliases(s.bookAliases)
+	if len(hosts) == 0 {
+		return "", "", fmt.Errorf("no esj book hosts configured")
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	type result struct {
+		markup string
+		url    string
+		err    error
+	}
+	ch := make(chan result, len(hosts))
+	for _, host := range hosts {
+		host := host
+		go func() {
+			hostCtx, hostCancel := context.WithTimeout(ctx, s.perHostTimeout(10*time.Second))
+			defer hostCancel()
+			pageURL := host + "/detail/" + bookID + ".html"
+			markup, err := s.html.Get(hostCtx, pageURL)
+			if err != nil {
+				ch <- result{err: err}
+				return
+			}
+			if redirected := extractMirrorRedirect(markup); redirected != "" {
+				rCtx, rCancel := context.WithTimeout(ctx, s.perHostTimeout(10*time.Second))
+				defer rCancel()
+				markup, err = s.html.Get(rCtx, redirected)
+				if err != nil {
+					ch <- result{err: err}
+					return
+				}
+				pageURL = redirected
+			}
+			if !strings.Contains(markup, "<div id=\"chapterList\"") && !strings.Contains(markup, `<div id="chapterList">`) {
+				ch <- result{err: fmt.Errorf("book page not found on %s", host)}
+				return
+			}
+			s.rememberWorkingHost(pageURL)
+			ch <- result{markup: markup, url: pageURL}
+		}()
+	}
+
+	var lastErr error
+	for i := 0; i < len(hosts); i++ {
+		res := <-ch
+		if res.err == nil {
+			cancel()
+			return res.markup, res.url, nil
+		}
+		lastErr = res.err
+	}
+	if lastErr != nil {
+		return "", "", lastErr
+	}
+	return "", "", fmt.Errorf("book page not found for %s", bookID)
+}
+
+func (s *ESJZoneSite) fetchChapterFromAnyHost(ctx context.Context, bookID, chapterID string) (string, error) {
+	hosts := s.prioritizedAliases(s.bookAliases)
+	if len(hosts) == 0 {
+		return "", fmt.Errorf("no esj chapter hosts configured")
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	type result struct {
+		content string
+		err     error
+	}
+	ch := make(chan result, len(hosts))
+	for _, host := range hosts {
+		host := host
+		go func() {
+			hostCtx, hostCancel := context.WithTimeout(ctx, s.perHostTimeout(10*time.Second))
+			defer hostCancel()
+			pageURL := host + "/forum/" + bookID + "/" + chapterID + ".html"
+			markup, err := s.html.Get(hostCtx, pageURL)
+			if err != nil {
+				ch <- result{err: err}
+				return
+			}
+			if redirected := extractMirrorRedirect(markup); redirected != "" {
+				rCtx, rCancel := context.WithTimeout(ctx, s.perHostTimeout(10*time.Second))
+				defer rCancel()
+				markup, err = s.html.Get(rCtx, redirected)
+				if err != nil {
+					ch <- result{err: err}
+					return
+				}
+				pageURL = redirected
+			}
+			content, err := parseChapterContent(markup, pageURL, s.cfg.General.Output.IncludePicture)
+			if err != nil {
+				if isEncryptedChapter(markup) {
+					password, perr := s.lookupChapterPassword(markup, bookID, chapterID)
+					if perr == nil && password != "" {
+						unlocked, uerr := s.unlockChapter(ctx, pageURL, password)
+						if uerr == nil {
+							content, err = parseChapterContent(unlocked, pageURL, s.cfg.General.Output.IncludePicture)
 						}
 					}
 				}
+				if err != nil {
+					ch <- result{err: err}
+					return
+				}
 			}
-			lastErr = err
-			continue
-		}
-		s.rememberWorkingHost(pageURL)
-		return content, nil
+			s.rememberWorkingHost(pageURL)
+			ch <- result{content: content}
+		}()
 	}
 
+	var lastErr error
+	for i := 0; i < len(hosts); i++ {
+		res := <-ch
+		if res.err == nil {
+			cancel()
+			return res.content, nil
+		}
+		lastErr = res.err
+	}
 	if lastErr != nil {
 		return "", lastErr
 	}
