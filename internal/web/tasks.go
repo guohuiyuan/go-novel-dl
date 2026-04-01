@@ -179,7 +179,7 @@ func (s *DownloadTaskStore) MarkProgress(id string, done int, total int, chapter
 			}
 		}
 
-		message := fmt.Sprintf("已下载章节 %d/%d", done, task.TotalChapters)
+		message := fmt.Sprintf("已处理章节 %d/%d", done, task.TotalChapters)
 		if task.CurrentChapter != "" {
 			message += ": " + task.CurrentChapter
 		}
@@ -208,10 +208,20 @@ func (s *DownloadTaskStore) MarkExporting(id string, done int, total int) {
 	s.update(id, func(task *DownloadTask) {
 		task.Status = "running"
 		task.Phase = "exporting"
-		task.CompletedChapters = done
-		if total > 0 {
-			task.TotalChapters = total
+		if total <= 0 {
+			total = task.TotalChapters
 		}
+		if total <= 0 {
+			total = done
+		}
+		if total <= 0 {
+			total = 1
+		}
+		task.TotalChapters = total + 1
+		if done > total {
+			done = total
+		}
+		task.CompletedChapters = done
 		task.CurrentChapter = ""
 		appendTaskMessage(task, "info", "章节抓取完成，正在导出")
 	})
@@ -224,6 +234,10 @@ func (s *DownloadTaskStore) MarkCompleted(id string, title string, exported []st
 		task.Phase = "completed"
 		task.Error = ""
 		task.FinishedAt = &now
+		if task.TotalChapters <= 0 {
+			task.TotalChapters = 1
+		}
+		task.CompletedChapters = task.TotalChapters
 		if strings.TrimSpace(title) != "" {
 			task.Title = title
 		}

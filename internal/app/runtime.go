@@ -121,7 +121,8 @@ func (r *Runtime) Download(ctx context.Context, siteKey string, books []model.Bo
 		}
 		book = textconv.NormalizeBookLocale(book, resolved.General.LocaleStyle)
 		r.Progress.OnBookStart(siteKey, ref.BookID, book.Title, len(book.Chapters))
-		done := 0
+		processedChapters := 0
+		succeeded := 0
 
 		workerCount := resolved.General.Workers
 		if workerCount <= 0 {
@@ -134,8 +135,9 @@ func (r *Runtime) Download(ctx context.Context, siteKey string, books []model.Bo
 		pending := make([]int, 0, len(book.Chapters))
 		for idx, chapter := range book.Chapters {
 			if chapter.Downloaded && chapter.Content != "" {
-				done++
-				r.Progress.OnBookProgress(done, len(book.Chapters), chapter.Title)
+				processedChapters++
+				succeeded++
+				r.Progress.OnBookProgress(processedChapters, len(book.Chapters), chapter.Title)
 				continue
 			}
 			pending = append(pending, idx)
@@ -159,18 +161,23 @@ func (r *Runtime) Download(ctx context.Context, siteKey string, books []model.Bo
 						if fetchErr != nil {
 							r.Console.Warnf("跳过章节 %s: %v", chapter.Title, fetchErr)
 							failedChapters++
+							processedChapters++
+							r.Progress.OnBookProgress(processedChapters, len(book.Chapters), "[失败] "+chapter.Title)
 							mu.Unlock()
 							continue
 						}
 						if strings.TrimSpace(loaded.Content) == "" {
 							r.Console.Warnf("章节 %s 内容为空，已跳过", chapter.Title)
 							failedChapters++
+							processedChapters++
+							r.Progress.OnBookProgress(processedChapters, len(book.Chapters), "[空内容] "+chapter.Title)
 							mu.Unlock()
 							continue
 						}
 						book.Chapters[idx] = loaded
-						done++
-						r.Progress.OnBookProgress(done, len(book.Chapters), loaded.Title)
+						processedChapters++
+						succeeded++
+						r.Progress.OnBookProgress(processedChapters, len(book.Chapters), loaded.Title)
 						mu.Unlock()
 					}
 				}()
@@ -187,9 +194,12 @@ func (r *Runtime) Download(ctx context.Context, siteKey string, books []model.Bo
 			}
 		}
 
-		r.Progress.OnBookComplete(done, len(book.Chapters))
+		r.Progress.OnBookComplete(processedChapters, len(book.Chapters))
 		if !bookHasUsableContent(book) {
 			return results, fmt.Errorf("渠道 %s 导出的正文为空，已中止导出", siteKey)
+		}
+		if succeeded < len(book.Chapters) {
+			r.Console.Warnf("渠道 %s 有 %d/%d 章抓取失败或为空", siteKey, len(book.Chapters)-succeeded, len(book.Chapters))
 		}
 		book.Site = siteKey
 		if book.DownloadedAt.IsZero() {

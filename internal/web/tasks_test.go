@@ -13,6 +13,18 @@ func TestDownloadTaskStoreTracksLifecycle(t *testing.T) {
 	store.MarkRunning(task.ID, "esjzone", "1755960125", "example title", 12)
 	store.MarkProgress(task.ID, 3, 12, "chapter 3")
 	store.MarkExporting(task.ID, 12, 12)
+
+	exporting, ok := store.Snapshot(task.ID)
+	if !ok {
+		t.Fatalf("expected task snapshot in exporting phase")
+	}
+	if exporting.Phase != "exporting" {
+		t.Fatalf("expected exporting phase, got %s", exporting.Phase)
+	}
+	if exporting.CompletedChapters >= exporting.TotalChapters {
+		t.Fatalf("expected progress to stay below 100%% while exporting, got %d/%d", exporting.CompletedChapters, exporting.TotalChapters)
+	}
+
 	store.MarkCompleted(task.ID, "example title", []string{"a.epub"})
 
 	snapshot, ok := store.Snapshot(task.ID)
@@ -28,8 +40,11 @@ func TestDownloadTaskStoreTracksLifecycle(t *testing.T) {
 	if snapshot.Title != "example title" {
 		t.Fatalf("expected title to be tracked, got %s", snapshot.Title)
 	}
-	if snapshot.CompletedChapters != 12 || snapshot.TotalChapters != 12 {
-		t.Fatalf("expected chapter counters 12/12, got %d/%d", snapshot.CompletedChapters, snapshot.TotalChapters)
+	if snapshot.CompletedChapters != snapshot.TotalChapters {
+		t.Fatalf("expected completed progress after finish, got %d/%d", snapshot.CompletedChapters, snapshot.TotalChapters)
+	}
+	if snapshot.TotalChapters < 12 {
+		t.Fatalf("expected total chapters to include downloaded work, got %d", snapshot.TotalChapters)
 	}
 	if len(snapshot.Exported) != 1 || snapshot.Exported[0] != "a.epub" {
 		t.Fatalf("expected exported file, got %+v", snapshot.Exported)
