@@ -905,6 +905,7 @@ func decodeRasterImage(data []byte, mediaType string) (image.Image, error) {
 func writeStoredFile(zw *zip.Writer, name string, data []byte) error {
 	header := &zip.FileHeader{Name: name, Method: zip.Store}
 	header.SetMode(0o644)
+	header.Modified = time.Now().UTC()
 	w, err := zw.CreateHeader(header)
 	if err != nil {
 		return err
@@ -914,7 +915,10 @@ func writeStoredFile(zw *zip.Writer, name string, data []byte) error {
 }
 
 func writeZipFile(zw *zip.Writer, name string, data []byte) error {
-	w, err := zw.Create(name)
+	header := &zip.FileHeader{Name: name, Method: zip.Deflate}
+	header.SetMode(0o644)
+	header.Modified = time.Now().UTC()
+	w, err := zw.CreateHeader(header)
 	if err != nil {
 		return err
 	}

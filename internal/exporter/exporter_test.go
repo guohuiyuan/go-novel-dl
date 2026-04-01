@@ -246,3 +246,32 @@ func TestCollectInlineImageURLsSupportsLazyAttrsAndSrcset(t *testing.T) {
 		}
 	}
 }
+
+func TestEPUBExportZipEntriesHaveValidModifiedTime(t *testing.T) {
+	service := New()
+	book := &model.Book{
+		Site:         "esjzone",
+		ID:           "time-check-1",
+		Title:        "Timestamp Test",
+		Author:       "Tester",
+		DownloadedAt: time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
+		Chapters:     []model.Chapter{{ID: "1", Title: "Chapter 1", Content: "Hello."}},
+	}
+
+	paths, err := service.Export(book, "esjzone", config.DefaultConfig().General.Output, t.TempDir(), []string{"epub"})
+	if err != nil {
+		t.Fatalf("export epub: %v", err)
+	}
+	r, err := zip.OpenReader(paths[0])
+	if err != nil {
+		t.Fatalf("open epub zip: %v", err)
+	}
+	defer r.Close()
+
+	for _, file := range r.File {
+		if file.Modified.Year() < 1980 {
+			t.Fatalf("entry %s has invalid modified time: %v", file.Name, file.Modified)
+		}
+	}
+}
