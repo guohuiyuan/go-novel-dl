@@ -158,6 +158,17 @@ func TestParseChapterContentSupportsImageOnlyParagraph(t *testing.T) {
 	}
 }
 
+func TestParseChapterContentSupportsLazyImageAttrsAndSrcset(t *testing.T) {
+	markup := `<div class="forum-content mt-3"><p><img data-original="/assets/original.jpg" data-src="/assets/data-src.jpg" srcset="/assets/srcset.jpg 1x, /assets/srcset2.jpg 2x"></p></div>`
+	content, err := parseChapterContent(markup, "https://www.esjzone.cc/forum/1/2.html", true)
+	if err != nil {
+		t.Fatalf("parse lazy image content: %v", err)
+	}
+	if !strings.Contains(content, "https://www.esjzone.cc/assets/data-src.jpg") {
+		t.Fatalf("expected data-src image url, got %s", content)
+	}
+}
+
 func TestParseChapterContentSupportsTextWithoutParagraphTags(t *testing.T) {
 	markup := `<html><body><h2>第1话</h2><section class="forum-content mt-3"><section>第1话</section><section>第一段<br>第二段</section></section></body></html>`
 	content, err := parseChapterContent(markup, "https://www.esjzone.cc/forum/1/2.html", false)

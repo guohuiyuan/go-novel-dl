@@ -3,6 +3,7 @@ package web
 import (
 	"errors"
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -51,6 +52,16 @@ func TestDownloadTaskStoreTracksLifecycle(t *testing.T) {
 	}
 	if len(snapshot.Messages) < 4 {
 		t.Fatalf("expected lifecycle messages, got %+v", snapshot.Messages)
+	}
+	foundEPUBElapsed := false
+	for _, msg := range snapshot.Messages {
+		if strings.Contains(msg.Text, "EPUB 导出总耗时") {
+			foundEPUBElapsed = true
+			break
+		}
+	}
+	if !foundEPUBElapsed {
+		t.Fatalf("expected epub elapsed-time message, got %+v", snapshot.Messages)
 	}
 }
 

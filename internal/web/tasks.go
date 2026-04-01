@@ -36,6 +36,7 @@ type DownloadTask struct {
 	UpdatedAt         time.Time             `json:"updated_at"`
 	FinishedAt        *time.Time            `json:"finished_at,omitempty"`
 	StartTime         time.Time             `json:"start_time,omitempty"`
+	exportStartedAt   time.Time             `json:"-"`
 	lastProgressAt    time.Time             `json:"-"`
 	smoothedRate      float64               `json:"-"`
 }
@@ -208,6 +209,7 @@ func (s *DownloadTaskStore) MarkExporting(id string, done int, total int) {
 	s.update(id, func(task *DownloadTask) {
 		task.Status = "running"
 		task.Phase = "exporting"
+		task.exportStartedAt = time.Now().UTC()
 		if total <= 0 {
 			total = task.TotalChapters
 		}
@@ -243,7 +245,47 @@ func (s *DownloadTaskStore) MarkCompleted(id string, title string, exported []st
 		}
 		task.Exported = append([]string(nil), exported...)
 		appendTaskMessage(task, "success", fmt.Sprintf("导出完成（%d个文件）", len(exported)))
+		if hasEPUBExport(exported) {
+			elapsed := now.Sub(task.exportStartedAt)
+			if task.exportStartedAt.IsZero() || elapsed < 0 {
+				elapsed = 0
+			}
+			appendTaskMessage(task, "info", fmt.Sprintf("EPUB 导出总耗时：%s", formatElapsedDuration(elapsed)))
+		}
 	})
+}
+
+func hasEPUBExport(exported []string) bool {
+	for _, item := range exported {
+		if strings.EqualFold(strings.TrimSpace(filepathExt(item)), ".epub") {
+			return true
+		}
+	}
+	return false
+}
+
+func filepathExt(path string) string {
+	idx := strings.LastIndex(path, ".")
+	if idx < 0 {
+		return ""
+	}
+	return path[idx:]
+}
+
+func formatElapsedDuration(d time.Duration) string {
+	if d <= 0 {
+		return "0s"
+	}
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	s := int(d.Seconds()) % 60
+	if h > 0 {
+		return fmt.Sprintf("%d小时%d分%d秒", h, m, s)
+	}
+	if m > 0 {
+		return fmt.Sprintf("%d分%d秒", m, s)
+	}
+	return fmt.Sprintf("%d秒", s)
 }
 
 func (s *DownloadTaskStore) MarkFailed(id string, err error) {

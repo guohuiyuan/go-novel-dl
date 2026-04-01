@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"fmt"
+	stdhtml "html"
 	"html/template"
 	"image"
 	"image/jpeg"
@@ -86,7 +87,8 @@ var chapterImageRe = regexp.MustCompile(fmt.Sprintf("^\\[(?:%s|%s|%s|%s|\\?\\?)\
 ))
 
 var markdownImageRe = regexp.MustCompile(`!\[[^\]]*\]\(([^)\s]+)\)`)
-var htmlImageRe = regexp.MustCompile(`(?i)<img[^>]+(?:src|data-src)=["']([^"']+)["'][^>]*>`)
+var htmlImageRe = regexp.MustCompile(`(?i)<img[^>]+(?:src|data-src|data-original|data-lazy-src|data-echo)=["']([^"']+)["'][^>]*>`)
+var htmlImageSrcsetRe = regexp.MustCompile(`(?i)<img[^>]+(?:srcset|data-srcset)=["']([^"']+)["'][^>]*>`)
 
 func New() *Service {
 	return &Service{}
@@ -428,23 +430,69 @@ func parseChapterBlocks(content string) []chapterBlock {
 
 func collectInlineImageURLs(text string) []string {
 	urls := make([]string, 0)
+	seen := make(map[string]struct{})
 	for _, match := range markdownImageRe.FindAllStringSubmatch(text, -1) {
 		if len(match) == 2 {
-			value := strings.TrimSpace(match[1])
-			if value != "" {
-				urls = append(urls, value)
-			}
+			appendInlineImageURL(&urls, seen, match[1])
 		}
 	}
 	for _, match := range htmlImageRe.FindAllStringSubmatch(text, -1) {
 		if len(match) == 2 {
-			value := strings.TrimSpace(match[1])
-			if value != "" {
-				urls = append(urls, value)
-			}
+			appendInlineImageURL(&urls, seen, match[1])
+		}
+	}
+	for _, match := range htmlImageSrcsetRe.FindAllStringSubmatch(text, -1) {
+		if len(match) == 2 {
+			appendInlineImageURL(&urls, seen, firstSrcsetURL(match[1]))
 		}
 	}
 	return urls
+}
+
+func appendInlineImageURL(urls *[]string, seen map[string]struct{}, raw string) {
+	normalized := normalizeInlineImageURL(raw)
+	if normalized == "" {
+		return
+	}
+	if _, ok := seen[normalized]; ok {
+		return
+	}
+	seen[normalized] = struct{}{}
+	*urls = append(*urls, normalized)
+}
+
+func normalizeInlineImageURL(raw string) string {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return ""
+	}
+	value = stdhtml.UnescapeString(value)
+	value = strings.TrimSpace(strings.Trim(value, `"'`))
+	if value == "" {
+		return ""
+	}
+	lower := strings.ToLower(value)
+	if strings.HasPrefix(lower, "data:") || strings.HasPrefix(lower, "javascript:") {
+		return ""
+	}
+	return value
+}
+
+func firstSrcsetURL(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	first := strings.SplitN(value, ",", 2)[0]
+	first = strings.TrimSpace(first)
+	if first == "" {
+		return ""
+	}
+	parts := strings.Fields(first)
+	if len(parts) == 0 {
+		return ""
+	}
+	return parts[0]
 }
 
 func stripInlineImageMarkup(text string) string {

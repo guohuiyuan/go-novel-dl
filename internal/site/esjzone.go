@@ -1243,9 +1243,9 @@ func collectImageSources(node *html.Node, pageURL string) []string {
 			return
 		}
 		if current.Type == html.ElementNode && current.Data == "img" {
-			src := attrValue(current, "src")
-			if src == "" {
-				src = attrValue(current, "data-src")
+			src := firstNonEmptyAttr(current, "src", "data-src", "data-original", "data-lazy-src", "data-echo")
+			if strings.TrimSpace(src) == "" {
+				src = firstURLFromSrcset(firstNonEmptyAttr(current, "srcset", "data-srcset"))
 			}
 			src = absolutizeURL(pageURL, src)
 			if src != "" {
@@ -1261,6 +1261,28 @@ func collectImageSources(node *html.Node, pageURL string) []string {
 	}
 	walk(node)
 	return images
+}
+
+func firstNonEmptyAttr(node *html.Node, keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(attrValue(node, key)); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func firstURLFromSrcset(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	first := strings.SplitN(value, ",", 2)[0]
+	parts := strings.Fields(strings.TrimSpace(first))
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(parts[0])
 }
 
 func formatImagePlaceholder(rawURL string) string {

@@ -227,3 +227,22 @@ func TestEPUBExportTranscodesWebPImagesToJPEG(t *testing.T) {
 		t.Fatalf("expected chapter page to reference transcoded jpg image")
 	}
 }
+
+func TestCollectInlineImageURLsSupportsLazyAttrsAndSrcset(t *testing.T) {
+	line := `<p><img data-original="https://img.example/cover.jpg" data-src="https://img.example/a.jpg" srcset="https://img.example/b.jpg 1x, https://img.example/c.jpg 2x" /><img data-srcset="https://img.example/d.jpg 640w, https://img.example/e.jpg 1280w"></p>`
+	urls := collectInlineImageURLs(line)
+
+	want := map[string]struct{}{
+		"https://img.example/a.jpg": {},
+		"https://img.example/b.jpg": {},
+		"https://img.example/d.jpg": {},
+	}
+	if len(urls) != len(want) {
+		t.Fatalf("unexpected image url count: got=%d urls=%v", len(urls), urls)
+	}
+	for _, item := range urls {
+		if _, ok := want[item]; !ok {
+			t.Fatalf("unexpected image url: %s", item)
+		}
+	}
+}
