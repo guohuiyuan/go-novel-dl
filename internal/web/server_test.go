@@ -198,6 +198,7 @@ func TestBookDetailEndpointReturnsBookMetadataAndChapters(t *testing.T) {
 func newTestService() *Service {
 	cfg := config.DefaultConfig()
 	if siteCfg, ok := cfg.Sites["esjzone"]; ok {
+		siteCfg.Username = "test-user"
 		siteCfg.Password = "test-password"
 		cfg.Sites["esjzone"] = siteCfg
 	}

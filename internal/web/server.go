@@ -181,8 +181,8 @@ func (s *Service) hasESJAuthConfigured() bool {
 	}
 	resolved := s.Config.ResolveSiteConfig("esjzone")
 	hasCookie := strings.TrimSpace(resolved.Cookie) != ""
-	hasPassword := strings.TrimSpace(resolved.Password) != ""
-	return hasCookie || hasPassword
+	hasCredentials := strings.TrimSpace(resolved.Username) != "" && strings.TrimSpace(resolved.Password) != ""
+	return hasCookie || hasCredentials
 }
 
 func collectSiteWarnings(runtime *app.Runtime) []SiteWarning {
@@ -190,19 +190,18 @@ func collectSiteWarnings(runtime *app.Runtime) []SiteWarning {
 		return nil
 	}
 	resolved := runtime.Config.ResolveSiteConfig("esjzone")
-	if strings.TrimSpace(resolved.Cookie) != "" {
+	hasCookie := strings.TrimSpace(resolved.Cookie) != ""
+	hasCredentials := strings.TrimSpace(resolved.Username) != "" && strings.TrimSpace(resolved.Password) != ""
+	if hasCookie || hasCredentials {
 		return nil
 	}
-	if strings.TrimSpace(resolved.Username) == "" || strings.TrimSpace(resolved.Password) == "" {
-		return []SiteWarning{{
-			SiteKey:     "esjzone",
-			Message:     "ESJ Zone 需要 Cookie 或 用户名/密码 才能访问，请在数据库配置中完成设置。",
-			Level:       "danger",
-			ActionLabel: "打开站点配置",
-			ActionLink:  "#site-config",
-		}}
-	}
-	return nil
+	return []SiteWarning{{
+		SiteKey:     "esjzone",
+		Message:     "ESJ Zone 需要 Cookie 或 用户名+密码 才能访问，请在数据库配置中完成设置。",
+		Level:       "danger",
+		ActionLabel: "打开站点配置",
+		ActionLink:  "#site-config",
+	}}
 }
 
 func collectSiteStats(runtime *app.Runtime) []SiteStat {

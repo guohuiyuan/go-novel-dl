@@ -417,7 +417,18 @@ function renderResults(results) {
 
     const title = document.createElement("h3");
     title.className = "result-title";
-    title.textContent = displayResultTitle(result);
+    const sourceURL = displayResultURL(result);
+    if (sourceURL) {
+      const titleLink = document.createElement("a");
+      titleLink.className = "result-title-link";
+      titleLink.href = sourceURL;
+      titleLink.target = "_blank";
+      titleLink.rel = "noopener noreferrer";
+      titleLink.textContent = displayResultTitle(result);
+      title.appendChild(titleLink);
+    } else {
+      title.textContent = displayResultTitle(result);
+    }
 
     const author = document.createElement("p");
     author.className = "result-author";
@@ -758,6 +769,7 @@ function createEmptyInline(text) {
 
 function displayResultTitle(result) { return result.title || (result.primary && result.primary.title) || (result.primary && result.primary.book_id) || "未命名小说"; }
 function displayResultAuthor(result) { return result.author || (result.primary && result.primary.author) || "未知作者"; }
+function displayResultURL(result) { return result.url || (result.primary && result.primary.url) || ""; }
 function displayDetailTitle(result, variant, book) { return (book && book.title) || result.title || (variant && variant.title) || (variant && variant.book_id) || "未命名小说"; }
 function displayDetailAuthor(result, variant, book) { return (book && book.author) || result.author || (variant && variant.author) || "未知作者"; }
 function displayDetailDescription(result, book) { return (book && book.description) || result.description || "暂无简介。"; }
@@ -768,7 +780,9 @@ function totalLabel(total, exact) { return exact ? `${total}` : `${total}+`; }
 function isESJConfigured() {
   const item = appState.siteConfigs.get("esjzone");
   if (!item) return false;
-  return Boolean((item.cookie || "").trim() || (item.password || "").trim());
+  const hasCookie = Boolean((item.cookie || "").trim());
+  const hasCredentials = Boolean((item.username || "").trim() && (item.password || "").trim());
+  return hasCookie || hasCredentials;
 }
 
 function showESJConfigPrompt() {
