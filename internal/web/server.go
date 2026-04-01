@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -410,6 +411,28 @@ func newRouter(service *Service) *gin.Engine {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
 			return
 		}
+		req.Keyword = strings.TrimSpace(req.Keyword)
+		if req.Keyword == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "keyword is required"})
+			return
+		}
+
+		if looksLikeWebURL(req.Keyword) {
+			response, err := service.resolveURLSearch(c.Request.Context(), req.Keyword)
+			if err != nil {
+				if strings.Contains(err.Error(), "esjzone auth required") {
+					c.JSON(http.StatusBadRequest, gin.H{
+						"error":      "ESJ Zone 未配置 Cookie 或密码，请先在设置中心补全登录信息",
+						"error_code": "esjzone_config_required",
+					})
+					return
+				}
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+			c.JSON(http.StatusOK, response)
+			return
+		}
 
 		sites := normalizeSites(req.Sites)
 		allowedSites := descriptorKeySet(service.AllSources)
@@ -513,6 +536,79 @@ func newRouter(service *Service) *gin.Engine {
 	})
 
 	return router
+}
+
+func looksLikeWebURL(raw string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed == nil {
+		return false
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return false
+	}
+	return strings.TrimSpace(parsed.Host) != ""
+}
+
+func (s *Service) resolveURLSearch(ctx context.Context, rawURL string) (paginatedSearchResponse, error) {
+	resolved, ok := site.ResolveURL(s.Runtime.Registry, rawURL)
+	if !ok || resolved == nil || strings.TrimSpace(resolved.SiteKey) == "" || strings.TrimSpace(resolved.BookID) == "" {
+		return paginatedSearchResponse{}, fmt.Errorf("无法识别该链接，当前仅支持受支持站点的书籍详情或章节链接")
+	}
+	if _, ok := descriptorKeySet(s.AllSources)[resolved.SiteKey]; !ok {
+		return paginatedSearchResponse{}, fmt.Errorf("该链接所属站点当前不支持 Web 搜索下载")
+	}
+	if resolved.SiteKey == "esjzone" && !s.hasESJAuthConfigured() {
+		return paginatedSearchResponse{}, fmt.Errorf("esjzone auth required")
+	}
+
+	detailCtx, cancel := context.WithTimeout(ctx, detailTimeoutForSite(resolved.SiteKey))
+	defer cancel()
+	book, err := s.bookDetail(detailCtx, resolved.SiteKey, resolved.BookID)
+	if err != nil {
+		return paginatedSearchResponse{}, err
+	}
+
+	itemURL := strings.TrimSpace(resolved.Canonical)
+	if itemURL == "" {
+		itemURL = strings.TrimSpace(book.SourceURL)
+	}
+	if itemURL == "" {
+		itemURL = strings.TrimSpace(rawURL)
+	}
+
+	primary := model.SearchResult{
+		Site:        resolved.SiteKey,
+		BookID:      resolved.BookID,
+		Title:       strings.TrimSpace(book.Title),
+		Author:      strings.TrimSpace(book.Author),
+		Description: strings.TrimSpace(book.Description),
+		URL:         itemURL,
+		CoverURL:    strings.TrimSpace(book.CoverURL),
+	}
+	if primary.Title == "" {
+		primary.Title = resolved.BookID
+	}
+	if primary.Author == "" {
+		primary.Author = "Unknown"
+	}
+
+	response := app.HybridSearchResponse{
+		Keyword: rawURL,
+		Sites:   []string{resolved.SiteKey},
+		Results: []app.HybridSearchResult{{
+			Key:           resolved.SiteKey + "|" + resolved.BookID,
+			Title:         primary.Title,
+			Author:        primary.Author,
+			Description:   primary.Description,
+			CoverURL:      primary.CoverURL,
+			PreferredSite: resolved.SiteKey,
+			Primary:       primary,
+			Variants:      []model.SearchResult{primary},
+			SourceCount:   1,
+			Score:         1,
+		}},
+	}
+	return paginateSearchResponse(response, 1, 1), nil
 }
 
 func (s *Service) startDownloadTask(taskID string, req downloadRequest) {

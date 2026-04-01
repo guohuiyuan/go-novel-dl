@@ -119,6 +119,54 @@ func TestSearchEndpointRejectsUnsupportedSelectedSources(t *testing.T) {
 	}
 }
 
+func TestSearchEndpointSupportsBookURL(t *testing.T) {
+	service := newTestService()
+	router := newRouter(service)
+
+	body := strings.NewReader(`{
+		"keyword":"https://www.esjzone.cc/detail/001.html"
+	}`)
+	req := httptest.NewRequest(http.MethodPost, RoutePrefix+"/api/search", body)
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", resp.Code, resp.Body.String())
+	}
+
+	var payload paginatedSearchResponse
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if payload.Total != 1 || len(payload.Results) != 1 {
+		t.Fatalf("expected one resolved result, got total=%d len=%d", payload.Total, len(payload.Results))
+	}
+	if payload.Results[0].Primary.Site != "esjzone" || payload.Results[0].Primary.BookID != "001" {
+		t.Fatalf("unexpected resolved result: %+v", payload.Results[0].Primary)
+	}
+}
+
+func TestSearchEndpointRejectsUnsupportedURL(t *testing.T) {
+	service := newTestService()
+	router := newRouter(service)
+
+	body := strings.NewReader(`{
+		"keyword":"https://example.com/unknown/book"
+	}`)
+	req := httptest.NewRequest(http.MethodPost, RoutePrefix+"/api/search", body)
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d with body %s", resp.Code, resp.Body.String())
+	}
+	if !strings.Contains(resp.Body.String(), "无法识别该链接") {
+		t.Fatalf("expected unsupported link error, got %s", resp.Body.String())
+	}
+}
+
 func TestBookDetailEndpointReturnsBookMetadataAndChapters(t *testing.T) {
 	service := newTestService()
 	router := newRouter(service)
@@ -149,6 +197,10 @@ func TestBookDetailEndpointReturnsBookMetadataAndChapters(t *testing.T) {
 
 func newTestService() *Service {
 	cfg := config.DefaultConfig()
+	if siteCfg, ok := cfg.Sites["esjzone"]; ok {
+		siteCfg.Password = "test-password"
+		cfg.Sites["esjzone"] = siteCfg
+	}
 	console := ui.NewConsole(strings.NewReader(""), io.Discard, io.Discard)
 	runtime := app.NewRuntime(&cfg, console)
 	registry := site.NewRegistry()
@@ -284,6 +336,13 @@ func (s fakeWebSite) Search(ctx context.Context, keyword string, limit int) ([]m
 }
 
 func (s fakeWebSite) ResolveURL(rawURL string) (*site.ResolvedURL, bool) {
+	if s.key == "esjzone" && strings.Contains(rawURL, "/detail/001.html") {
+		return &site.ResolvedURL{
+			SiteKey:   s.key,
+			BookID:    "001",
+			Canonical: "https://www.esjzone.cc/detail/001.html",
+		}, true
+	}
 	return nil, false
 }
 
