@@ -36,7 +36,6 @@ type DownloadTask struct {
 	UpdatedAt         time.Time             `json:"updated_at"`
 	FinishedAt        *time.Time            `json:"finished_at,omitempty"`
 	StartTime         time.Time             `json:"start_time,omitempty"`
-	exportStartedAt   time.Time             `json:"-"`
 	lastProgressAt    time.Time             `json:"-"`
 	smoothedRate      float64               `json:"-"`
 }
@@ -102,7 +101,9 @@ func (s *DownloadTaskStore) MarkRunning(id string, siteKey string, bookID string
 		task.TotalChapters = total
 		task.CompletedChapters = 0
 		task.CurrentChapter = ""
-		task.StartTime = now
+		if task.StartTime.IsZero() {
+			task.StartTime = now
+		}
 		task.lastProgressAt = now
 		task.smoothedRate = 0
 		appendTaskMessage(task, "info", fmt.Sprintf("开始下载（%d章）", total))
@@ -111,10 +112,15 @@ func (s *DownloadTaskStore) MarkRunning(id string, siteKey string, bookID string
 
 func (s *DownloadTaskStore) MarkLoadingChapters(id string, siteKey string, bookID string) {
 	s.update(id, func(task *DownloadTask) {
+		now := time.Now().UTC()
 		task.Status = "running"
 		task.Phase = "loading_chapters"
 		task.Site = siteKey
 		task.BookID = bookID
+		if task.StartTime.IsZero() {
+			task.StartTime = now
+			task.lastProgressAt = now
+		}
 		appendTaskMessage(task, "info", "正在加载章节列表...")
 	})
 }
@@ -209,7 +215,6 @@ func (s *DownloadTaskStore) MarkExporting(id string, done int, total int) {
 	s.update(id, func(task *DownloadTask) {
 		task.Status = "running"
 		task.Phase = "exporting"
-		task.exportStartedAt = time.Now().UTC()
 		if total <= 0 {
 			total = task.TotalChapters
 		}
@@ -246,11 +251,11 @@ func (s *DownloadTaskStore) MarkCompleted(id string, title string, exported []st
 		task.Exported = append([]string(nil), exported...)
 		appendTaskMessage(task, "success", fmt.Sprintf("导出完成（%d个文件）", len(exported)))
 		if hasEPUBExport(exported) {
-			elapsed := now.Sub(task.exportStartedAt)
-			if task.exportStartedAt.IsZero() || elapsed < 0 {
+			elapsed := now.Sub(task.StartTime)
+			if task.StartTime.IsZero() || elapsed < 0 {
 				elapsed = 0
 			}
-			appendTaskMessage(task, "info", fmt.Sprintf("EPUB 导出总耗时：%s", formatElapsedDuration(elapsed)))
+			appendTaskMessage(task, "info", fmt.Sprintf("总耗时（下载+导出）：%s", formatElapsedDuration(elapsed)))
 		}
 	})
 }

@@ -233,9 +233,9 @@ func TestCollectInlineImageURLsSupportsLazyAttrsAndSrcset(t *testing.T) {
 	urls := collectInlineImageURLs(line)
 
 	want := map[string]struct{}{
-		"https://img.example/a.jpg": {},
-		"https://img.example/b.jpg": {},
-		"https://img.example/d.jpg": {},
+		"https://img.example/cover.jpg": {},
+		"https://img.example/b.jpg":     {},
+		"https://img.example/d.jpg":     {},
 	}
 	if len(urls) != len(want) {
 		t.Fatalf("unexpected image url count: got=%d urls=%v", len(urls), urls)

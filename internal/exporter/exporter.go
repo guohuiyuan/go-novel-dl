@@ -87,8 +87,9 @@ var chapterImageRe = regexp.MustCompile(fmt.Sprintf("^\\[(?:%s|%s|%s|%s|\\?\\?)\
 ))
 
 var markdownImageRe = regexp.MustCompile(`!\[[^\]]*\]\(([^)\s]+)\)`)
-var htmlImageRe = regexp.MustCompile(`(?i)<img[^>]+(?:src|data-src|data-original|data-lazy-src|data-echo)=["']([^"']+)["'][^>]*>`)
-var htmlImageSrcsetRe = regexp.MustCompile(`(?i)<img[^>]+(?:srcset|data-srcset)=["']([^"']+)["'][^>]*>`)
+var htmlImgTagRe = regexp.MustCompile(`(?is)<img\b[^>]*>`)
+var htmlAttrDoubleQuotedRe = regexp.MustCompile(`(?i)([a-z0-9_:-]+)\s*=\s*"([^"]*)"`)
+var htmlAttrSingleQuotedRe = regexp.MustCompile(`(?i)([a-z0-9_:-]+)\s*=\s*'([^']*)'`)
 
 func New() *Service {
 	return &Service{}
@@ -436,17 +437,48 @@ func collectInlineImageURLs(text string) []string {
 			appendInlineImageURL(&urls, seen, match[1])
 		}
 	}
-	for _, match := range htmlImageRe.FindAllStringSubmatch(text, -1) {
-		if len(match) == 2 {
-			appendInlineImageURL(&urls, seen, match[1])
-		}
-	}
-	for _, match := range htmlImageSrcsetRe.FindAllStringSubmatch(text, -1) {
-		if len(match) == 2 {
-			appendInlineImageURL(&urls, seen, firstSrcsetURL(match[1]))
+	for _, tag := range htmlImgTagRe.FindAllString(text, -1) {
+		attrs := parseHTMLTagAttrs(tag)
+		appendInlineImageURL(&urls, seen, firstNonEmptyValue(attrs, "data-original", "data-src", "data-lazy-src", "data-echo", "src"))
+		if primary := firstNonEmptyValue(attrs, "srcset", "data-srcset"); primary != "" {
+			appendInlineImageURL(&urls, seen, firstSrcsetURL(primary))
 		}
 	}
 	return urls
+}
+
+func parseHTMLTagAttrs(tag string) map[string]string {
+	attrs := make(map[string]string)
+	for _, item := range htmlAttrDoubleQuotedRe.FindAllStringSubmatch(tag, -1) {
+		if len(item) != 3 {
+			continue
+		}
+		key := strings.ToLower(strings.TrimSpace(item[1]))
+		if key == "" {
+			continue
+		}
+		attrs[key] = item[2]
+	}
+	for _, item := range htmlAttrSingleQuotedRe.FindAllStringSubmatch(tag, -1) {
+		if len(item) != 3 {
+			continue
+		}
+		key := strings.ToLower(strings.TrimSpace(item[1]))
+		if key == "" {
+			continue
+		}
+		attrs[key] = item[2]
+	}
+	return attrs
+}
+
+func firstNonEmptyValue(values map[string]string, keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(values[strings.ToLower(key)]); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func appendInlineImageURL(urls *[]string, seen map[string]struct{}, raw string) {
@@ -497,7 +529,7 @@ func firstSrcsetURL(value string) string {
 
 func stripInlineImageMarkup(text string) string {
 	text = markdownImageRe.ReplaceAllString(text, "")
-	text = htmlImageRe.ReplaceAllString(text, "")
+	text = htmlImgTagRe.ReplaceAllString(text, "")
 	return text
 }
 
@@ -638,6 +670,46 @@ func downloadAsset(client *http.Client, rawURL, referer string) ([]byte, string,
 	if rawURL == "" {
 		return nil, "", "", fmt.Errorf("empty asset url")
 	}
+	referers := buildDownloadRefererCandidates(rawURL, referer)
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		for _, candidate := range referers {
+			data, mediaType, finalURL, err := downloadAssetOnce(client, rawURL, candidate)
+			if err == nil {
+				return data, mediaType, finalURL, nil
+			}
+			lastErr = err
+		}
+		time.Sleep(time.Duration(120*(attempt+1)) * time.Millisecond)
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("failed to download asset: %s", rawURL)
+	}
+	return nil, "", rawURL, lastErr
+}
+
+func buildDownloadRefererCandidates(rawURL, referer string) []string {
+	candidates := make([]string, 0, 4)
+	push := func(value string) {
+		value = strings.TrimSpace(value)
+		for _, existing := range candidates {
+			if existing == value {
+				return
+			}
+		}
+		candidates = append(candidates, value)
+	}
+	if strings.TrimSpace(referer) != "" {
+		push(referer)
+	}
+	if parsed, err := neturl.Parse(rawURL); err == nil && parsed.Scheme != "" && parsed.Host != "" {
+		push(parsed.Scheme + "://" + parsed.Host + "/")
+	}
+	push("")
+	return candidates
+}
+
+func downloadAssetOnce(client *http.Client, rawURL, referer string) ([]byte, string, string, error) {
 	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, "", rawURL, err
@@ -646,8 +718,6 @@ func downloadAsset(client *http.Client, rawURL, referer string) ([]byte, string,
 	req.Header.Set("Accept", "image/jpeg,image/png,image/webp,image/*,*/*;q=0.8")
 	if strings.TrimSpace(referer) != "" {
 		req.Header.Set("Referer", strings.TrimSpace(referer))
-	} else if parsed, err := neturl.Parse(rawURL); err == nil && parsed.Scheme != "" && parsed.Host != "" {
-		req.Header.Set("Referer", parsed.Scheme+"://"+parsed.Host+"/")
 	}
 	resp, err := client.Do(req)
 	if err != nil {

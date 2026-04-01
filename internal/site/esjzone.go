@@ -1243,7 +1243,7 @@ func collectImageSources(node *html.Node, pageURL string) []string {
 			return
 		}
 		if current.Type == html.ElementNode && current.Data == "img" {
-			src := firstNonEmptyAttr(current, "src", "data-src", "data-original", "data-lazy-src", "data-echo")
+			src := firstNonEmptyAttr(current, "data-original", "data-src", "data-lazy-src", "data-echo", "src")
 			if strings.TrimSpace(src) == "" {
 				src = firstURLFromSrcset(firstNonEmptyAttr(current, "srcset", "data-srcset"))
 			}

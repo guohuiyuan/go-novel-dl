@@ -164,8 +164,8 @@ func TestParseChapterContentSupportsLazyImageAttrsAndSrcset(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse lazy image content: %v", err)
 	}
-	if !strings.Contains(content, "https://www.esjzone.cc/assets/data-src.jpg") {
-		t.Fatalf("expected data-src image url, got %s", content)
+	if !strings.Contains(content, "https://www.esjzone.cc/assets/original.jpg") {
+		t.Fatalf("expected data-original image url, got %s", content)
 	}
 }
 

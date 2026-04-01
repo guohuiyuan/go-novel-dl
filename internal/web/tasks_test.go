@@ -55,7 +55,7 @@ func TestDownloadTaskStoreTracksLifecycle(t *testing.T) {
 	}
 	foundEPUBElapsed := false
 	for _, msg := range snapshot.Messages {
-		if strings.Contains(msg.Text, "EPUB 导出总耗时") {
+		if strings.Contains(msg.Text, "总耗时（下载+导出）") {
 			foundEPUBElapsed = true
 			break
 		}
