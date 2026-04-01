@@ -2,6 +2,7 @@ package web
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -125,12 +126,19 @@ func (s *DownloadTaskStore) MarkProgress(id string, done int, total int, chapter
 
 		if done > 0 && !task.StartTime.IsZero() {
 			elapsed := time.Since(task.StartTime)
-			rate := float64(done) / elapsed.Seconds()
-			if rate > 0 {
-				remaining := task.TotalChapters - done
-				etaSeconds := float64(remaining) / rate
-				task.ETA = formatETADuration(time.Duration(etaSeconds) * time.Second)
-				task.Speed = rate
+			seconds := elapsed.Seconds()
+			if seconds > 1e-6 {
+				rate := float64(done) / seconds
+				if rate > 0 && isFiniteFloat(rate) {
+					remaining := task.TotalChapters - done
+					etaSeconds := float64(remaining) / rate
+					if etaSeconds < 0 || !isFiniteFloat(etaSeconds) {
+						task.ETA = ""
+					} else {
+						task.ETA = formatETADuration(time.Duration(etaSeconds) * time.Second)
+					}
+					task.Speed = rate
+				}
 			}
 		}
 
@@ -233,6 +241,10 @@ func cloneTask(task *DownloadTask) DownloadTask {
 		return DownloadTask{}
 	}
 	cloned := *task
+	if !isFiniteFloat(cloned.Speed) {
+		cloned.Speed = 0
+		cloned.ETA = ""
+	}
 	cloned.Messages = append([]DownloadTaskMessage(nil), task.Messages...)
 	cloned.Exported = append([]string(nil), task.Exported...)
 	if task.FinishedAt != nil {
@@ -240,4 +252,8 @@ func cloneTask(task *DownloadTask) DownloadTask {
 		cloned.FinishedAt = &finishedAt
 	}
 	return cloned
+}
+
+func isFiniteFloat(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0)
 }

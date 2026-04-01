@@ -100,7 +100,7 @@ function renderSiteWarnings() {
       if (warning.action_link === "#site-config") {
         action.addEventListener("click", (event) => {
           event.preventDefault();
-          openSiteConfig();
+          void openSiteConfig();
           if (siteConfigKeyNode) {
             siteConfigKeyNode.value = warning.site_key || "esjzone";
             populateSiteConfigForm(siteConfigKeyNode.value);
@@ -242,7 +242,9 @@ function bootstrap() {
 
   detailCloseButton.addEventListener("click", closeDetail);
   detailBackdrop.addEventListener("click", closeDetail);
-  openGeneralConfigButton.addEventListener("click", openSiteConfig);
+  openGeneralConfigButton.addEventListener("click", () => {
+    void openSiteConfig();
+  });
   closeSiteConfigButton.addEventListener("click", closeSiteConfig);
   siteConfigBackdrop.addEventListener("click", closeSiteConfig);
   
@@ -820,7 +822,15 @@ function populateSiteConfigForm(siteKey) {
   siteMirrorHostsNode.value = Array.isArray(item.mirror_hosts) ? item.mirror_hosts.join("\n") : "";
 }
 
-function openSiteConfig() { siteConfigOverlay.hidden = false; document.body.classList.add("has-overlay"); }
+async function openSiteConfig() {
+  siteConfigOverlay.hidden = false;
+  document.body.classList.add("has-overlay");
+  try {
+    await Promise.all([loadGeneralConfig(), loadSiteConfigs()]);
+  } catch (error) {
+    setStatus(`设置刷新失败：${error.message}`);
+  }
+}
 function closeSiteConfig() { siteConfigOverlay.hidden = true; document.body.classList.remove("has-overlay"); }
 
 function renderGeneralConfigForm(item) {

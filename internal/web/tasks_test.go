@@ -2,6 +2,7 @@ package web
 
 import (
 	"errors"
+	"math"
 	"testing"
 )
 
@@ -56,5 +57,26 @@ func TestDownloadTaskStoreTracksFailure(t *testing.T) {
 	}
 	if snapshot.FinishedAt == nil {
 		t.Fatalf("expected failure timestamp")
+	}
+}
+
+func TestDownloadTaskSnapshotSanitizesNonFiniteSpeed(t *testing.T) {
+	store := NewDownloadTaskStore()
+	task := store.Create("esjzone", "1755960125")
+
+	store.update(task.ID, func(item *DownloadTask) {
+		item.Speed = math.Inf(1)
+		item.ETA = "123秒"
+	})
+
+	snapshot, ok := store.Snapshot(task.ID)
+	if !ok {
+		t.Fatalf("expected task snapshot")
+	}
+	if snapshot.Speed != 0 {
+		t.Fatalf("expected speed to be sanitized to 0, got %v", snapshot.Speed)
+	}
+	if snapshot.ETA != "" {
+		t.Fatalf("expected eta to be cleared when speed is invalid, got %q", snapshot.ETA)
 	}
 }

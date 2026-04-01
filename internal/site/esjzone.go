@@ -737,6 +737,9 @@ func (s *ESJZoneSite) saveCookiesToConfigStore() error {
 	_, err := config.UpsertSiteCatalog("esjzone", config.SiteCatalogUpdate{
 		Cookie: &cookie,
 	})
+	if err == nil {
+		s.cfg.Cookie = cookie
+	}
 	return err
 }
 

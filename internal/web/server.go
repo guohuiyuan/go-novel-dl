@@ -517,6 +517,10 @@ func newRouter(service *Service) *gin.Engine {
 
 func (s *Service) startDownloadTask(taskID string, req downloadRequest) {
 	go func() {
+		defer func() {
+			_ = s.reloadRuntime()
+		}()
+
 		s.Tasks.MarkLoadingChapters(taskID, req.Site, req.BookID)
 
 		runtime := s.newTaskRuntime(taskID)
