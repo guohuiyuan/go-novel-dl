@@ -119,9 +119,9 @@ func TestEPUBExportEmbedsChapterImages(t *testing.T) {
 	foundReference := false
 	for _, file := range r.File {
 		switch {
-		case strings.HasPrefix(file.Name, "OEBPS/images/image-") && strings.HasSuffix(file.Name, ".jpg"):
+		case strings.HasPrefix(file.Name, "OEBPS/img_0_0") && strings.HasSuffix(file.Name, ".png"):
 			foundImage = true
-		case file.Name == "OEBPS/chapter-001.xhtml":
+		case file.Name == "OEBPS/chap_1.xhtml":
 			rc, err := file.Open()
 			if err != nil {
 				t.Fatalf("open chapter file: %v", err)
@@ -131,7 +131,7 @@ func TestEPUBExportEmbedsChapterImages(t *testing.T) {
 			if err != nil {
 				t.Fatalf("read chapter file: %v", err)
 			}
-			if strings.Contains(string(body), `img src="images/image-001.jpg"`) {
+			if strings.Contains(string(body), `img src="img_0_0.png"`) {
 				foundReference = true
 			}
 		}
@@ -144,7 +144,7 @@ func TestEPUBExportEmbedsChapterImages(t *testing.T) {
 	}
 }
 
-func TestEPUBExportTranscodesWebPImagesToJPEG(t *testing.T) {
+func TestEPUBExportKeepsWebPImagesForESJParity(t *testing.T) {
 	webpBytes, err := base64.StdEncoding.DecodeString("UklGRjwAAABXRUJQVlA4IDAAAADQAQCdASoCAAIAAUAmJaACdLoB+AADsAD+8ut//NgVzXPv9//S4P0uD9Lg/9KQAAA=")
 	if err != nil {
 		t.Fatalf("decode webp fixture: %v", err)
@@ -186,16 +186,13 @@ func TestEPUBExportTranscodesWebPImagesToJPEG(t *testing.T) {
 	}
 	defer r.Close()
 
-	foundJPG := false
 	foundWebP := false
 	foundReference := false
 	for _, file := range r.File {
 		switch {
-		case strings.HasPrefix(file.Name, "OEBPS/images/image-") && strings.HasSuffix(file.Name, ".jpg"):
-			foundJPG = true
-		case strings.HasPrefix(file.Name, "OEBPS/images/image-") && strings.HasSuffix(file.Name, ".webp"):
+		case strings.HasPrefix(file.Name, "OEBPS/img_0_0") && strings.HasSuffix(file.Name, ".webp"):
 			foundWebP = true
-		case file.Name == "OEBPS/chapter-001.xhtml":
+		case file.Name == "OEBPS/chap_1.xhtml":
 			rc, err := file.Open()
 			if err != nil {
 				t.Fatalf("open chapter file: %v", err)
@@ -205,19 +202,16 @@ func TestEPUBExportTranscodesWebPImagesToJPEG(t *testing.T) {
 			if err != nil {
 				t.Fatalf("read chapter file: %v", err)
 			}
-			if strings.Contains(string(body), `img src="images/image-001.jpg"`) {
+			if strings.Contains(string(body), `img src="img_0_0.webp"`) {
 				foundReference = true
 			}
 		}
 	}
-	if !foundJPG {
-		t.Fatalf("expected webp source to be transcoded to jpg")
-	}
-	if foundWebP {
-		t.Fatalf("expected epub to avoid embedded webp resources")
+	if !foundWebP {
+		t.Fatalf("expected webp source to be kept as webp for ESJ userscript parity")
 	}
 	if !foundReference {
-		t.Fatalf("expected chapter page to reference transcoded jpg image")
+		t.Fatalf("expected chapter page to reference embedded webp image")
 	}
 }
 

@@ -19,6 +19,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -201,6 +202,10 @@ func renderHTML(book *model.Book) []byte {
 }
 
 func renderEPUB(path string, book *model.Book) error {
+	if strings.EqualFold(strings.TrimSpace(book.Site), "esjzone") {
+		return renderEPUBLikeESJScript(path, book)
+	}
+
 	file, err := os.Create(path)
 	if err != nil {
 		return err
@@ -240,13 +245,427 @@ func renderEPUB(path string, book *model.Book) error {
 			return err
 		}
 	}
-	for name, body := range pkg.ChapterFiles {
+	chapterNames := make([]string, 0, len(pkg.ChapterFiles))
+	for name := range pkg.ChapterFiles {
+		chapterNames = append(chapterNames, name)
+	}
+	sort.Strings(chapterNames)
+	for _, name := range chapterNames {
+		body := pkg.ChapterFiles[name]
 		if err := writeZipFile(zw, "OEBPS/"+name, []byte(body)); err != nil {
 			_ = zw.Close()
 			return err
 		}
 	}
 	return zw.Close()
+}
+
+func renderEPUBLikeESJScript(path string, book *model.Book) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	zw := zip.NewWriter(file)
+	if err := writeStoredFile(zw, "mimetype", []byte("application/epub+zip")); err != nil {
+		_ = zw.Close()
+		return err
+	}
+	if err := writeZipDir(zw, "META-INF/"); err != nil {
+		_ = zw.Close()
+		return err
+	}
+	if err := writeZipFile(zw, "META-INF/container.xml", []byte(esjContainerXML)); err != nil {
+		_ = zw.Close()
+		return err
+	}
+	if err := writeZipDir(zw, "OEBPS/"); err != nil {
+		_ = zw.Close()
+		return err
+	}
+
+	pkg, err := buildEPUBContentLikeESJScript(book)
+	if err != nil {
+		_ = zw.Close()
+		return err
+	}
+	assetByHref := make(map[string]*epubAsset, len(pkg.Assets))
+	for _, asset := range pkg.Assets {
+		assetByHref[asset.Href] = asset
+	}
+	writtenAsset := make(map[string]struct{}, len(pkg.Assets))
+	if cover, ok := assetByHref["cover.png"]; ok {
+		if err := writeZipFile(zw, "OEBPS/"+cover.Href, cover.Data); err != nil {
+			_ = zw.Close()
+			return err
+		}
+		writtenAsset[cover.Href] = struct{}{}
+	} else if cover, ok := assetByHref["cover.jpg"]; ok {
+		if err := writeZipFile(zw, "OEBPS/"+cover.Href, cover.Data); err != nil {
+			_ = zw.Close()
+			return err
+		}
+		writtenAsset[cover.Href] = struct{}{}
+	}
+	chapterNames := make([]string, 0, len(pkg.ChapterFiles))
+	for name := range pkg.ChapterFiles {
+		chapterNames = append(chapterNames, name)
+	}
+	sort.Slice(chapterNames, func(i, j int) bool {
+		in := 0
+		jn := 0
+		_, _ = fmt.Sscanf(chapterNames[i], "chap_%d.xhtml", &in)
+		_, _ = fmt.Sscanf(chapterNames[j], "chap_%d.xhtml", &jn)
+		return in < jn
+	})
+	for _, name := range chapterNames {
+		chapterNo := 0
+		_, _ = fmt.Sscanf(name, "chap_%d.xhtml", &chapterNo)
+		imagePrefix := fmt.Sprintf("img_%d_", chapterNo-1)
+		chapterImages := make([]string, 0)
+		for href := range assetByHref {
+			if strings.HasPrefix(href, imagePrefix) {
+				chapterImages = append(chapterImages, href)
+			}
+		}
+		sort.Strings(chapterImages)
+		for _, href := range chapterImages {
+			if _, ok := writtenAsset[href]; ok {
+				continue
+			}
+			if err := writeZipFile(zw, "OEBPS/"+href, assetByHref[href].Data); err != nil {
+				_ = zw.Close()
+				return err
+			}
+			writtenAsset[href] = struct{}{}
+		}
+
+		body := pkg.ChapterFiles[name]
+		if err := writeZipFile(zw, "OEBPS/"+name, []byte(body)); err != nil {
+			_ = zw.Close()
+			return err
+		}
+	}
+	remaining := make([]string, 0)
+	for href := range assetByHref {
+		if _, ok := writtenAsset[href]; ok {
+			continue
+		}
+		remaining = append(remaining, href)
+	}
+	sort.Strings(remaining)
+	for _, href := range remaining {
+		if err := writeZipFile(zw, "OEBPS/"+href, assetByHref[href].Data); err != nil {
+			_ = zw.Close()
+			return err
+		}
+	}
+	if err := writeZipFile(zw, "OEBPS/nav.xhtml", []byte(pkg.Nav)); err != nil {
+		_ = zw.Close()
+		return err
+	}
+	if err := writeZipFile(zw, "OEBPS/content.opf", []byte(pkg.OPF)); err != nil {
+		_ = zw.Close()
+		return err
+	}
+	return zw.Close()
+}
+
+func buildEPUBContentLikeESJScript(book *model.Book) (*epubPackage, error) {
+	type chapterImage struct {
+		url      string
+		fileName string
+	}
+	type chapterBuild struct {
+		title  string
+		name   string
+		body   string
+		images []chapterImage
+	}
+
+	chapterBuilds := make([]chapterBuild, 0, len(book.Chapters))
+	allImageURLs := make([]string, 0)
+	for idx, chapter := range book.Chapters {
+		fileName := fmt.Sprintf("chap_%d.xhtml", idx+1)
+		title := fallback(strings.TrimSpace(chapter.Title), fmt.Sprintf("第%d章", idx+1))
+		blocks := parseChapterBlocks(chapter.Content)
+		imageIndex := 0
+		images := make([]chapterImage, 0)
+		bodyParts := make([]string, 0, len(blocks))
+		for _, block := range blocks {
+			if strings.TrimSpace(block.ImageURL) != "" {
+				imgName := fmt.Sprintf("img_%d_%d", idx, imageIndex)
+				images = append(images, chapterImage{url: strings.TrimSpace(block.ImageURL), fileName: imgName})
+				allImageURLs = append(allImageURLs, strings.TrimSpace(block.ImageURL))
+				bodyParts = append(bodyParts, fmt.Sprintf(`<p><img src="%s" style="max-width: 100%%;" /></p>`, imgName))
+				imageIndex++
+				continue
+			}
+			paragraph := strings.TrimSpace(block.Paragraph)
+			if paragraph == "" {
+				continue
+			}
+			lines := strings.Split(paragraph, "\n")
+			for i := range lines {
+				lines[i] = escapeHTML(lines[i])
+			}
+			bodyParts = append(bodyParts, "<p>"+strings.Join(lines, "<br />")+"</p>")
+		}
+		chapterXHTML := fmt.Sprintf(`<?xml version="1.0" encoding="utf-8"?>
+            <html xmlns="http://www.w3.org/1999/xhtml">
+              <head><title>%s</title></head>
+              <body>
+                <h2>%s</h2>
+                <div>%s</div>
+              </body>
+            </html>`, escapeHTML(title), escapeHTML(title), strings.Join(bodyParts, "\n"))
+		chapterBuilds = append(chapterBuilds, chapterBuild{title: title, name: fileName, body: chapterXHTML, images: images})
+	}
+
+	imageBlobCache := make(map[string]struct {
+		data      []byte
+		mediaType string
+		err       error
+	})
+	var cacheMu sync.Mutex
+	fetchOne := func(rawURL string) {
+		cacheMu.Lock()
+		if _, ok := imageBlobCache[rawURL]; ok {
+			cacheMu.Unlock()
+			return
+		}
+		cacheMu.Unlock()
+
+		data, mediaType, err := downloadAssetForESJ(rawURL, "https://www.esjzone.cc/")
+		if err == nil {
+			data, mediaType, err = compressImageForESJ(data, mediaType)
+		}
+		cacheMu.Lock()
+		imageBlobCache[rawURL] = struct {
+			data      []byte
+			mediaType string
+			err       error
+		}{data: data, mediaType: mediaType, err: err}
+		cacheMu.Unlock()
+	}
+	prefetchList := uniqueStrings(allImageURLs)
+	jobs := make(chan string, len(prefetchList))
+	var wg sync.WaitGroup
+	workerCount := 6
+	if workerCount > len(prefetchList) {
+		workerCount = len(prefetchList)
+	}
+	if workerCount < 1 {
+		workerCount = 1
+	}
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for item := range jobs {
+				fetchOne(item)
+			}
+		}()
+	}
+	for _, item := range prefetchList {
+		jobs <- item
+	}
+	close(jobs)
+	wg.Wait()
+
+	assets := make([]*epubAsset, 0)
+	manifestItems := make([]string, 0)
+	spineItems := make([]string, 0, len(chapterBuilds))
+	navPoints := make([]string, 0, len(chapterBuilds))
+	chapterFiles := make(map[string]string, len(chapterBuilds))
+
+	if strings.TrimSpace(book.CoverURL) != "" {
+		coverData, coverType, err := downloadAssetForESJ(book.CoverURL, "https://www.esjzone.cc/")
+		if err == nil && len(coverData) > 0 {
+			ext := imageExtensionForESJ(coverType)
+			coverName := "cover." + ext
+			assets = append(assets, &epubAsset{ID: "cover-image", Href: coverName, MediaType: coverType, Data: coverData})
+			manifestItems = append(manifestItems, fmt.Sprintf(`<item id="cover-image" href="%s" media-type="%s" properties="cover-image"/>`, coverName, coverType))
+		}
+	}
+
+	for idx, chap := range chapterBuilds {
+		chapterID := fmt.Sprintf("chap_%d", idx+1)
+		chapterFiles[chap.name] = chap.body
+		spineItems = append(spineItems, fmt.Sprintf(`<itemref idref="%s"/>`, chapterID))
+		navPoints = append(navPoints, fmt.Sprintf(`<li><a href="%s">%s</a></li>`, chap.name, escapeHTML(chap.title)))
+
+		for _, image := range chap.images {
+			cacheMu.Lock()
+			cached := imageBlobCache[image.url]
+			cacheMu.Unlock()
+			if cached.err != nil || len(cached.data) == 0 {
+				continue
+			}
+			ext := imageExtensionForESJ(cached.mediaType)
+			name := image.fileName + "." + ext
+			chapterFiles[chap.name] = strings.ReplaceAll(chapterFiles[chap.name], `src="`+image.fileName+`"`, `src="`+name+`"`)
+			assetID := strings.ReplaceAll(name, ".", "_")
+			assets = append(assets, &epubAsset{ID: assetID, Href: name, MediaType: cached.mediaType, Data: cached.data})
+			manifestItems = append(manifestItems, fmt.Sprintf(`<item id="%s" href="%s" media-type="%s" />`, assetID, name, cached.mediaType))
+		}
+		manifestItems = append(manifestItems, fmt.Sprintf(`<item id="%s" href="%s" media-type="application/xhtml+xml"/>`, chapterID, chap.name))
+	}
+	manifestItems = append(manifestItems, `<item id="nav" href="nav.xhtml" properties="nav" media-type="application/xhtml+xml"/>`)
+
+	nav := fmt.Sprintf(esjNavTemplate, strings.Join(navPoints, "\n"))
+	coverMeta := ""
+	for _, item := range manifestItems {
+		if strings.Contains(item, `id="cover-image"`) {
+			coverMeta = `<meta name="cover" content="cover-image" />`
+			break
+		}
+	}
+	uid := fmt.Sprintf("id-%d", time.Now().UTC().UnixMilli())
+	opf := fmt.Sprintf(esjContentOPFTemplate,
+		escapeHTML(fallback(book.Title, "未知书名")),
+		uid,
+		escapeHTML(fallback(book.Author, "")),
+		time.Now().UTC().Format(time.RFC3339),
+		coverMeta,
+		strings.Join(manifestItems, "\n"),
+		strings.Join(spineItems, "\n"),
+	)
+
+	return &epubPackage{OPF: opf, Nav: nav, ChapterFiles: chapterFiles, Assets: assets}, nil
+}
+
+func downloadAssetForESJ(rawURL, referer string) ([]byte, string, error) {
+	rawURL = normalizeAssetURL(rawURL, referer)
+	if rawURL == "" {
+		return nil, "", fmt.Errorf("empty asset url")
+	}
+	client := &http.Client{Timeout: 15 * time.Second}
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		req, err := http.NewRequest(http.MethodGet, rawURL, nil)
+		if err != nil {
+			return nil, "", err
+		}
+		req.Header.Set("User-Agent", defaultAssetUserAgent)
+		req.Header.Set("Accept", "image/*,*/*;q=0.8")
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			time.Sleep(time.Duration(250*(attempt+1)) * time.Millisecond)
+			continue
+		}
+		data, readErr := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if readErr != nil {
+			lastErr = readErr
+			time.Sleep(time.Duration(250*(attempt+1)) * time.Millisecond)
+			continue
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			lastErr = fmt.Errorf("http %d for %s", resp.StatusCode, rawURL)
+			time.Sleep(time.Duration(250*(attempt+1)) * time.Millisecond)
+			continue
+		}
+		mediaType, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+		mediaType = strings.ToLower(strings.TrimSpace(mediaType))
+		if mediaType == "" {
+			if ext := strings.ToLower(path.Ext(resp.Request.URL.Path)); ext != "" {
+				mediaType = mime.TypeByExtension(ext)
+			}
+		}
+		if mediaType == "" {
+			mediaType = "image/jpeg"
+		}
+		return data, normalizeImageMediaTypeForESJ(mediaType), nil
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("download failed: %s", rawURL)
+	}
+	return nil, "", lastErr
+}
+
+func compressImageForESJ(data []byte, mediaType string) ([]byte, string, error) {
+	if len(data) <= 100*1024 {
+		return data, normalizeImageMediaTypeForESJ(mediaType), nil
+	}
+	img, err := decodeRasterImage(data, normalizeImageMediaTypeForESJ(mediaType))
+	if err != nil {
+		return data, normalizeImageMediaTypeForESJ(mediaType), nil
+	}
+	bounds := img.Bounds()
+	width := bounds.Dx()
+	height := bounds.Dy()
+	if width <= 0 || height <= 0 {
+		return data, normalizeImageMediaTypeForESJ(mediaType), nil
+	}
+	maxWidth := 800
+	targetW := width
+	targetH := height
+	if width > maxWidth {
+		targetW = maxWidth
+		targetH = int(math.Round(float64(height) * (float64(maxWidth) / float64(width))))
+		if targetH < 1 {
+			targetH = 1
+		}
+	}
+	canvas := image.NewRGBA(image.Rect(0, 0, targetW, targetH))
+	for y := 0; y < targetH; y++ {
+		for x := 0; x < targetW; x++ {
+			canvas.Set(x, y, image.White)
+		}
+	}
+	xdraw.ApproxBiLinear.Scale(canvas, canvas.Bounds(), img, bounds, xdraw.Over, nil)
+	var out bytes.Buffer
+	if err := jpeg.Encode(&out, canvas, &jpeg.Options{Quality: 70}); err != nil {
+		return data, normalizeImageMediaTypeForESJ(mediaType), nil
+	}
+	return out.Bytes(), "image/jpeg", nil
+}
+
+func normalizeImageMediaTypeForESJ(mediaType string) string {
+	mediaType = strings.ToLower(strings.TrimSpace(mediaType))
+	switch mediaType {
+	case "image/png", "image/gif", "image/webp", "image/bmp", "image/jpeg", "image/jpg":
+		if mediaType == "image/jpg" {
+			return "image/jpeg"
+		}
+		return mediaType
+	default:
+		return "image/jpeg"
+	}
+}
+
+func imageExtensionForESJ(mediaType string) string {
+	switch normalizeImageMediaTypeForESJ(mediaType) {
+	case "image/png":
+		return "png"
+	case "image/gif":
+		return "gif"
+	case "image/webp":
+		return "webp"
+	case "image/bmp":
+		return "bmp"
+	default:
+		return "jpg"
+	}
+}
+
+func uniqueStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }
 
 func buildEPUBContent(book *model.Book) (*epubPackage, error) {
@@ -910,6 +1329,17 @@ func writeZipFile(zw *zip.Writer, name string, data []byte) error {
 	return err
 }
 
+func writeZipDir(zw *zip.Writer, name string) error {
+	if !strings.HasSuffix(name, "/") {
+		name += "/"
+	}
+	header := &zip.FileHeader{Name: name, Method: zip.Store}
+	header.SetMode(os.ModeDir | 0o755)
+	header.Modified = time.Now().UTC()
+	_, err := zw.CreateHeader(header)
+	return err
+}
+
 func fallback(value, other string) string {
 	if strings.TrimSpace(value) == "" {
 		return other
@@ -936,6 +1366,46 @@ const containerXML = `<?xml version="1.0"?>
     <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
   </rootfiles>
 </container>`
+
+const esjContainerXML = `<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+	<rootfiles>
+		<rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+	</rootfiles>
+</container>`
+
+const esjContentOPFTemplate = `<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="BookId" version="3.0">
+	<metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">
+		<dc:title>%s</dc:title>
+		<dc:identifier id="BookId">%s</dc:identifier>
+		<dc:language>zh-CN</dc:language>
+		<dc:creator>%s</dc:creator>
+		<dc:date>%s</dc:date>
+		%s
+	</metadata>
+	<manifest>
+		%s
+	</manifest>
+	<spine>
+		%s
+	</spine>
+</package>`
+
+const esjNavTemplate = `<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="zh">
+	<head>
+		<title>目录</title>
+	</head>
+	<body>
+		<nav epub:type="toc" id="toc">
+			<h1>目录</h1>
+			<ol>
+				%s
+			</ol>
+		</nav>
+	</body>
+</html>`
 
 const contentOPFTemplate = `<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="BookId" version="3.0">
