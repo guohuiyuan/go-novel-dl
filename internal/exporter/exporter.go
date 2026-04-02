@@ -599,9 +599,6 @@ func downloadAssetForESJ(rawURL, referer string) ([]byte, string, error) {
 }
 
 func compressImageForESJ(data []byte, mediaType string) ([]byte, string, error) {
-	if len(data) <= 100*1024 {
-		return data, normalizeImageMediaTypeForESJ(mediaType), nil
-	}
 	img, err := decodeRasterImage(data, normalizeImageMediaTypeForESJ(mediaType))
 	if err != nil {
 		return data, normalizeImageMediaTypeForESJ(mediaType), nil
@@ -630,7 +627,7 @@ func compressImageForESJ(data []byte, mediaType string) ([]byte, string, error) 
 	}
 	xdraw.ApproxBiLinear.Scale(canvas, canvas.Bounds(), img, bounds, xdraw.Over, nil)
 	var out bytes.Buffer
-	if err := jpeg.Encode(&out, canvas, &jpeg.Options{Quality: 70}); err != nil {
+	if err := jpeg.Encode(&out, canvas, &jpeg.Options{Quality: 69}); err != nil {
 		return data, normalizeImageMediaTypeForESJ(mediaType), nil
 	}
 	return out.Bytes(), "image/jpeg", nil

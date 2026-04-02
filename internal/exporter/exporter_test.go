@@ -119,7 +119,7 @@ func TestEPUBExportEmbedsChapterImages(t *testing.T) {
 	foundReference := false
 	for _, file := range r.File {
 		switch {
-		case strings.HasPrefix(file.Name, "OEBPS/img_0_0") && strings.HasSuffix(file.Name, ".png"):
+		case strings.HasPrefix(file.Name, "OEBPS/img_0_0") && strings.HasSuffix(file.Name, ".jpg"):
 			foundImage = true
 		case file.Name == "OEBPS/chap_1.xhtml":
 			rc, err := file.Open()
@@ -131,7 +131,7 @@ func TestEPUBExportEmbedsChapterImages(t *testing.T) {
 			if err != nil {
 				t.Fatalf("read chapter file: %v", err)
 			}
-			if strings.Contains(string(body), `img class="fr-fic fr-dib" src="img_0_0.png"`) {
+			if strings.Contains(string(body), `img class="fr-fic fr-dib" src="img_0_0.jpg"`) {
 				foundReference = true
 			}
 		}
@@ -144,7 +144,7 @@ func TestEPUBExportEmbedsChapterImages(t *testing.T) {
 	}
 }
 
-func TestEPUBExportKeepsWebPImagesForESJParity(t *testing.T) {
+func TestEPUBExportConvertsWebPImagesToJPEGForESJ(t *testing.T) {
 	webpBytes, err := base64.StdEncoding.DecodeString("UklGRjwAAABXRUJQVlA4IDAAAADQAQCdASoCAAIAAUAmJaACdLoB+AADsAD+8ut//NgVzXPv9//S4P0uD9Lg/9KQAAA=")
 	if err != nil {
 		t.Fatalf("decode webp fixture: %v", err)
@@ -186,10 +186,13 @@ func TestEPUBExportKeepsWebPImagesForESJParity(t *testing.T) {
 	}
 	defer r.Close()
 
+	foundJPG := false
 	foundWebP := false
 	foundReference := false
 	for _, file := range r.File {
 		switch {
+		case strings.HasPrefix(file.Name, "OEBPS/img_0_0") && strings.HasSuffix(file.Name, ".jpg"):
+			foundJPG = true
 		case strings.HasPrefix(file.Name, "OEBPS/img_0_0") && strings.HasSuffix(file.Name, ".webp"):
 			foundWebP = true
 		case file.Name == "OEBPS/chap_1.xhtml":
@@ -202,16 +205,19 @@ func TestEPUBExportKeepsWebPImagesForESJParity(t *testing.T) {
 			if err != nil {
 				t.Fatalf("read chapter file: %v", err)
 			}
-			if strings.Contains(string(body), `img class="fr-fic fr-dib" src="img_0_0.webp"`) {
+			if strings.Contains(string(body), `img class="fr-fic fr-dib" src="img_0_0.jpg"`) {
 				foundReference = true
 			}
 		}
 	}
-	if !foundWebP {
-		t.Fatalf("expected webp source to be kept as webp for ESJ userscript parity")
+	if !foundJPG {
+		t.Fatalf("expected webp source to be converted to jpg")
+	}
+	if foundWebP {
+		t.Fatalf("expected epub to avoid embedded webp resources")
 	}
 	if !foundReference {
-		t.Fatalf("expected chapter page to reference embedded webp image")
+		t.Fatalf("expected chapter page to reference embedded jpg image")
 	}
 }
 
