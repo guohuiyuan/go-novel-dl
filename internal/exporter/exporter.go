@@ -393,12 +393,15 @@ func buildEPUBContentLikeESJScript(book *model.Book) (*epubPackage, error) {
 		imageIndex := 0
 		images := make([]chapterImage, 0)
 		bodyParts := make([]string, 0, len(blocks))
+		hasTextParagraph := false
+		hasImageBlock := false
 		for _, block := range blocks {
 			if strings.TrimSpace(block.ImageURL) != "" {
 				imgName := fmt.Sprintf("img_%d_%d", idx, imageIndex)
 				images = append(images, chapterImage{url: strings.TrimSpace(block.ImageURL), fileName: imgName})
 				allImageURLs = append(allImageURLs, strings.TrimSpace(block.ImageURL))
-				bodyParts = append(bodyParts, fmt.Sprintf(`<p><img src="%s" style="max-width: 100%%;" /></p>`, imgName))
+				bodyParts = append(bodyParts, fmt.Sprintf(`<p><img class="fr-fic fr-dib" src="%s" style="max-width: 100%%;" /></p>`, imgName))
+				hasImageBlock = true
 				imageIndex++
 				continue
 			}
@@ -411,15 +414,24 @@ func buildEPUBContentLikeESJScript(book *model.Book) (*epubPackage, error) {
 				lines[i] = escapeHTML(lines[i])
 			}
 			bodyParts = append(bodyParts, "<p>"+strings.Join(lines, "<br />")+"</p>")
+			hasTextParagraph = true
 		}
-		chapterXHTML := fmt.Sprintf(`<?xml version="1.0" encoding="utf-8"?>
-            <html xmlns="http://www.w3.org/1999/xhtml">
-              <head><title>%s</title></head>
-              <body>
-                <h2>%s</h2>
-                <div>%s</div>
-              </body>
-            </html>`, escapeHTML(title), escapeHTML(title), strings.Join(bodyParts, "\n"))
+		if hasImageBlock && !hasTextParagraph {
+			bodyParts = append(bodyParts, "<p><br /></p>                                  ")
+		}
+		chapterXHTML := fmt.Sprintf(
+			"<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"+
+				"            <html xmlns=\"http://www.w3.org/1999/xhtml\">\n"+
+				"              <head><title>%s</title></head>\n"+
+				"              <body>\n"+
+				"                <h2>%s</h2>\n"+
+				"                <div>%s</div>\n"+
+				"              </body>\n"+
+				"            </html>",
+			escapeHTML(title),
+			escapeHTML(title),
+			strings.Join(bodyParts, "\n"),
+		)
 		chapterBuilds = append(chapterBuilds, chapterBuild{title: title, name: fileName, body: chapterXHTML, images: images})
 	}
 
@@ -514,7 +526,7 @@ func buildEPUBContentLikeESJScript(book *model.Book) (*epubPackage, error) {
 	}
 	manifestItems = append(manifestItems, `<item id="nav" href="nav.xhtml" properties="nav" media-type="application/xhtml+xml"/>`)
 
-	nav := fmt.Sprintf(esjNavTemplate, strings.Join(navPoints, "\n"))
+	nav := fmt.Sprintf(esjNavTemplate, strings.Join(navPoints, ""))
 	coverMeta := ""
 	for _, item := range manifestItems {
 		if strings.Contains(item, `id="cover-image"`) {
@@ -1374,38 +1386,32 @@ const esjContainerXML = `<?xml version="1.0"?>
 	</rootfiles>
 </container>`
 
-const esjContentOPFTemplate = `<?xml version="1.0" encoding="utf-8"?>
-<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="BookId" version="3.0">
-	<metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">
-		<dc:title>%s</dc:title>
-		<dc:identifier id="BookId">%s</dc:identifier>
-		<dc:language>zh-CN</dc:language>
-		<dc:creator>%s</dc:creator>
-		<dc:date>%s</dc:date>
-		%s
-	</metadata>
-	<manifest>
-		%s
-	</manifest>
-	<spine>
-		%s
-	</spine>
-</package>`
+const esjContentOPFTemplate = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n" +
+	"        <package xmlns=\"http://www.idpf.org/2007/opf\" unique-identifier=\"BookId\" version=\"3.0\">\n" +
+	"          <metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:opf=\"http://www.idpf.org/2007/opf\">\n" +
+	"            <dc:title>%s</dc:title>\n" +
+	"            <dc:language>zh-CN</dc:language>\n" +
+	"            <dc:identifier id=\"BookId\">%s</dc:identifier>\n" +
+	"            <dc:creator>%s</dc:creator>\n" +
+	"            <dc:date>%s</dc:date>\n" +
+	"            %s\n" +
+	"          </metadata>\n" +
+	"          <manifest>\n" +
+	"            %s\n" +
+	"          </manifest>\n" +
+	"          <spine>\n" +
+	"            %s\n" +
+	"          </spine>\n" +
+	"        </package>"
 
 const esjNavTemplate = `<?xml version="1.0" encoding="utf-8"?>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="zh">
-	<head>
-		<title>目录</title>
-	</head>
-	<body>
-		<nav epub:type="toc" id="toc">
-			<h1>目录</h1>
-			<ol>
-				%s
-			</ol>
-		</nav>
-	</body>
-</html>`
+        <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="zh">
+          <head><title>目录</title></head>
+          <body>
+            <nav epub:type="toc" id="toc">
+              <h1>目录</h1>
+              <ol>
+        %s</ol></nav></body></html>`
 
 const contentOPFTemplate = `<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="BookId" version="3.0">

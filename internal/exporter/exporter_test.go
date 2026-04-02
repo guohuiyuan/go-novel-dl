@@ -131,7 +131,7 @@ func TestEPUBExportEmbedsChapterImages(t *testing.T) {
 			if err != nil {
 				t.Fatalf("read chapter file: %v", err)
 			}
-			if strings.Contains(string(body), `img src="img_0_0.png"`) {
+			if strings.Contains(string(body), `img class="fr-fic fr-dib" src="img_0_0.png"`) {
 				foundReference = true
 			}
 		}
@@ -202,7 +202,7 @@ func TestEPUBExportKeepsWebPImagesForESJParity(t *testing.T) {
 			if err != nil {
 				t.Fatalf("read chapter file: %v", err)
 			}
-			if strings.Contains(string(body), `img src="img_0_0.webp"`) {
+			if strings.Contains(string(body), `img class="fr-fic fr-dib" src="img_0_0.webp"`) {
 				foundReference = true
 			}
 		}
