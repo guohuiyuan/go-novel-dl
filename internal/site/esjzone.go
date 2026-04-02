@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -322,20 +323,24 @@ func (s *ESJZoneSite) fetchSearchFromAnyHost(ctx context.Context, encodedKeyword
 	for _, host := range hosts {
 		host := host
 		go func() {
+			started := time.Now().UTC()
 			hostCtx, hostCancel := context.WithTimeout(ctx, s.perHostTimeout(8*time.Second))
 			defer hostCancel()
 			pageURL := host + "/tags/" + encodedKeyword + "/"
 			markup, err := s.html.Get(hostCtx, pageURL)
 			if err != nil {
+				s.logMirrorEvent("search", host, pageURL, started, "error", err.Error())
 				ch <- result{err: err}
 				return
 			}
 			items, err := s.parseSearchPage(markup, host)
 			if err != nil {
+				s.logMirrorEvent("search", host, pageURL, started, "error", err.Error())
 				ch <- result{err: err}
 				return
 			}
 			s.rememberWorkingHost(pageURL)
+			s.logMirrorEvent("search", host, pageURL, started, "ok", fmt.Sprintf("results=%d", len(items)))
 			ch <- result{items: items}
 		}()
 	}
@@ -372,11 +377,13 @@ func (s *ESJZoneSite) fetchBookPageFromAnyHost(ctx context.Context, bookID strin
 	for _, host := range hosts {
 		host := host
 		go func() {
+			started := time.Now().UTC()
 			hostCtx, hostCancel := context.WithTimeout(ctx, s.perHostTimeout(10*time.Second))
 			defer hostCancel()
 			pageURL := host + "/detail/" + bookID + ".html"
 			markup, err := s.html.Get(hostCtx, pageURL)
 			if err != nil {
+				s.logMirrorEvent("download.book", host, pageURL, started, "error", err.Error())
 				ch <- result{err: err}
 				return
 			}
@@ -385,16 +392,19 @@ func (s *ESJZoneSite) fetchBookPageFromAnyHost(ctx context.Context, bookID strin
 				defer rCancel()
 				markup, err = s.html.Get(rCtx, redirected)
 				if err != nil {
+					s.logMirrorEvent("download.book", host, redirected, started, "error", err.Error())
 					ch <- result{err: err}
 					return
 				}
 				pageURL = redirected
 			}
 			if !strings.Contains(markup, "<div id=\"chapterList\"") && !strings.Contains(markup, `<div id="chapterList">`) {
+				s.logMirrorEvent("download.book", host, pageURL, started, "error", "chapter list not found")
 				ch <- result{err: fmt.Errorf("book page not found on %s", host)}
 				return
 			}
 			s.rememberWorkingHost(pageURL)
+			s.logMirrorEvent("download.book", host, pageURL, started, "ok", "book page ready")
 			ch <- result{markup: markup, url: pageURL}
 		}()
 	}
@@ -430,11 +440,13 @@ func (s *ESJZoneSite) fetchChapterFromAnyHost(ctx context.Context, bookID, chapt
 	for _, host := range hosts {
 		host := host
 		go func() {
+			started := time.Now().UTC()
 			hostCtx, hostCancel := context.WithTimeout(ctx, s.perHostTimeout(10*time.Second))
 			defer hostCancel()
 			pageURL := host + "/forum/" + bookID + "/" + chapterID + ".html"
 			markup, err := s.html.Get(hostCtx, pageURL)
 			if err != nil {
+				s.logMirrorEvent("download.chapter", host, pageURL, started, "error", err.Error())
 				ch <- result{err: err}
 				return
 			}
@@ -443,6 +455,7 @@ func (s *ESJZoneSite) fetchChapterFromAnyHost(ctx context.Context, bookID, chapt
 				defer rCancel()
 				markup, err = s.html.Get(rCtx, redirected)
 				if err != nil {
+					s.logMirrorEvent("download.chapter", host, redirected, started, "error", err.Error())
 					ch <- result{err: err}
 					return
 				}
@@ -460,11 +473,13 @@ func (s *ESJZoneSite) fetchChapterFromAnyHost(ctx context.Context, bookID, chapt
 					}
 				}
 				if err != nil {
+					s.logMirrorEvent("download.chapter", host, pageURL, started, "error", err.Error())
 					ch <- result{err: err}
 					return
 				}
 			}
 			s.rememberWorkingHost(pageURL)
+			s.logMirrorEvent("download.chapter", host, pageURL, started, "ok", fmt.Sprintf("book=%s chapter=%s content_len=%d", bookID, chapterID, len(content)))
 			ch <- result{content: content}
 		}()
 	}
@@ -529,6 +544,11 @@ func (s *ESJZoneSite) getWorkingHost() string {
 	s.hostMu.RLock()
 	defer s.hostMu.RUnlock()
 	return s.workingHost
+}
+
+func (s *ESJZoneSite) logMirrorEvent(stage, host, target string, started time.Time, status, detail string) {
+	elapsed := time.Since(started)
+	log.Printf("[esjzone][mirror][%s] status=%s host=%s elapsed=%s target=%s detail=%s", stage, status, strings.TrimSpace(host), elapsed.Truncate(time.Millisecond).String(), strings.TrimSpace(target), strings.TrimSpace(detail))
 }
 
 func (s *ESJZoneSite) ensureLogin(ctx context.Context) error {

@@ -41,8 +41,6 @@ type epubAsset struct {
 type epubPackage struct {
 	OPF          string
 	Nav          string
-	NCX          string
-	CoverPage    string
 	ChapterFiles map[string]string
 	Assets       []*epubAsset
 }
@@ -232,15 +230,7 @@ func renderEPUB(path string, book *model.Book) error {
 		_ = zw.Close()
 		return err
 	}
-	if err := writeZipFile(zw, "OEBPS/toc.ncx", []byte(pkg.NCX)); err != nil {
-		_ = zw.Close()
-		return err
-	}
 	if err := writeZipFile(zw, "OEBPS/styles.css", []byte(defaultEPUBCSS)); err != nil {
-		_ = zw.Close()
-		return err
-	}
-	if err := writeZipFile(zw, "OEBPS/cover.xhtml", []byte(pkg.CoverPage)); err != nil {
 		_ = zw.Close()
 		return err
 	}
@@ -263,13 +253,10 @@ func buildEPUBContent(book *model.Book) (*epubPackage, error) {
 	fetcher := newEPUBAssetFetcher(book)
 	manifestItems := []string{
 		`<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>`,
-		`<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>`,
 		`<item id="css" href="styles.css" media-type="text/css"/>`,
-		`<item id="cover" href="cover.xhtml" media-type="application/xhtml+xml"/>`,
 	}
-	spineItems := []string{`<itemref idref="cover"/>`}
-	navPoints := []string{`<li><a href="cover.xhtml">Cover</a></li>`}
-	ncxPoints := []string{`<navPoint id="nav-cover" playOrder="1"><navLabel><text>Cover</text></navLabel><content src="cover.xhtml"/></navPoint>`}
+	spineItems := make([]string, 0, len(book.Chapters))
+	navPoints := make([]string, 0, len(book.Chapters))
 	chapterFiles := make(map[string]string, len(book.Chapters))
 	chapterBlocksByFile := make(map[string][]chapterBlock, len(book.Chapters))
 	chapterByFile := make(map[string]model.Chapter, len(book.Chapters))
@@ -303,7 +290,6 @@ func buildEPUBContent(book *model.Book) (*epubPackage, error) {
 		manifestItems = append(manifestItems, fmt.Sprintf(`<item id="%s" href="%s" media-type="application/xhtml+xml"/>`, itemID, fileName))
 		spineItems = append(spineItems, fmt.Sprintf(`<itemref idref="%s"/>`, itemID))
 		navPoints = append(navPoints, fmt.Sprintf(`<li><a href="%s">%s</a></li>`, fileName, escapeHTML(chapter.Title)))
-		ncxPoints = append(ncxPoints, fmt.Sprintf(`<navPoint id="nav-%03d" playOrder="%d"><navLabel><text>%s</text></navLabel><content src="%s"/></navPoint>`, idx+1, idx+2, escapeHTML(chapter.Title), fileName))
 	}
 
 	fetcher.PrefetchImages(imageURLs, 6)
@@ -328,18 +314,16 @@ func buildEPUBContent(book *model.Book) (*epubPackage, error) {
 		bookUUID,
 		escapeHTML(fallback(book.Title, book.ID)),
 		escapeHTML(fallback(book.Author, "unknown")),
+		time.Now().UTC().Format(time.RFC3339),
 		coverMeta,
 		strings.Join(manifestItems, "\n    "),
 		strings.Join(spineItems, "\n    "),
 	)
 	navTitle := escapeHTML(fallback(book.Title, book.ID))
 	nav := fmt.Sprintf(navTemplate, navTitle, navTitle, strings.Join(navPoints, "\n      "))
-	ncx := fmt.Sprintf(ncxTemplate, "urn:uuid:"+bookUUID, navTitle, strings.Join(ncxPoints, "\n    "))
 	return &epubPackage{
 		OPF:          opf,
 		Nav:          nav,
-		NCX:          ncx,
-		CoverPage:    buildCoverPage(fallback(book.Title, book.ID), book.Author, book.Description, coverImageHref),
 		ChapterFiles: chapterFiles,
 		Assets:       fetcher.Assets(),
 	}, nil
@@ -960,17 +944,15 @@ const contentOPFTemplate = `<?xml version="1.0" encoding="utf-8"?>
     <dc:title>%s</dc:title>
     <dc:creator>%s</dc:creator>
     <dc:language>zh-CN</dc:language>
+		<dc:date>%s</dc:date>
 		%s
   </metadata>
   <manifest>
     %s
   </manifest>
-  <spine toc="ncx">
+	<spine>
     %s
   </spine>
-	<guide>
-		<reference type="cover" title="Cover" href="cover.xhtml"/>
-	</guide>
 </package>`
 
 const navTemplate = `<?xml version="1.0" encoding="utf-8"?>

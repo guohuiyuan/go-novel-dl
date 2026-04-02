@@ -63,20 +63,13 @@ func TestEPUBExportCreatesValidArchive(t *testing.T) {
 	}
 
 	foundNav := false
-	foundNCX := false
 	for _, file := range r.File {
 		if file.Name == "OEBPS/nav.xhtml" {
 			foundNav = true
 		}
-		if file.Name == "OEBPS/toc.ncx" {
-			foundNCX = true
-		}
 	}
 	if !foundNav {
 		t.Fatalf("nav.xhtml not found in epub")
-	}
-	if !foundNCX {
-		t.Fatalf("toc.ncx not found in epub")
 	}
 
 	if _, err := os.Stat(filepath.Dir(paths[0])); err != nil {
