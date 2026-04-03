@@ -212,12 +212,13 @@ func normalizeTXTChapterContent(content string) string {
 		if len(cleanedLines) == 0 {
 			continue
 		}
+		cleanedLines[0] = "    " + cleanedLines[0]
 		parts = append(parts, strings.Join(cleanedLines, "\n"))
 	}
 	if len(parts) == 0 {
 		return strings.TrimSpace(strings.ReplaceAll(content, "\r\n", "\n"))
 	}
-	return strings.Join(parts, "\n\n")
+	return strings.Join(parts, "\n\n\n")
 }
 
 func renderHTML(book *model.Book) []byte {
@@ -451,13 +452,14 @@ func buildEPUBContentLikeESJScript(book *model.Book) (*epubPackage, error) {
 		chapterXHTML := fmt.Sprintf(
 			"<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"+
 				"            <html xmlns=\"http://www.w3.org/1999/xhtml\">\n"+
-				"              <head><title>%s</title></head>\n"+
+				"              <head><title>%s</title><style>%s</style></head>\n"+
 				"              <body>\n"+
 				"                <h2>%s</h2>\n"+
 				"                <div>%s</div>\n"+
 				"              </body>\n"+
 				"            </html>",
 			escapeHTML(title),
+			esjEPUBParagraphCSS,
 			escapeHTML(title),
 			strings.Join(bodyParts, "\n"),
 		)
@@ -855,7 +857,10 @@ func buildEPUBParagraphHTML(paragraph string) string {
 	if len(escaped) == 0 {
 		return ""
 	}
-	return "<p>" + strings.Join(escaped, "<br />") + "</p>"
+	if len(escaped[0]) > 0 {
+		escaped[0] = "&nbsp;&nbsp;&nbsp;&nbsp;" + escaped[0]
+	}
+	return "<p class=\"novel-paragraph\">" + strings.Join(escaped, "<br />") + "</p>"
 }
 
 func parseChapterBlocks(content string) []chapterBlock {
@@ -1506,4 +1511,6 @@ const ncxTemplate = `<?xml version="1.0" encoding="utf-8"?>
   </navMap>
 </ncx>`
 
-const defaultEPUBCSS = `body{font-family:Georgia,serif;line-height:1.8;margin:5%;}h1,h2{line-height:1.3;}article{page-break-after:always;}p{margin:0.75em 0;text-indent:2em;}.cover{margin-top:12%;text-align:center;}.cover-art,.illustration{margin:1.5em auto;text-align:center;text-indent:0;}.cover-art img,.illustration img{height:auto;max-width:100%;}.cover-art img{max-height:70vh;}.author{font-style:italic;}`
+const esjEPUBParagraphCSS = `.novel-paragraph{margin:0;line-height:1.8;text-indent:2em;}.novel-paragraph + .novel-paragraph{margin-top:3.6em;}`
+
+const defaultEPUBCSS = `body{font-family:Georgia,serif;line-height:1.8;margin:5%;}h1,h2{line-height:1.3;}article{page-break-after:always;}.novel-paragraph{margin:0;text-indent:2em;}.novel-paragraph + .novel-paragraph{margin-top:3.6em;}.cover{margin-top:12%;text-align:center;}.cover-art,.illustration{margin:1.5em auto;text-align:center;text-indent:0;}.cover-art img,.illustration img{height:auto;max-width:100%;}.cover-art img{max-height:70vh;}.author{font-style:italic;}`

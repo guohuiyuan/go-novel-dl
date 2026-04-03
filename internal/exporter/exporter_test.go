@@ -312,10 +312,10 @@ func TestEPUBExportPreservesParagraphBreaksForAllSites(t *testing.T) {
 			t.Fatalf("read chapter file: %v", err)
 		}
 		text := string(body)
-		if !strings.Contains(text, "<p>第一段第一行<br />第一段第二行</p>") {
+		if !strings.Contains(text, "<p class=\"novel-paragraph\">&nbsp;&nbsp;&nbsp;&nbsp;第一段第一行<br />第一段第二行</p>") {
 			t.Fatalf("expected first paragraph line breaks to be preserved, got: %s", text)
 		}
-		if !strings.Contains(text, "<p>第二段内容</p>") {
+		if !strings.Contains(text, "<p class=\"novel-paragraph\">&nbsp;&nbsp;&nbsp;&nbsp;第二段内容</p>") {
 			t.Fatalf("expected second paragraph to render as standalone block, got: %s", text)
 		}
 	}
@@ -357,7 +357,7 @@ func TestTXTExportPreservesReasonableParagraphSpacing(t *testing.T) {
 	}
 	text := string(raw)
 
-	wantFragment := "# Chapter 1\n\n第一段第一行\n第一段第二行\n\n[图片] https://img.example/a.jpg\n\n第二段内容"
+	wantFragment := "# Chapter 1\n\n    第一段第一行\n第一段第二行\n\n\n[图片] https://img.example/a.jpg\n\n\n    第二段内容"
 	if !strings.Contains(text, wantFragment) {
 		t.Fatalf("unexpected txt layout, got: %s", text)
 	}
