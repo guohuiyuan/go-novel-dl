@@ -259,7 +259,7 @@ func (s *N8NovelSite) Search(ctx context.Context, keyword string, limit int) ([]
 func (s *N8NovelSite) getWithRetry(ctx context.Context, rawURL string) (string, error) {
 	var lastErr error
 	for attempt := 0; attempt < 4; attempt++ {
-		markup, err := s.html.Get(ctx, rawURL)
+		markup, err := s.getOnce(ctx, rawURL)
 		if err == nil {
 			return markup, nil
 		}
@@ -275,6 +275,50 @@ func (s *N8NovelSite) getWithRetry(ctx context.Context, rawURL string) (string, 
 		}
 	}
 	return "", lastErr
+}
+
+func (s *N8NovelSite) getOnce(ctx context.Context, rawURL string) (string, error) {
+	markup, err := s.html.Get(ctx, rawURL)
+	if err == nil || !isN8novel403(err) {
+		return markup, err
+	}
+
+	_ = s.primeN8novelCookies(ctx)
+	headers := n8novelHeadersForURL(rawURL)
+	return s.html.GetWithHeaders(ctx, rawURL, headers)
+}
+
+func (s *N8NovelSite) primeN8novelCookies(ctx context.Context) error {
+	_, err := s.html.GetWithHeaders(ctx, "https://www.8novel.com/", map[string]string{
+		"Referer": "https://www.8novel.com/",
+		"Origin":  "https://www.8novel.com",
+	})
+	return err
+}
+
+func n8novelHeadersForURL(rawURL string) map[string]string {
+	headers := map[string]string{
+		"Referer": "https://www.8novel.com/",
+		"Origin":  "https://www.8novel.com",
+	}
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || parsed == nil {
+		return headers
+	}
+	host := strings.ToLower(strings.TrimPrefix(parsed.Host, "www."))
+	if host == "article.8novel.com" {
+		headers["Referer"] = "https://article.8novel.com/"
+		headers["Origin"] = "https://article.8novel.com"
+	}
+	return headers
+}
+
+func isN8novel403(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(strings.TrimSpace(err.Error()))
+	return strings.Contains(msg, "http 403")
 }
 
 func parseN8novelSearchResults(markup string, limit int) ([]model.SearchResult, error) {
