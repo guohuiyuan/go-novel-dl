@@ -405,16 +405,10 @@ func buildEPUBContentLikeESJScript(book *model.Book) (*epubPackage, error) {
 				imageIndex++
 				continue
 			}
-			paragraph := strings.TrimSpace(block.Paragraph)
-			if paragraph == "" {
-				continue
+			if paragraphHTML := buildEPUBParagraphHTML(block.Paragraph); paragraphHTML != "" {
+				bodyParts = append(bodyParts, paragraphHTML)
+				hasTextParagraph = true
 			}
-			lines := strings.Split(paragraph, "\n")
-			for i := range lines {
-				lines[i] = escapeHTML(lines[i])
-			}
-			bodyParts = append(bodyParts, "<p>"+strings.Join(lines, "<br />")+"</p>")
-			hasTextParagraph = true
 		}
 		if hasImageBlock && !hasTextParagraph {
 			bodyParts = append(bodyParts, "<p><br /></p>                                  ")
@@ -789,7 +783,9 @@ func buildChapterPageWithBlocks(bookTitle string, chapter model.Chapter, blocks 
 	body := make([]string, 0, len(blocks))
 	for _, block := range blocks {
 		if block.ImageURL == "" {
-			body = append(body, "<p>"+escapeHTML(strings.ReplaceAll(block.Paragraph, "\n", " "))+"</p>")
+			if paragraphHTML := buildEPUBParagraphHTML(block.Paragraph); paragraphHTML != "" {
+				body = append(body, paragraphHTML)
+			}
 			continue
 		}
 		asset, err := fetcher.ResolveImage(block.ImageURL)
@@ -805,6 +801,26 @@ func buildChapterPageWithBlocks(bookTitle string, chapter model.Chapter, blocks 
 <head><title>%s - %s</title><link rel="stylesheet" type="text/css" href="styles.css"/></head>
 <body><article><h2>%s</h2>%s</article></body>
 </html>`, escapeHTML(bookTitle), escapeHTML(chapter.Title), escapeHTML(chapter.Title), strings.Join(body, ""))
+}
+
+func buildEPUBParagraphHTML(paragraph string) string {
+	paragraph = strings.TrimSpace(strings.ReplaceAll(paragraph, "\r\n", "\n"))
+	if paragraph == "" {
+		return ""
+	}
+	lines := strings.Split(paragraph, "\n")
+	escaped := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		escaped = append(escaped, escapeHTML(line))
+	}
+	if len(escaped) == 0 {
+		return ""
+	}
+	return "<p>" + strings.Join(escaped, "<br />") + "</p>"
 }
 
 func parseChapterBlocks(content string) []chapterBlock {
@@ -1455,4 +1471,4 @@ const ncxTemplate = `<?xml version="1.0" encoding="utf-8"?>
   </navMap>
 </ncx>`
 
-const defaultEPUBCSS = `body{font-family:Georgia,serif;line-height:1.8;margin:5%%;}h1,h2{line-height:1.3;}article{page-break-after:always;}p{text-indent:2em;}.cover{margin-top:12%%;text-align:center;}.cover-art,.illustration{margin:1.5em auto;text-align:center;text-indent:0;}.cover-art img,.illustration img{height:auto;max-width:100%%;}.cover-art img{max-height:70vh;}.author{font-style:italic;}`
+const defaultEPUBCSS = `body{font-family:Georgia,serif;line-height:1.8;margin:5%;}h1,h2{line-height:1.3;}article{page-break-after:always;}p{margin:0.75em 0;text-indent:2em;}.cover{margin-top:12%;text-align:center;}.cover-art,.illustration{margin:1.5em auto;text-align:center;text-indent:0;}.cover-art img,.illustration img{height:auto;max-width:100%;}.cover-art img{max-height:70vh;}.author{font-style:italic;}`

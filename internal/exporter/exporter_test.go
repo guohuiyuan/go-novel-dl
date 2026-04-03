@@ -268,3 +268,59 @@ func TestEPUBExportZipEntriesHaveValidModifiedTime(t *testing.T) {
 		}
 	}
 }
+
+func TestEPUBExportPreservesParagraphBreaksForAllSites(t *testing.T) {
+	service := New()
+	book := &model.Book{
+		Site:         "linovelib",
+		ID:           "paragraph-check-1",
+		Title:        "Paragraph Test",
+		Author:       "Tester",
+		DownloadedAt: time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
+		Chapters: []model.Chapter{{
+			ID:      "1",
+			Title:   "Chapter 1",
+			Content: "第一段第一行\n第一段第二行\n\n第二段内容",
+		}},
+	}
+
+	paths, err := service.Export(book, "linovelib", config.DefaultConfig().General.Output, t.TempDir(), []string{"epub"})
+	if err != nil {
+		t.Fatalf("export epub: %v", err)
+	}
+
+	r, err := zip.OpenReader(paths[0])
+	if err != nil {
+		t.Fatalf("open epub zip: %v", err)
+	}
+	defer r.Close()
+
+	chapterFound := false
+	for _, file := range r.File {
+		if file.Name != "OEBPS/chapter-001.xhtml" {
+			continue
+		}
+		chapterFound = true
+		rc, err := file.Open()
+		if err != nil {
+			t.Fatalf("open chapter file: %v", err)
+		}
+		body, err := io.ReadAll(rc)
+		rc.Close()
+		if err != nil {
+			t.Fatalf("read chapter file: %v", err)
+		}
+		text := string(body)
+		if !strings.Contains(text, "<p>第一段第一行<br />第一段第二行</p>") {
+			t.Fatalf("expected first paragraph line breaks to be preserved, got: %s", text)
+		}
+		if !strings.Contains(text, "<p>第二段内容</p>") {
+			t.Fatalf("expected second paragraph to render as standalone block, got: %s", text)
+		}
+	}
+
+	if !chapterFound {
+		t.Fatalf("chapter-001.xhtml not found in epub")
+	}
+}
