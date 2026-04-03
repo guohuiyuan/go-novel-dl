@@ -144,6 +144,10 @@ func DefaultConfig() Config {
 			"ciweimao": {
 				BookIDs: []model.BookRef{{BookID: "100011781"}},
 			},
+			"n8novel": {
+				BookIDs:     []model.BookRef{{BookID: "3365"}},
+				LocaleStyle: "simplified",
+			},
 		},
 		Plugins: PluginsConfig{
 			EnableLocalPlugins: false,

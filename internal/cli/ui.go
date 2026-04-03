@@ -113,7 +113,7 @@ func StartInteractiveUI(ctx context.Context, configPath string, initialKeyword s
 		sites:         normalizeSites(sites),
 		chapterCounts: make(map[string]int),
 		selected:      make(map[int]struct{}),
-		status:        "按回车开始搜索，默认直接使用当前 Web 的 9 个渠道。",
+		status:        "按回车开始搜索，默认使用当前 Web 的默认渠道。",
 		pageSize:      pageSize,
 	}
 
@@ -547,7 +547,7 @@ func (m interactiveModel) scopeLabel() string {
 	if len(m.sites) > 0 {
 		return strings.Join(m.sites, ", ")
 	}
-	return fmt.Sprintf("固定 9 个渠道 (%d)", len(interactiveSites(m.runtime)))
+	return fmt.Sprintf("固定默认渠道 (%d)", len(interactiveSites(m.runtime)))
 }
 
 func (m interactiveModel) currentPage() int {

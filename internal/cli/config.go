@@ -49,6 +49,9 @@ func newConfigSitesCmd() *cobra.Command {
 				if len(item.MirrorHosts) > 0 {
 					fields = append(fields, "mirror_hosts")
 				}
+				if strings.TrimSpace(item.LocaleStyle) != "" {
+					fields = append(fields, "locale_style="+strings.TrimSpace(item.LocaleStyle))
+				}
 				if len(fields) == 0 {
 					fields = append(fields, "none")
 				}
@@ -76,6 +79,7 @@ func newConfigSiteSetCmd() *cobra.Command {
 		setWorkers    bool
 		fetchImages   bool
 		setImages     bool
+		localeStyle   string
 		username      string
 		password      string
 		cookie        string
@@ -116,6 +120,10 @@ func newConfigSiteSetCmd() *cobra.Command {
 			if setImages {
 				update.FetchImages = &fetchImages
 			}
+			if cmd.Flags().Changed("locale-style") {
+				value := strings.TrimSpace(localeStyle)
+				update.LocaleStyle = &value
+			}
 			if cmd.Flags().Changed("username") {
 				value := username
 				update.Username = &value
@@ -137,7 +145,7 @@ func newConfigSiteSetCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			console.Successf("Updated %s: login_required=%v workers=%d fetch_images=%v username=%q mirrors=%d cookie=%v password=%v", item.Key, item.LoginRequired, item.WorkerLimit, item.FetchImages, item.Username, len(item.MirrorHosts), item.Cookie != "", item.Password != "")
+			console.Successf("Updated %s: login_required=%v workers=%d fetch_images=%v locale_style=%q username=%q mirrors=%d cookie=%v password=%v", item.Key, item.LoginRequired, item.WorkerLimit, item.FetchImages, item.LocaleStyle, item.Username, len(item.MirrorHosts), item.Cookie != "", item.Password != "")
 			return nil
 		},
 	}
@@ -146,6 +154,7 @@ func newConfigSiteSetCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&loginRequired, "login-required", false, "Whether this site requires login")
 	cmd.Flags().IntVar(&workerLimit, "workers", 0, "Per-site chapter download worker limit (0 means fallback)")
 	cmd.Flags().BoolVar(&fetchImages, "fetch-images", true, "Whether to keep/fetch images in chapter content")
+	cmd.Flags().StringVar(&localeStyle, "locale-style", "", "Locale style for this site: original/traditional/simplified")
 	cmd.Flags().StringVar(&username, "username", "", "Username for site login")
 	cmd.Flags().StringVar(&password, "password", "", "Password for site login")
 	cmd.Flags().StringVar(&cookie, "cookie", "", "Cookie header for site requests")

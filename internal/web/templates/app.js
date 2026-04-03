@@ -152,6 +152,7 @@ const siteConfigKeyNode = document.getElementById("siteConfigKey");
 const siteLoginRequiredNode = document.getElementById("siteLoginRequired");
 const siteWorkerLimitNode = document.getElementById("siteWorkerLimit");
 const siteFetchImagesNode = document.getElementById("siteFetchImages");
+const siteLocaleStyleNode = document.getElementById("siteLocaleStyle");
 const siteUsernameNode = document.getElementById("siteUsername");
 const sitePasswordNode = document.getElementById("sitePassword");
 const toggleSitePasswordButton = document.getElementById("toggleSitePassword");
@@ -825,6 +826,7 @@ function populateSiteConfigForm(siteKey) {
   siteLoginRequiredNode.checked = Boolean(item.login_required);
   setRangeVal("siteWorkerLimit", item.worker_limit || 0);
   siteFetchImagesNode.checked = item.fetch_images !== false;
+  siteLocaleStyleNode.value = (item.locale_style || "").trim();
   siteUsernameNode.value = item.username || "";
   sitePasswordNode.value = item.password || "";
   sitePasswordNode.type = "password";
@@ -913,6 +915,7 @@ async function saveSiteConfig() {
     login_required: siteLoginRequiredNode.checked,
     worker_limit: Math.max(0, Number.parseInt(siteWorkerLimitNode.value || "0", 10) || 0),
     fetch_images: siteFetchImagesNode.checked,
+    locale_style: siteLocaleStyleNode.value.trim(),
     username: siteUsernameNode.value.trim(),
     password: sitePasswordNode.value.trim(),
     cookie: siteCookieNode.value.trim(),

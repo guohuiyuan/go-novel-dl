@@ -35,7 +35,7 @@ func NewRootCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&configPath, "config", "", "配置文件路径")
-	cmd.Flags().StringSliceVarP(&sites, "site", "s", nil, "只在指定渠道中搜索；默认直接使用当前 Web 的 9 个渠道")
+	cmd.Flags().StringSliceVarP(&sites, "site", "s", nil, "只在指定渠道中搜索；默认使用当前 Web 的默认渠道")
 
 	cmd.AddCommand(
 		newDownloadCmd(),

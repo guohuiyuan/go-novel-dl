@@ -109,7 +109,7 @@ func newSearchCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringSliceVarP(&sites, "site", "s", nil, "只搜索指定渠道；默认直接使用当前 Web 的 9 个渠道")
+	cmd.Flags().StringSliceVarP(&sites, "site", "s", nil, "只搜索指定渠道；默认使用当前 Web 的默认渠道")
 	cmd.Flags().StringVar(&configPath, "config", "", "配置文件路径")
 	cmd.Flags().IntVarP(&limit, "limit", "l", defaultSearchResultLimit, "总结果数上限")
 	cmd.Flags().IntVar(&siteLimit, "site-limit", defaultCLISearchPageSize, "单渠道结果数上限")

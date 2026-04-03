@@ -69,7 +69,7 @@ func NewDefaultRegistry() *Registry {
 	registry := NewRegistry()
 	// Disabled: connection issues
 	registry.Register("esjzone", func(cfg config.ResolvedSiteConfig) Site {
-	        return NewESJZoneSite(cfg)
+		return NewESJZoneSite(cfg)
 	})
 	// registry.Register("westnovel", func(cfg config.ResolvedSiteConfig) Site {
 	// 	return NewWestNovelSite(cfg)
@@ -141,6 +141,9 @@ func NewDefaultRegistry() *Registry {
 	// })
 	registry.Register("ciweimao", func(cfg config.ResolvedSiteConfig) Site {
 		return NewCiweimaoSite(cfg)
+	})
+	registry.Register("n8novel", func(cfg config.ResolvedSiteConfig) Site {
+		return NewN8NovelSite(cfg)
 	})
 	return registry
 }

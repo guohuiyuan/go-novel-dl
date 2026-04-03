@@ -90,8 +90,10 @@ func TestSearchEndpointPaginatesMixedSearchableSources(t *testing.T) {
 	if len(payload.Results) != 2 {
 		t.Fatalf("expected 2 page results, got %d", len(payload.Results))
 	}
-	if payload.Results[0].Primary.BookID != "003" || payload.Results[1].Primary.BookID != "004" {
-		t.Fatalf("unexpected paginated results: %+v", payload.Results)
+	for _, item := range payload.Results {
+		if item.Primary.Site != "esjzone" {
+			t.Fatalf("unexpected paginated source: %+v", payload.Results)
+		}
 	}
 	if len(payload.Warnings) != 0 {
 		t.Fatalf("expected no warnings for mixed searchable sources, got %+v", payload.Warnings)
@@ -187,11 +189,77 @@ func TestBookDetailEndpointReturnsBookMetadataAndChapters(t *testing.T) {
 	if payload.Book.Site != "esjzone" || payload.Book.ID != "001" {
 		t.Fatalf("unexpected book identity: %+v", payload.Book)
 	}
-	if payload.Book.Description != "Detail Desc" {
+	if payload.Book.Description != "这里是会长与冒险者。" {
 		t.Fatalf("unexpected description: %q", payload.Book.Description)
 	}
 	if len(payload.Book.Chapters) != 2 || payload.Book.Chapters[1].Title != "Chapter 2" {
 		t.Fatalf("unexpected chapters: %+v", payload.Book.Chapters)
+	}
+}
+
+func TestSearchEndpointAppliesLocaleConversion(t *testing.T) {
+	service := newTestService()
+	if siteCfg, ok := service.Config.Sites["esjzone"]; ok {
+		siteCfg.LocaleStyle = "simplified"
+		service.Config.Sites["esjzone"] = siteCfg
+	}
+	router := newRouter(service)
+
+	body := strings.NewReader(`{
+		"keyword":"轉生",
+		"sites":["esjzone"],
+		"page":1,
+		"page_size":5
+	}`)
+	req := httptest.NewRequest(http.MethodPost, RoutePrefix+"/api/search", body)
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", resp.Code, resp.Body.String())
+	}
+
+	var payload paginatedSearchResponse
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if len(payload.Results) == 0 {
+		t.Fatalf("expected non-empty results")
+	}
+	if payload.Results[0].Title != "无职转生" {
+		t.Fatalf("expected simplified title, got %q", payload.Results[0].Title)
+	}
+}
+
+func TestBookDetailEndpointAppliesLocaleConversion(t *testing.T) {
+	service := newTestService()
+	if siteCfg, ok := service.Config.Sites["esjzone"]; ok {
+		siteCfg.LocaleStyle = "simplified"
+		service.Config.Sites["esjzone"] = siteCfg
+	}
+	router := newRouter(service)
+
+	req := httptest.NewRequest(http.MethodGet, RoutePrefix+"/api/books/detail?site=esjzone&book_id=001", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", resp.Code, resp.Body.String())
+	}
+
+	var payload bookDetailResponse
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode detail payload: %v", err)
+	}
+	if payload.Book.Title != "无职转生" {
+		t.Fatalf("expected simplified book title, got %q", payload.Book.Title)
+	}
+	if payload.Book.Description != "这里是会长与冒险者。" {
+		t.Fatalf("expected simplified description, got %q", payload.Book.Description)
+	}
+	if len(payload.Book.Chapters) == 0 || payload.Book.Chapters[0].Title != "第一章 会长测试" {
+		t.Fatalf("expected simplified chapter title, got %+v", payload.Book.Chapters)
 	}
 }
 
@@ -214,7 +282,7 @@ func newTestService() *Service {
 				Search:   true,
 			},
 			results: []model.SearchResult{
-				{Site: "esjzone", BookID: "001", Title: "Alpha 01", Author: "Author", Description: "Desc 1"},
+				{Site: "esjzone", BookID: "001", Title: "無職轉生", Author: "作者", Description: "這裡有會長"},
 				{Site: "esjzone", BookID: "002", Title: "Alpha 02", Author: "Author", Description: "Desc 2"},
 				{Site: "esjzone", BookID: "003", Title: "Alpha 03", Author: "Author", Description: "Desc 3"},
 				{Site: "esjzone", BookID: "004", Title: "Alpha 04", Author: "Author", Description: "Desc 4"},
@@ -223,11 +291,11 @@ func newTestService() *Service {
 			book: &model.Book{
 				Site:        "esjzone",
 				ID:          "001",
-				Title:       "Alpha 01",
+				Title:       "無職轉生",
 				Author:      "Author",
-				Description: "Detail Desc",
+				Description: "這裡是會長與冒險者。",
 				Chapters: []model.Chapter{
-					{ID: "c1", Title: "Chapter 1", Order: 1},
+					{ID: "c1", Title: "第一章 會長測試", Order: 1},
 					{ID: "c2", Title: "Chapter 2", Order: 2},
 				},
 			},

@@ -23,6 +23,7 @@ import (
 	"github.com/guohuiyuan/go-novel-dl/internal/model"
 	"github.com/guohuiyuan/go-novel-dl/internal/progress"
 	"github.com/guohuiyuan/go-novel-dl/internal/site"
+	"github.com/guohuiyuan/go-novel-dl/internal/textconv"
 	"github.com/guohuiyuan/go-novel-dl/internal/ui"
 )
 
@@ -342,6 +343,7 @@ func newRouter(service *Service) *gin.Engine {
 			LoginRequired *bool    `json:"login_required"`
 			WorkerLimit   *int     `json:"worker_limit"`
 			FetchImages   *bool    `json:"fetch_images"`
+			LocaleStyle   *string  `json:"locale_style"`
 			Username      *string  `json:"username"`
 			Password      *string  `json:"password"`
 			Cookie        *string  `json:"cookie"`
@@ -356,6 +358,7 @@ func newRouter(service *Service) *gin.Engine {
 			LoginRequired: req.LoginRequired,
 			WorkerLimit:   req.WorkerLimit,
 			FetchImages:   req.FetchImages,
+			LocaleStyle:   req.LocaleStyle,
 			Username:      req.Username,
 			Password:      req.Password,
 			Cookie:        req.Cookie,
@@ -673,6 +676,7 @@ func (s *Service) bookDetail(ctx context.Context, siteKey, bookID string) (*mode
 	if strings.TrimSpace(book.ID) == "" {
 		book.ID = bookID
 	}
+	book = textconv.NormalizeBookLocale(book, resolved.General.LocaleStyle)
 	return book, nil
 }
 

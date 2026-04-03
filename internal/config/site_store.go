@@ -31,6 +31,7 @@ type siteCatalogEntry struct {
 	LoginRequired bool      `gorm:"default:false"`
 	WorkerLimit   int       `gorm:"default:0"`
 	FetchImages   bool      `gorm:"default:true"`
+	LocaleStyle   string    `gorm:"size:32"`
 	Username      string    `gorm:"size:256"`
 	Password      string    `gorm:"size:256"`
 	Cookie        string    `gorm:"type:text"`
@@ -70,6 +71,7 @@ type SiteCatalogRecord struct {
 	LoginRequired bool      `json:"login_required"`
 	WorkerLimit   int       `json:"worker_limit"`
 	FetchImages   bool      `json:"fetch_images"`
+	LocaleStyle   string    `json:"locale_style"`
 	Username      string    `json:"username"`
 	Password      string    `json:"password"`
 	Cookie        string    `json:"cookie"`
@@ -82,6 +84,7 @@ type SiteCatalogUpdate struct {
 	LoginRequired *bool
 	WorkerLimit   *int
 	FetchImages   *bool
+	LocaleStyle   *string
 	Username      *string
 	Password      *string
 	Cookie        *string
@@ -101,6 +104,7 @@ type defaultSiteCatalogRow struct {
 	LoginRequired bool
 	WorkerLimit   int
 	FetchImages   bool
+	LocaleStyle   string
 	MirrorHosts   []string
 }
 
@@ -115,6 +119,7 @@ var defaultSiteCatalog = []defaultSiteCatalogRow{
 	{Key: "ciweimao", DisplayName: "刺猬猫", WorkerLimit: 4, FetchImages: true},
 	{Key: "novalpie", DisplayName: "Novalpie", LoginRequired: true, WorkerLimit: 4, FetchImages: true},
 	{Key: "n17k", DisplayName: "17K", WorkerLimit: 4, FetchImages: true},
+	{Key: "n8novel", DisplayName: "无限轻小说", WorkerLimit: 4, FetchImages: true, LocaleStyle: "simplified"},
 }
 
 var supportedSiteKeys = func() map[string]struct{} {
@@ -152,6 +157,7 @@ func SiteParameterSupports() []SiteParameterSupport {
 		{Key: "login_required", Label: "登录必需", Implemented: true, Notes: "控制是否执行登录流程"},
 		{Key: "worker_limit", Label: "下载协程", Implemented: true, Notes: "每个站点的章节并发抓取数"},
 		{Key: "fetch_images", Label: "抓取图片", Implemented: true, Notes: "控制章节抓取时是否保留图片"},
+		{Key: "locale_style", Label: "文字转换", Implemented: true, Notes: "original/traditional/simplified，控制导出前 OpenCC 简繁转换"},
 		{Key: "mirror_hosts", Label: "镜像地址", Implemented: true, Notes: "用于站点镜像回退"},
 		{Key: "book_ids", Label: "Book IDs", Implemented: false, Notes: "不纳入 site_catalog.db，由命令参数管理"},
 	}
@@ -226,6 +232,9 @@ func seedFromDefaults(db *gorm.DB) error {
 		if siteCfg.Output != nil && siteCfg.Output.IncludePicture != nil {
 			current.FetchImages = *siteCfg.Output.IncludePicture
 		}
+		if locale := strings.TrimSpace(siteCfg.LocaleStyle); locale != "" {
+			current.LocaleStyle = locale
+		}
 		if value := strings.TrimSpace(siteCfg.Username); value != "" {
 			current.Username = value
 		}
@@ -267,6 +276,7 @@ func seedSiteCatalog(db *gorm.DB) error {
 			LoginRequired: item.LoginRequired,
 			WorkerLimit:   item.WorkerLimit,
 			FetchImages:   item.FetchImages,
+			LocaleStyle:   strings.TrimSpace(item.LocaleStyle),
 		})
 	}
 	return db.Clauses(clause.OnConflict{
@@ -337,6 +347,9 @@ func UpsertSiteCatalog(siteKey string, patch SiteCatalogUpdate) (SiteCatalogReco
 	if patch.FetchImages != nil {
 		current.FetchImages = *patch.FetchImages
 	}
+	if patch.LocaleStyle != nil {
+		current.LocaleStyle = strings.TrimSpace(*patch.LocaleStyle)
+	}
 	if patch.Username != nil {
 		current.Username = strings.TrimSpace(*patch.Username)
 	}
@@ -404,6 +417,11 @@ func SyncSiteCatalogFromConfig(sites map[string]SiteConfig) error {
 			}
 		}
 
+		if locale := strings.TrimSpace(siteCfg.LocaleStyle); locale != "" && current.LocaleStyle != locale {
+			current.LocaleStyle = locale
+			changed = true
+		}
+
 		username := strings.TrimSpace(siteCfg.Username)
 		if username != "" && current.Username != username {
 			current.Username = username
@@ -452,6 +470,7 @@ func toSiteCatalogRecord(entry siteCatalogEntry) SiteCatalogRecord {
 		LoginRequired: loginRequired,
 		WorkerLimit:   entry.WorkerLimit,
 		FetchImages:   entry.FetchImages,
+		LocaleStyle:   strings.TrimSpace(entry.LocaleStyle),
 		Username:      entry.Username,
 		Password:      entry.Password,
 		Cookie:        entry.Cookie,
@@ -520,6 +539,9 @@ func mergeSiteCatalog(cfg *Config) error {
 			siteCfg.Output = &OutputOverride{}
 		}
 		siteCfg.Output.IncludePicture = boolPtr(entry.FetchImages)
+		if locale := strings.TrimSpace(entry.LocaleStyle); locale != "" {
+			siteCfg.LocaleStyle = locale
+		}
 		cfg.Sites[entry.Key] = siteCfg
 	}
 	return nil

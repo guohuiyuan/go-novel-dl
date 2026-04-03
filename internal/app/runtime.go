@@ -174,6 +174,7 @@ func (r *Runtime) Download(ctx context.Context, siteKey string, books []model.Bo
 							mu.Unlock()
 							continue
 						}
+						loaded = normalizeChapterLocale(loaded, resolved.General.LocaleStyle)
 						book.Chapters[idx] = loaded
 						processedChapters++
 						succeeded++
@@ -215,6 +216,7 @@ func (r *Runtime) Download(ctx context.Context, siteKey string, books []model.Bo
 		if processed == nil {
 			processed = book
 		}
+		processed = textconv.NormalizeBookLocale(processed, resolved.General.LocaleStyle)
 		if stage == "" {
 			stage = "raw"
 		}
@@ -240,6 +242,20 @@ func (r *Runtime) Download(ctx context.Context, siteKey string, books []model.Bo
 	}
 
 	return results, nil
+}
+
+func normalizeChapterLocale(chapter model.Chapter, localeStyle string) model.Chapter {
+	style := strings.ToLower(strings.TrimSpace(localeStyle))
+	if style == "" || style == "original" || style == "traditional" {
+		return chapter
+	}
+	if style != "simplified" && style != "zh_cn" && style != "zh-cn" && style != "zh-hans" {
+		return chapter
+	}
+	chapter.Title = textconv.ToSimplified(chapter.Title)
+	chapter.Content = textconv.ToSimplified(chapter.Content)
+	chapter.Volume = textconv.ToSimplified(chapter.Volume)
+	return chapter
 }
 
 func mergeExistingChapters(siteKey string, target *model.Book, existing *model.Book) {
