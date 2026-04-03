@@ -188,15 +188,16 @@ func renderTXT(book *model.Book) []byte {
 func normalizeTXTChapterContent(content string) string {
 	blocks := parseChapterBlocks(content)
 	if len(blocks) == 0 {
-		return strings.TrimSpace(strings.ReplaceAll(content, "\r\n", "\n"))
+		return strings.TrimSpace(normalizeExportInlineWhitespace(strings.ReplaceAll(content, "\r\n", "\n")))
 	}
 	parts := make([]string, 0, len(blocks))
+	hasTextParagraph := false
 	for _, block := range blocks {
 		if imageURL := strings.TrimSpace(block.ImageURL); imageURL != "" {
 			parts = append(parts, chapterImagePlaceholder+" "+imageURL)
 			continue
 		}
-		paragraph := strings.TrimSpace(strings.ReplaceAll(block.Paragraph, "\r\n", "\n"))
+		paragraph := strings.TrimSpace(normalizeExportInlineWhitespace(strings.ReplaceAll(block.Paragraph, "\r\n", "\n")))
 		if paragraph == "" {
 			continue
 		}
@@ -212,11 +213,16 @@ func normalizeTXTChapterContent(content string) string {
 		if len(cleanedLines) == 0 {
 			continue
 		}
-		cleanedLines[0] = "    " + cleanedLines[0]
-		parts = append(parts, strings.Join(cleanedLines, "\n"))
+		for idx, line := range cleanedLines {
+			if hasTextParagraph || idx > 0 {
+				line = "    " + line
+			}
+			parts = append(parts, line)
+			hasTextParagraph = true
+		}
 	}
 	if len(parts) == 0 {
-		return strings.TrimSpace(strings.ReplaceAll(content, "\r\n", "\n"))
+		return strings.TrimSpace(normalizeExportInlineWhitespace(strings.ReplaceAll(content, "\r\n", "\n")))
 	}
 	return strings.Join(parts, "\n\n\n")
 }
@@ -441,7 +447,7 @@ func buildEPUBContentLikeESJScript(book *model.Book) (*epubPackage, error) {
 				imageIndex++
 				continue
 			}
-			if paragraphHTML := buildEPUBParagraphHTML(block.Paragraph); paragraphHTML != "" {
+			if paragraphHTML := buildEPUBParagraphHTML(block.Paragraph, !hasTextParagraph); paragraphHTML != "" {
 				bodyParts = append(bodyParts, paragraphHTML)
 				hasTextParagraph = true
 			}
@@ -818,10 +824,12 @@ func buildCoverPage(title, author, description, coverImageHref string) string {
 
 func buildChapterPageWithBlocks(bookTitle string, chapter model.Chapter, blocks []chapterBlock, fetcher *epubAssetFetcher) string {
 	body := make([]string, 0, len(blocks))
+	hasTextParagraph := false
 	for _, block := range blocks {
 		if block.ImageURL == "" {
-			if paragraphHTML := buildEPUBParagraphHTML(block.Paragraph); paragraphHTML != "" {
+			if paragraphHTML := buildEPUBParagraphHTML(block.Paragraph, !hasTextParagraph); paragraphHTML != "" {
 				body = append(body, paragraphHTML)
+				hasTextParagraph = true
 			}
 			continue
 		}
@@ -840,8 +848,8 @@ func buildChapterPageWithBlocks(bookTitle string, chapter model.Chapter, blocks 
 </html>`, escapeHTML(bookTitle), escapeHTML(chapter.Title), escapeHTML(chapter.Title), strings.Join(body, ""))
 }
 
-func buildEPUBParagraphHTML(paragraph string) string {
-	paragraph = strings.TrimSpace(strings.ReplaceAll(paragraph, "\r\n", "\n"))
+func buildEPUBParagraphHTML(paragraph string, firstParagraph bool) string {
+	paragraph = strings.TrimSpace(normalizeExportInlineWhitespace(strings.ReplaceAll(paragraph, "\r\n", "\n")))
 	if paragraph == "" {
 		return ""
 	}
@@ -857,10 +865,28 @@ func buildEPUBParagraphHTML(paragraph string) string {
 	if len(escaped) == 0 {
 		return ""
 	}
-	if len(escaped[0]) > 0 {
-		escaped[0] = "&nbsp;&nbsp;&nbsp;&nbsp;" + escaped[0]
+	parts := make([]string, 0, len(escaped))
+	for idx, line := range escaped {
+		className := "novel-paragraph"
+		if firstParagraph && idx == 0 {
+			className += " novel-paragraph-first"
+		}
+		parts = append(parts, `<p class="`+className+`">`+line+`</p>`)
 	}
-	return "<p class=\"novel-paragraph\">" + strings.Join(escaped, "<br />") + "</p>"
+	return strings.Join(parts, "")
+}
+
+func normalizeExportInlineWhitespace(value string) string {
+	replacer := strings.NewReplacer(
+		"&nbsp;", " ",
+		"&#160;", " ",
+		"&#xa0;", " ",
+		"\u00a0", " ",
+	)
+	value = replacer.Replace(value)
+	value = strings.ReplaceAll(value, "\u00a0", " ")
+	value = strings.ReplaceAll(value, "\u202f", " ")
+	return value
 }
 
 func parseChapterBlocks(content string) []chapterBlock {
@@ -1511,6 +1537,6 @@ const ncxTemplate = `<?xml version="1.0" encoding="utf-8"?>
   </navMap>
 </ncx>`
 
-const esjEPUBParagraphCSS = `.novel-paragraph{margin:0;line-height:1.8;text-indent:2em;}.novel-paragraph + .novel-paragraph{margin-top:3.6em;}`
+const esjEPUBParagraphCSS = `.novel-paragraph{margin:0;line-height:1.8;text-indent:2em;}.novel-paragraph-first{text-indent:0;}.novel-paragraph + .novel-paragraph{margin-top:3.6em;}`
 
-const defaultEPUBCSS = `body{font-family:Georgia,serif;line-height:1.8;margin:5%;}h1,h2{line-height:1.3;}article{page-break-after:always;}.novel-paragraph{margin:0;text-indent:2em;}.novel-paragraph + .novel-paragraph{margin-top:3.6em;}.cover{margin-top:12%;text-align:center;}.cover-art,.illustration{margin:1.5em auto;text-align:center;text-indent:0;}.cover-art img,.illustration img{height:auto;max-width:100%;}.cover-art img{max-height:70vh;}.author{font-style:italic;}`
+const defaultEPUBCSS = `body{font-family:Georgia,serif;line-height:1.8;margin:5%;}h1,h2{line-height:1.3;}article{page-break-after:always;}.novel-paragraph{margin:0;text-indent:2em;}.novel-paragraph-first{text-indent:0;}.novel-paragraph + .novel-paragraph{margin-top:3.6em;}.cover{margin-top:12%;text-align:center;}.cover-art,.illustration{margin:1.5em auto;text-align:center;text-indent:0;}.cover-art img,.illustration img{height:auto;max-width:100%;}.cover-art img{max-height:70vh;}.author{font-style:italic;}`
