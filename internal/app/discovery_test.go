@@ -233,6 +233,18 @@ func TestDefaultRuntimeIncludesShuhaigeInDiscoveryLists(t *testing.T) {
 	if !slices.Contains(allDownload, "shuhaige") {
 		t.Fatalf("expected shuhaige in all download sites: %v", allDownload)
 	}
+	if !slices.Contains(defaultSearch, "ixdzs8") {
+		t.Fatalf("expected ixdzs8 in default search sites: %v", defaultSearch)
+	}
+	if !slices.Contains(defaultDownload, "ixdzs8") {
+		t.Fatalf("expected ixdzs8 in default download sites: %v", defaultDownload)
+	}
+	if !slices.Contains(allSearch, "ixdzs8") {
+		t.Fatalf("expected ixdzs8 in all search sites: %v", allSearch)
+	}
+	if !slices.Contains(allDownload, "ixdzs8") {
+		t.Fatalf("expected ixdzs8 in all download sites: %v", allDownload)
+	}
 }
 
 func newFakeRuntime(registry *site.Registry) *Runtime {

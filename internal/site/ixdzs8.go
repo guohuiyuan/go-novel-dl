@@ -24,9 +24,12 @@ var (
 )
 
 type Ixdzs8Site struct {
-	cfg    config.ResolvedSiteConfig
-	html   HTMLSite
-	client *http.Client
+	cfg        config.ResolvedSiteConfig
+	html       HTMLSite
+	client     *http.Client
+	baseURL    string
+	catalogURL string
+	searchURL  string
 }
 
 func NewIxdzs8Site(cfg config.ResolvedSiteConfig) *Ixdzs8Site {
@@ -35,7 +38,15 @@ func NewIxdzs8Site(cfg config.ResolvedSiteConfig) *Ixdzs8Site {
 		timeout = time.Duration(cfg.General.Timeout * float64(time.Second))
 	}
 	client := &http.Client{Timeout: timeout}
-	return &Ixdzs8Site{cfg: cfg, html: NewHTMLSite(client), client: client}
+	baseURL := "https://ixdzs8.com"
+	return &Ixdzs8Site{
+		cfg:        cfg,
+		html:       NewHTMLSite(client),
+		client:     client,
+		baseURL:    baseURL,
+		catalogURL: baseURL + "/novel/clist/",
+		searchURL:  baseURL + "/bsearch",
+	}
 }
 
 func (s *Ixdzs8Site) Key() string         { return "ixdzs8" }
@@ -79,7 +90,7 @@ func (s *Ixdzs8Site) Download(ctx context.Context, ref model.BookRef) (*model.Bo
 }
 
 func (s *Ixdzs8Site) DownloadPlan(ctx context.Context, ref model.BookRef) (*model.Book, error) {
-	infoMarkup, err := s.fetchVerifiedHTML(ctx, fmt.Sprintf("https://ixdzs8.com/read/%s/", ref.BookID))
+	infoMarkup, err := s.fetchVerifiedHTML(ctx, s.bookInfoURL(ref.BookID))
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +104,7 @@ func (s *Ixdzs8Site) DownloadPlan(ctx context.Context, ref model.BookRef) (*mode
 	}
 	book := &model.Book{Site: s.Key(), ID: ref.BookID, Title: fallback(metaProperty(infoDoc, "og:novel:book_name"), cleanText(nodeText(findFirst(infoDoc, func(n *html.Node) bool {
 		return n.Type == html.ElementNode && n.Data == "h1" && hasAncestorClass(n, "n-text")
-	})))), Author: fallback(metaProperty(infoDoc, "og:novel:author"), cleanText(nodeText(findFirst(infoDoc, func(n *html.Node) bool { return n.Type == html.ElementNode && n.Data == "a" && hasClass(n, "bauthor") })))), Description: cleanIxdzsSummary(metaProperty(infoDoc, "og:description")), SourceURL: fmt.Sprintf("https://ixdzs8.com/read/%s/", ref.BookID), CoverURL: fallback(metaProperty(infoDoc, "og:image"), attrValue(findFirst(infoDoc, func(n *html.Node) bool {
+	})))), Author: fallback(metaProperty(infoDoc, "og:novel:author"), cleanText(nodeText(findFirst(infoDoc, func(n *html.Node) bool { return n.Type == html.ElementNode && n.Data == "a" && hasClass(n, "bauthor") })))), Description: cleanIxdzsSummary(metaProperty(infoDoc, "og:description")), SourceURL: s.bookInfoURL(ref.BookID), CoverURL: fallback(metaProperty(infoDoc, "og:image"), attrValue(findFirst(infoDoc, func(n *html.Node) bool {
 		return n.Type == html.ElementNode && n.Data == "img" && hasAncestorClass(n, "n-img")
 	}), "src")), DownloadedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
 	var payload struct {
@@ -112,14 +123,14 @@ func (s *Ixdzs8Site) DownloadPlan(ctx context.Context, ref model.BookRef) (*mode
 			continue
 		}
 		cid := "p" + ord
-		chapters = append(chapters, model.Chapter{ID: cid, Title: compactWhitespace(item.Title), URL: fmt.Sprintf("https://ixdzs8.com/read/%s/%s.html", ref.BookID, cid), Order: len(chapters) + 1})
+		chapters = append(chapters, model.Chapter{ID: cid, Title: compactWhitespace(item.Title), URL: s.chapterURL(ref.BookID, cid), Order: len(chapters) + 1})
 	}
 	book.Chapters = applyChapterRange(chapters, ref)
 	return book, nil
 }
 
 func (s *Ixdzs8Site) FetchChapter(ctx context.Context, bookID string, chapter model.Chapter) (model.Chapter, error) {
-	chapterURL := fmt.Sprintf("https://ixdzs8.com/read/%s/%s.html", bookID, chapter.ID)
+	chapterURL := s.chapterURL(bookID, chapter.ID)
 	markup, err := s.fetchVerifiedHTML(ctx, chapterURL)
 	if err != nil {
 		return chapter, err
@@ -205,7 +216,7 @@ func (s *Ixdzs8Site) Search(ctx context.Context, keyword string, limit int) ([]m
 		return nil, nil
 	}
 
-	markup, err := s.fetchVerifiedHTML(ctx, "https://ixdzs8.com/bsearch?q="+url.QueryEscape(keyword))
+	markup, err := s.fetchVerifiedHTML(ctx, s.searchURL+"?q="+url.QueryEscape(keyword))
 	if err != nil {
 		return nil, err
 	}
@@ -300,7 +311,11 @@ func (s *Ixdzs8Site) fetchVerifiedHTML(ctx context.Context, rawURL string) (stri
 	if len(m) != 2 {
 		return "", fmt.Errorf("ixdzs8 challenge token not found")
 	}
-	challengeURL := rawURL + "?challenge=" + url.QueryEscape(m[1])
+	separator := "?"
+	if strings.Contains(rawURL, "?") {
+		separator = "&"
+	}
+	challengeURL := rawURL + separator + "challenge=" + url.QueryEscape(m[1])
 	if _, err := s.html.Get(ctx, challengeURL); err != nil {
 		return "", err
 	}
@@ -310,7 +325,7 @@ func (s *Ixdzs8Site) fetchVerifiedHTML(ctx context.Context, rawURL string) (stri
 func (s *Ixdzs8Site) postCatalog(ctx context.Context, bookID string) (string, error) {
 	form := url.Values{}
 	form.Set("bid", bookID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://ixdzs8.com/novel/clist/", strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.catalogURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", err
 	}
@@ -329,6 +344,14 @@ func (s *Ixdzs8Site) postCatalog(ctx context.Context, bookID string) (string, er
 		return "", err
 	}
 	return string(data), nil
+}
+
+func (s *Ixdzs8Site) bookInfoURL(bookID string) string {
+	return strings.TrimRight(s.baseURL, "/") + "/read/" + strings.TrimSpace(bookID) + "/"
+}
+
+func (s *Ixdzs8Site) chapterURL(bookID, chapterID string) string {
+	return strings.TrimRight(s.baseURL, "/") + "/read/" + strings.TrimSpace(bookID) + "/" + strings.TrimSpace(chapterID) + ".html"
 }
 
 func cleanIxdzsSummary(s string) string {

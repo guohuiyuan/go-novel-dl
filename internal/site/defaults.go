@@ -12,6 +12,7 @@ type SiteDescriptor struct {
 var defaultAvailableSiteKeys = []string{
 	"linovelib",
 	"n23qb",
+	"ixdzs8",
 	"ruochu",
 	"fanqienovel",
 	"sfacg",

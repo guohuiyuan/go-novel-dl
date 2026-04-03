@@ -104,10 +104,9 @@ func NewDefaultRegistry() *Registry {
 	// registry.Register("piaotia", func(cfg config.ResolvedSiteConfig) Site {
 	// 	return NewPiaotiaSite(cfg)
 	// })
-	// Disabled: timeout issues
-	// registry.Register("ixdzs8", func(cfg config.ResolvedSiteConfig) Site {
-	// 	return NewIxdzs8Site(cfg)
-	// })
+	registry.Register("ixdzs8", func(cfg config.ResolvedSiteConfig) Site {
+		return NewIxdzs8Site(cfg)
+	})
 	registry.Register("novalpie", func(cfg config.ResolvedSiteConfig) Site {
 		return NewNovalpieSite(cfg)
 	})
