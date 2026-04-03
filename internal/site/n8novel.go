@@ -47,9 +47,12 @@ type N8NovelSite struct {
 }
 
 func NewN8NovelSite(cfg config.ResolvedSiteConfig) *N8NovelSite {
-	timeout := 15 * time.Second
+	timeout := 25 * time.Second
 	if cfg.General.Timeout > 0 {
-		timeout = time.Duration(cfg.General.Timeout * float64(time.Second))
+		configured := time.Duration(cfg.General.Timeout * float64(time.Second))
+		if configured > timeout {
+			timeout = configured
+		}
 	}
 	jar, _ := cookiejar.New(nil)
 	client := newSiteHTTPClient(timeout, siteHTTPClientOptions{Jar: jar, DisableHTTP2: true})

@@ -858,6 +858,8 @@ func searchTimeoutForSites(sites []string) time.Duration {
 		switch strings.ToLower(strings.TrimSpace(site)) {
 		case "esjzone":
 			timeout = maxDuration(timeout, 50*time.Second)
+		case "n8novel":
+			timeout = maxDuration(timeout, 45*time.Second)
 		case "biquge5", "piaotia":
 			timeout = maxDuration(timeout, 45*time.Second)
 		case "linovelib":
