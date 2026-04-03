@@ -15,6 +15,7 @@
 - **Web UI**：现代化 Web 界面，支持搜索、详情查看、任务队列、浏览器下载
 - **统一设置中心**：全局配置与站点配置在同一页面编辑，无需切换
 - **多格式导出**：支持 TXT / EPUB 格式
+- **统一导出排版**：TXT / EPUB 全渠道统一为首段不缩进、后续段落缩进；源文本换行会转换为两空行；导出时自动清理 `&nbsp;`
 - **章节范围下载**：可指定起止章节
 - **可配置分页**：CLI 和 Web 分页大小可通过配置或命令行调整
 - **ESJ 优化链路**：支持 Cookie 优先登录、并发章节抓取、图片抓取开关
@@ -40,6 +41,9 @@ go run ./cmd/novel-dl search 斗罗
 
 # 指定渠道搜索
 go run ./cmd/novel-dl search 斗罗 --site sfacg --site n17k
+
+# 默认渠道（与 Web 默认一致）
+# linovelib, n23qb, ixdzs8, ruochu, sfacg, ciyuanji, ciweimao, n8novel, shuhaige
 ```
 
 ### 3. 启动 Web UI
@@ -99,9 +103,9 @@ novel-dl clean [state|logs|cache|book]  # 清理数据
 
 #### search
 
-| 参数             | 说明             | 默认值       |
-| ---------------- | ---------------- | ------------ |
-| `-s, --site`   | 指定搜索渠道     | 所有可用渠道 |
+| 参数             | 说明                                  | 默认值            |
+| ---------------- | ------------------------------------- | ----------------- |
+| `-s, --site`   | 指定搜索渠道                          | Web 当前默认渠道  |
 | `-l, --limit`  | 总结果数上限     | 150          |
 | `--site-limit` | 单渠道结果数上限 | 30           |
 | `--page-size`  | 每页显示数量     | 读取配置     |
@@ -225,10 +229,11 @@ go run ./cmd/novel-dl config site-set esjzone \
 
 ## 站点能力矩阵
 
+以下矩阵为当前代码中已启用并注册到默认 Registry 的渠道：
+
 | Key             | 下载 | 搜索 | 登录 |
 | --------------- | :--: | :--: | :--: |
 | `biquge345`   |  ✓  |  ✓  |  -  |
-| `biquge5`     |  ✓  |  ✓  |  -  |
 | `ciweimao`    |  ✓  |  ✓  |  -  |
 | `ciyuanji`    |  ✓  |  ✓  |  -  |
 | `esjzone`     |  ✓  |  ✓  |  ✓  |
@@ -239,17 +244,30 @@ go run ./cmd/novel-dl config site-set esjzone \
 | `ixdzs8`      |  ✓  |  ✓  |  -  |
 | `linovelib`   |  ✓  |  ✓  |  -  |
 | `n17k`        |  ✓  |  ✓  |  -  |
+| `n8novel`     |  ✓  |  ✓  |  -  |
 | `n23qb`       |  ✓  |  ✓  |  -  |
 | `n69shuba`    |  ✓  |  -  |  -  |
 | `novalpie`    |  ✓  |  -  |  ✓  |
-| `piaotia`     |  ✓  |  ✓  |  -  |
-| `qbtr`        |  ✓  |  ✓  |  -  |
 | `ruochu`      |  ✓  |  ✓  |  -  |
 | `sfacg`       |  ✓  |  ✓  |  -  |
+| `shuhaige`    |  ✓  |  ✓  |  -  |
 | `wenku8`      |  ✓  |  -  |  -  |
-| `westnovel`   |  ✓  |  ✓  |  -  |
 | `yibige`      |  ✓  |  -  |  -  |
-| `yodu`        |  ✓  |  ✓  |  -  |
+
+默认搜索/下载渠道（Default Available）：
+
+- `linovelib`
+- `n23qb`
+- `ixdzs8`
+- `ruochu`
+- `fanqienovel`
+- `sfacg`
+- `ciyuanji`
+- `ciweimao`
+- `n8novel`
+- `shuhaige`
+
+已在代码中保留但默认未启用的渠道（通常受站点连通性、限流或反爬影响）：`westnovel`, `yodu`, `biquge5`, `piaotia`, `qbtr`。
 
 ## 数据目录
 
