@@ -1,9 +1,9 @@
-name: Release novel-dl And Desktop
+name: Release (CLI & Desktop)
 
 on:
   push:
     tags:
-      - "v*"
+      - 'v*'
   workflow_dispatch:
 
 permissions:
@@ -21,7 +21,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25.1"
+          go-version: '1.25.1'
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
@@ -38,14 +38,17 @@ jobs:
       matrix:
         include:
           - target: x86_64-pc-windows-msvc
-            goarch: amd64
-            archive_name: amd64
+            arch_name: amd64
+          - target: i686-pc-windows-msvc
+            arch_name: 386
+          - target: aarch64-pc-windows-msvc
+            arch_name: arm64
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25.1"
+          go-version: '1.25.1'
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -61,7 +64,7 @@ jobs:
         env:
           CGO_ENABLED: 0
           GOOS: windows
-          GOARCH: ${{ matrix.goarch }}
+          GOARCH: ${{ matrix.arch_name }}
 
       - name: Build Rust desktop
         run: cargo build --manifest-path desktop/Cargo.toml --release --target ${{ matrix.target }}
@@ -69,12 +72,14 @@ jobs:
       - name: Package desktop archive
         shell: powershell
         run: |
-          Compress-Archive -Path desktop/target/${{ matrix.target }}/release/novel-dl-desktop.exe -DestinationPath novel-dl-desktop-windows-${{ matrix.archive_name }}.zip
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item desktop/target/${{ matrix.target }}/release/novel-dl-desktop.exe dist/novel-dl-desktop.exe
+          Compress-Archive -Path dist/* -DestinationPath go-novel-dl-desktop-windows-${{ matrix.arch_name }}.zip
 
       - name: Upload release asset
         uses: softprops/action-gh-release@v2
         with:
-          files: novel-dl-desktop-windows-${{ matrix.archive_name }}.zip
+          files: go-novel-dl-desktop-windows-${{ matrix.arch_name }}.zip
 
   build-macos-desktop:
     runs-on: macos-latest
@@ -83,17 +88,15 @@ jobs:
       matrix:
         include:
           - target: x86_64-apple-darwin
-            goarch: amd64
-            archive_name: amd64
+            arch_name: amd64
           - target: aarch64-apple-darwin
-            goarch: arm64
-            archive_name: arm64
+            arch_name: arm64
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25.1"
+          go-version: '1.25.1'
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -104,24 +107,56 @@ jobs:
         with:
           workspaces: desktop
 
+      - name: Install packaging tools
+        run: brew install create-dmg
+
       - name: Build Go backend
         run: go build -ldflags "-s -w" -o novel-dl ./cmd/novel-dl
         env:
           CGO_ENABLED: 0
           GOOS: darwin
-          GOARCH: ${{ matrix.goarch }}
+          GOARCH: ${{ matrix.arch_name }}
 
       - name: Build Rust desktop
         run: cargo build --manifest-path desktop/Cargo.toml --release --target ${{ matrix.target }}
 
-      - name: Package desktop archive
+      - name: Create DMG & PKG
         run: |
-          tar -czf novel-dl-desktop-darwin-${{ matrix.archive_name }}.tar.gz -C desktop/target/${{ matrix.target }}/release novel-dl-desktop
+          mkdir -p bundle/NovelDL.app/Contents/MacOS
+          mkdir -p bundle/NovelDL.app/Contents/Resources
+          mkdir -p bundle/dmg-root
 
-      - name: Upload release asset
+          cp desktop/target/${{ matrix.target }}/release/novel-dl-desktop bundle/NovelDL.app/Contents/MacOS/NovelDL
+          chmod +x bundle/NovelDL.app/Contents/MacOS/NovelDL
+
+          mkdir NovelDL.iconset
+          sips -z 16 16     desktop/icon.png --out NovelDL.iconset/icon_16x16.png
+          sips -z 32 32     desktop/icon.png --out NovelDL.iconset/icon_16x16@2x.png
+          sips -z 32 32     desktop/icon.png --out NovelDL.iconset/icon_32x32.png
+          sips -z 64 64     desktop/icon.png --out NovelDL.iconset/icon_32x32@2x.png
+          sips -z 128 128   desktop/icon.png --out NovelDL.iconset/icon_128x128.png
+          sips -z 256 256   desktop/icon.png --out NovelDL.iconset/icon_128x128@2x.png
+          sips -z 256 256   desktop/icon.png --out NovelDL.iconset/icon_256x256.png
+          sips -z 512 512   desktop/icon.png --out NovelDL.iconset/icon_256x256@2x.png
+          sips -z 512 512   desktop/icon.png --out NovelDL.iconset/icon_512x512.png
+          iconutil -c icns NovelDL.iconset
+
+          cp NovelDL.icns bundle/NovelDL.app/Contents/Resources/
+
+          echo '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleExecutable</key><string>NovelDL</string><key>CFBundleIdentifier</key><string>com.guohuiyuan.noveldl</string><key>CFBundleName</key><string>NovelDL</string><key>CFBundleIconFile</key><string>NovelDL</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>0.1.0</string><key>LSUIElement</key><true/></dict></plist>' > bundle/NovelDL.app/Contents/Info.plist
+
+          codesign --force --deep --sign - bundle/NovelDL.app || true
+
+          cp -R bundle/NovelDL.app bundle/dmg-root/
+          create-dmg --volname "NovelDL Installer" --window-pos 200 120 --window-size 800 400 --app-drop-link 600 185 "go-novel-dl-desktop-macos-${{ matrix.arch_name }}.dmg" "bundle/dmg-root"
+          productbuild --component bundle/NovelDL.app /Applications "go-novel-dl-desktop-macos-${{ matrix.arch_name }}.pkg"
+
+      - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
-          files: novel-dl-desktop-darwin-${{ matrix.archive_name }}.tar.gz
+          files: |
+            go-novel-dl-desktop-macos-${{ matrix.arch_name }}.dmg
+            go-novel-dl-desktop-macos-${{ matrix.arch_name }}.pkg
 
   build-linux-desktop:
     runs-on: ubuntu-latest
@@ -130,7 +165,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25.1"
+          go-version: '1.25.1'
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -142,7 +177,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev imagemagick libfuse2
           cargo install cargo-deb --locked
           cargo install cargo-generate-rpm --locked
 
@@ -158,17 +193,30 @@ jobs:
 
       - name: Package desktop artifacts
         run: |
-          tar -czf novel-dl-desktop-linux-amd64.tar.gz -C desktop/target/release novel-dl-desktop
-          cargo deb --manifest-path desktop/Cargo.toml --no-build --output novel-dl-desktop-linux-amd64.deb
+          tar -czf go-novel-dl-desktop-linux-amd64.tar.gz -C desktop/target/release novel-dl-desktop
+          cargo deb --manifest-path desktop/Cargo.toml --no-build --output go-novel-dl-desktop-linux-amd64.deb
           cd desktop
           cargo generate-rpm
           cd ..
-          mv desktop/target/generate-rpm/*.rpm novel-dl-desktop-linux-amd64.rpm
+          mv desktop/target/generate-rpm/*.rpm go-novel-dl-desktop-linux-amd64.rpm
 
-      - name: Upload release asset
+          mkdir -p AppDir/usr/bin
+          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps/
+          mkdir -p AppDir/usr/share/applications/
+          cp desktop/target/release/novel-dl-desktop AppDir/usr/bin/novel-dl-desktop
+          convert desktop/icon.png -resize 256x256! AppDir/usr/share/icons/hicolor/256x256/apps/novel-dl.png
+          cp desktop/novel-dl.desktop AppDir/usr/share/applications/novel-dl.desktop
+
+          wget https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          chmod +x linuxdeploy-x86_64.AppImage
+          ./linuxdeploy-x86_64.AppImage --appdir AppDir --output appimage --icon-file AppDir/usr/share/icons/hicolor/256x256/apps/novel-dl.png --desktop-file AppDir/usr/share/applications/novel-dl.desktop
+          mv *.AppImage go-novel-dl-desktop-linux-amd64.AppImage
+
+      - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            novel-dl-desktop-linux-amd64.tar.gz
-            novel-dl-desktop-linux-amd64.deb
-            novel-dl-desktop-linux-amd64.rpm
+            go-novel-dl-desktop-linux-amd64.tar.gz
+            go-novel-dl-desktop-linux-amd64.deb
+            go-novel-dl-desktop-linux-amd64.rpm
+            go-novel-dl-desktop-linux-amd64.AppImage

@@ -1,15 +1,17 @@
 version: 2
-
 project_name: go-novel-dl
+env:
+  - GO111MODULE=on
 
 before:
   hooks:
     - go mod tidy
     - go run ./tools/iconprep
-    - go run github.com/tc-hib/go-winres@latest make --in ./winres/winres.json --out ./cmd/novel-dl/rsrc
+    - go install github.com/tc-hib/go-winres@latest
+    - go-winres make --in ./winres/winres.json --out ./cmd/novel-dl/rsrc
 
 builds:
-  - id: novel-dl
+  - id: unix
     env:
       - CGO_ENABLED=0
       - GO111MODULE=on
@@ -17,11 +19,30 @@ builds:
     binary: novel-dl
     goos:
       - linux
-      - windows
       - darwin
     goarch:
+      - 386
       - amd64
+      - arm
       - arm64
+    goarm:
+      - 6
+      - 7
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+  - id: win
+    env:
+      - CGO_ENABLED=0
+      - GO111MODULE=on
+    main: ./cmd/novel-dl
+    binary: novel-dl
+    goos:
+      - windows
+    goarch:
+      - amd64
     mod_timestamp: "{{ .CommitTimestamp }}"
     flags:
       - -trimpath
@@ -44,24 +65,24 @@ changelog:
       - go mod tidy
 
 archives:
-  - id: novel-dl-archive
+  - id: unix
     ids:
-      - novel-dl
-    name_template: "go-novel-dl_{{ .Os }}_{{ .Arch }}"
+      - unix
+    name_template: "go-novel-dl_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
     formats:
       - tar.gz
-    format_overrides:
-      - goos: windows
-        formats:
-          - zip
+  - id: win
+    ids:
+      - win
+    name_template: "go-novel-dl_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
+    formats:
+      - zip
 
 nfpms:
-  - id: novel-dl-package
-    package_name: go-novel-dl
-    file_name_template: "go-novel-dl_{{ .Os }}_{{ .Arch }}"
+  - license: AGPL 3.0
     homepage: https://github.com/guohuiyuan/go-novel-dl
     maintainer: guohuiyuan
-    license: AGPL-3.0
+    file_name_template: "go-novel-dl_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
     formats:
       - deb
       - rpm
