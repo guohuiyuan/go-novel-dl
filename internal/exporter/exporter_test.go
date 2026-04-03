@@ -324,3 +324,41 @@ func TestEPUBExportPreservesParagraphBreaksForAllSites(t *testing.T) {
 		t.Fatalf("chapter-001.xhtml not found in epub")
 	}
 }
+
+func TestTXTExportPreservesReasonableParagraphSpacing(t *testing.T) {
+	service := New()
+	book := &model.Book{
+		Site:         "linovelib",
+		ID:           "txt-spacing-1",
+		Title:        "TXT Spacing Test",
+		Author:       "Tester",
+		DownloadedAt: time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
+		Chapters: []model.Chapter{{
+			ID:    "1",
+			Title: "Chapter 1",
+			Content: "第一段第一行\n第一段第二行\n\n" +
+				"[图片] https://img.example/a.jpg\n\n" +
+				"第二段内容",
+		}},
+	}
+
+	paths, err := service.Export(book, "linovelib", config.DefaultConfig().General.Output, t.TempDir(), []string{"txt"})
+	if err != nil {
+		t.Fatalf("export txt: %v", err)
+	}
+	if len(paths) != 1 {
+		t.Fatalf("expected 1 exported file, got %d", len(paths))
+	}
+
+	raw, err := os.ReadFile(paths[0])
+	if err != nil {
+		t.Fatalf("read exported txt: %v", err)
+	}
+	text := string(raw)
+
+	wantFragment := "# Chapter 1\n\n第一段第一行\n第一段第二行\n\n[图片] https://img.example/a.jpg\n\n第二段内容"
+	if !strings.Contains(text, wantFragment) {
+		t.Fatalf("unexpected txt layout, got: %s", text)
+	}
+}

@@ -179,10 +179,45 @@ func renderTXT(book *model.Book) []byte {
 	}
 
 	for _, chapter := range book.Chapters {
-		fmt.Fprintf(&buf, "\n\n# %s\n\n%s\n", chapter.Title, chapter.Content)
+		fmt.Fprintf(&buf, "\n\n# %s\n\n%s\n", chapter.Title, normalizeTXTChapterContent(chapter.Content))
 	}
 
 	return buf.Bytes()
+}
+
+func normalizeTXTChapterContent(content string) string {
+	blocks := parseChapterBlocks(content)
+	if len(blocks) == 0 {
+		return strings.TrimSpace(strings.ReplaceAll(content, "\r\n", "\n"))
+	}
+	parts := make([]string, 0, len(blocks))
+	for _, block := range blocks {
+		if imageURL := strings.TrimSpace(block.ImageURL); imageURL != "" {
+			parts = append(parts, chapterImagePlaceholder+" "+imageURL)
+			continue
+		}
+		paragraph := strings.TrimSpace(strings.ReplaceAll(block.Paragraph, "\r\n", "\n"))
+		if paragraph == "" {
+			continue
+		}
+		lines := strings.Split(paragraph, "\n")
+		cleanedLines := make([]string, 0, len(lines))
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			cleanedLines = append(cleanedLines, line)
+		}
+		if len(cleanedLines) == 0 {
+			continue
+		}
+		parts = append(parts, strings.Join(cleanedLines, "\n"))
+	}
+	if len(parts) == 0 {
+		return strings.TrimSpace(strings.ReplaceAll(content, "\r\n", "\n"))
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 func renderHTML(book *model.Book) []byte {
