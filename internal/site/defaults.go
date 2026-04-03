@@ -18,6 +18,7 @@ var defaultAvailableSiteKeys = []string{
 	"ciyuanji",
 	"ciweimao",
 	"n8novel",
+	"shuhaige",
 }
 
 func DefaultAvailableSiteKeys() []string {

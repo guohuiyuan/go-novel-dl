@@ -148,6 +148,9 @@ func DefaultConfig() Config {
 				BookIDs:     []model.BookRef{{BookID: "3365"}},
 				LocaleStyle: "simplified",
 			},
+			"shuhaige": {
+				BookIDs: []model.BookRef{{BookID: "126726"}},
+			},
 		},
 		Plugins: PluginsConfig{
 			EnableLocalPlugins: false,

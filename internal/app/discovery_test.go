@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 
@@ -207,6 +208,30 @@ func TestRuntimeExposesDownloadSourcesSeparatelyFromSearchSources(t *testing.T) 
 	}
 	if len(allSearch) != 1 || allSearch[0] != "ruochu" {
 		t.Fatalf("expected only searchable site in allSearch, got %v", allSearch)
+	}
+}
+
+func TestDefaultRuntimeIncludesShuhaigeInDiscoveryLists(t *testing.T) {
+	cfg := config.DefaultConfig()
+	console := ui.NewConsole(strings.NewReader(""), io.Discard, io.Discard)
+	runtime := NewRuntime(&cfg, console)
+
+	defaultSearch := runtime.DefaultSearchSites()
+	defaultDownload := runtime.DefaultDownloadSites()
+	allSearch := runtime.AllSearchSites()
+	allDownload := runtime.AllDownloadSites()
+
+	if !slices.Contains(defaultSearch, "shuhaige") {
+		t.Fatalf("expected shuhaige in default search sites: %v", defaultSearch)
+	}
+	if !slices.Contains(defaultDownload, "shuhaige") {
+		t.Fatalf("expected shuhaige in default download sites: %v", defaultDownload)
+	}
+	if !slices.Contains(allSearch, "shuhaige") {
+		t.Fatalf("expected shuhaige in all search sites: %v", allSearch)
+	}
+	if !slices.Contains(allDownload, "shuhaige") {
+		t.Fatalf("expected shuhaige in all download sites: %v", allDownload)
 	}
 }
 

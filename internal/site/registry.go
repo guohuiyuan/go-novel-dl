@@ -145,6 +145,9 @@ func NewDefaultRegistry() *Registry {
 	registry.Register("n8novel", func(cfg config.ResolvedSiteConfig) Site {
 		return NewN8NovelSite(cfg)
 	})
+	registry.Register("shuhaige", func(cfg config.ResolvedSiteConfig) Site {
+		return NewShuhaigeSite(cfg)
+	})
 	return registry
 }
 
