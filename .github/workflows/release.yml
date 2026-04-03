@@ -210,7 +210,7 @@ jobs:
           wget https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
           chmod +x linuxdeploy-x86_64.AppImage
           ./linuxdeploy-x86_64.AppImage --appdir AppDir --output appimage --icon-file AppDir/usr/share/icons/hicolor/256x256/apps/novel-dl.png --desktop-file AppDir/usr/share/applications/novel-dl.desktop
-          mv *.AppImage go-novel-dl-desktop-linux-amd64.AppImage
+          mv NovelDL*.AppImage go-novel-dl-desktop-linux-amd64.AppImage
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
