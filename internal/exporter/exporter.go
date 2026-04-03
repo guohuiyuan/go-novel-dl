@@ -1537,6 +1537,6 @@ const ncxTemplate = `<?xml version="1.0" encoding="utf-8"?>
   </navMap>
 </ncx>`
 
-const esjEPUBParagraphCSS = `.novel-paragraph{margin:0;line-height:1.8;text-indent:2em;}.novel-paragraph-first{text-indent:0;}.novel-paragraph + .novel-paragraph{margin-top:3.6em;}`
+const esjEPUBParagraphCSS = `.novel-paragraph{margin:0;line-height:1.9;text-indent:2em;}.novel-paragraph-first{text-indent:0;}.novel-paragraph + .novel-paragraph{margin-top:3.8em;}`
 
-const defaultEPUBCSS = `body{font-family:Georgia,serif;line-height:1.8;margin:5%;}h1,h2{line-height:1.3;}article{page-break-after:always;}.novel-paragraph{margin:0;text-indent:2em;}.novel-paragraph-first{text-indent:0;}.novel-paragraph + .novel-paragraph{margin-top:3.6em;}.cover{margin-top:12%;text-align:center;}.cover-art,.illustration{margin:1.5em auto;text-align:center;text-indent:0;}.cover-art img,.illustration img{height:auto;max-width:100%;}.cover-art img{max-height:70vh;}.author{font-style:italic;}`
+const defaultEPUBCSS = `body{font-family:Georgia,serif;line-height:1.9;margin:5%;}h1,h2{line-height:1.3;}article{page-break-after:always;}.novel-paragraph{margin:0;line-height:1.9;text-indent:2em;}.novel-paragraph-first{text-indent:0;}.novel-paragraph + .novel-paragraph{margin-top:3.8em;}.cover{margin-top:12%;text-align:center;}.cover-art,.illustration{margin:1.5em auto;text-align:center;text-indent:0;}.cover-art img,.illustration img{height:auto;max-width:100%;}.cover-art img{max-height:70vh;}.author{font-style:italic;}`
