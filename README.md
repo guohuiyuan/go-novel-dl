@@ -4,9 +4,7 @@
   <img src="./internal/web/templates/icon-256.png" alt="Novel Downloader Icon" width="220" />
 </p>
 
-go-novel-dl 是一个以 Go 实现的多源聚合小说下载器，提供命令行和 Web 两种界面。
-
-它面向“跨站点统一搜索与下载”的日常使用场景：你可以在一个入口里并发搜索多个渠道、统一查看结果、选择目标后直接下载并导出。当前代码已支持并启用的代表渠道包括 ESJZone、Linovelib、SFACG、Ciweimao、Ruochu、N8Novel、Ixdzs8、Shuhaige 等，也覆盖了 Faloo、N17K、N23QB、Fsshu 等常见来源。
+go-novel-dl 是 Go 语言开发的多源小说下载器，支持 CLI 与 Web 界面，可跨站点并发搜索、一键下载并导出，已适配 ESJZone、SFACG、刺猬猫、若初文学等多个书源。
 
 项目当前以 SQLite 配置中心为主：全局参数与站点参数统一存储，Web 与 CLI 共用同一套配置数据。你在 Web 设置中心修改的并发、导出格式、登录参数、镜像地址等配置，可以直接被 CLI 复用；同样，CLI 的配置变更也会实时反映到 Web。
 
