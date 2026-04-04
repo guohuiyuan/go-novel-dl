@@ -109,17 +109,21 @@ type defaultSiteCatalogRow struct {
 }
 
 var defaultSiteCatalog = []defaultSiteCatalogRow{
-	{Key: "esjzone", DisplayName: "ESJ Zone", LoginRequired: true, WorkerLimit: 8, FetchImages: true, MirrorHosts: []string{"https://www.esjzone.one"}},
-	{Key: "linovelib", DisplayName: "Linovelib", WorkerLimit: 4, FetchImages: true},
-	{Key: "n23qb", DisplayName: "N23QB", WorkerLimit: 4, FetchImages: true},
-	{Key: "ruochu", DisplayName: "若初", WorkerLimit: 4, FetchImages: true},
-	{Key: "fanqienovel", DisplayName: "番茄小说", WorkerLimit: 4, FetchImages: true},
-	{Key: "sfacg", DisplayName: "SFACG", WorkerLimit: 4, FetchImages: true},
-	{Key: "ciyuanji", DisplayName: "次元纪", WorkerLimit: 4, FetchImages: true},
-	{Key: "ciweimao", DisplayName: "刺猬猫", WorkerLimit: 4, FetchImages: true},
-	{Key: "novalpie", DisplayName: "Novalpie", LoginRequired: true, WorkerLimit: 4, FetchImages: true},
-	{Key: "n17k", DisplayName: "17K", WorkerLimit: 4, FetchImages: true},
-	{Key: "n8novel", DisplayName: "无限轻小说", WorkerLimit: 4, FetchImages: true, LocaleStyle: "simplified"},
+	{Key: "esjzone", DisplayName: "ESJ Zone", LoginRequired: true, WorkerLimit: 0, FetchImages: true, MirrorHosts: []string{"https://www.esjzone.one"}},
+	{Key: "faloo", DisplayName: "Faloo", WorkerLimit: 0, FetchImages: true},
+	{Key: "fsshu", DisplayName: "Fsshu", WorkerLimit: 0, FetchImages: true},
+	{Key: "ixdzs8", DisplayName: "Ixdzs8", WorkerLimit: 0, FetchImages: true},
+	{Key: "linovelib", DisplayName: "Linovelib", WorkerLimit: 0, FetchImages: true},
+	{Key: "n23qb", DisplayName: "N23QB", WorkerLimit: 0, FetchImages: true},
+	{Key: "ruochu", DisplayName: "若初", WorkerLimit: 0, FetchImages: true},
+	{Key: "fanqienovel", DisplayName: "番茄小说", WorkerLimit: 0, FetchImages: true},
+	{Key: "sfacg", DisplayName: "SFACG", WorkerLimit: 0, FetchImages: true},
+	{Key: "ciyuanji", DisplayName: "次元纪", WorkerLimit: 0, FetchImages: true},
+	{Key: "ciweimao", DisplayName: "刺猬猫", WorkerLimit: 0, FetchImages: true},
+	{Key: "novalpie", DisplayName: "Novalpie", LoginRequired: true, WorkerLimit: 0, FetchImages: true},
+	{Key: "n17k", DisplayName: "17K", WorkerLimit: 0, FetchImages: true},
+	{Key: "n8novel", DisplayName: "无限轻小说", WorkerLimit: 0, FetchImages: true, LocaleStyle: "simplified"},
+	{Key: "shuhaige", DisplayName: "Shuhaige", WorkerLimit: 0, FetchImages: true},
 }
 
 var supportedSiteKeys = func() map[string]struct{} {
