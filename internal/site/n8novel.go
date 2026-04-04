@@ -43,6 +43,7 @@ var n8novelAdRuneSets = [][]rune{
 type N8NovelSite struct {
 	cfg    config.ResolvedSiteConfig
 	html   HTMLSite
+	direct HTMLSite
 	client *http.Client
 }
 
@@ -56,7 +57,9 @@ func NewN8NovelSite(cfg config.ResolvedSiteConfig) *N8NovelSite {
 	}
 	jar, _ := cookiejar.New(nil)
 	client := newSiteHTTPClient(timeout, siteHTTPClientOptions{Jar: jar, DisableHTTP2: true})
-	return &N8NovelSite{cfg: cfg, html: NewHTMLSite(client), client: client}
+	directJar, _ := cookiejar.New(nil)
+	directClient := newSiteHTTPClient(timeout, siteHTTPClientOptions{Jar: directJar, Direct: true, DisableHTTP2: true})
+	return &N8NovelSite{cfg: cfg, html: NewHTMLSite(client), direct: NewHTMLSite(directClient), client: client}
 }
 
 func (s *N8NovelSite) Key() string         { return "n8novel" }
@@ -281,28 +284,45 @@ func (s *N8NovelSite) getWithRetry(ctx context.Context, rawURL string) (string, 
 }
 
 func (s *N8NovelSite) getOnce(ctx context.Context, rawURL string) (string, error) {
-	markup, err := s.html.Get(ctx, rawURL)
-	if err == nil || !isN8novel403(err) {
+	headers := n8novelHeadersForURL(rawURL)
+	markup, err := s.html.GetWithHeaders(ctx, rawURL, headers)
+	if err == nil || !shouldRetrySiteRequest(err) {
 		return markup, err
 	}
 
-	_ = s.primeN8novelCookies(ctx)
-	headers := n8novelHeadersForURL(rawURL)
-	return s.html.GetWithHeaders(ctx, rawURL, headers)
+	_ = s.primeN8novelCookies(ctx, s.html)
+	markup, err = s.html.GetWithHeaders(ctx, rawURL, headers)
+	if err == nil || !shouldRetrySiteRequest(err) {
+		return markup, err
+	}
+
+	_ = s.primeN8novelCookies(ctx, s.direct)
+	return s.direct.GetWithHeaders(ctx, rawURL, headers)
 }
 
-func (s *N8NovelSite) primeN8novelCookies(ctx context.Context) error {
-	_, err := s.html.GetWithHeaders(ctx, "https://www.8novel.com/", map[string]string{
-		"Referer": "https://www.8novel.com/",
-		"Origin":  "https://www.8novel.com",
-	})
-	return err
+func (s *N8NovelSite) primeN8novelCookies(ctx context.Context, htmlSite HTMLSite) error {
+	urls := []string{"https://www.8novel.com/", "https://article.8novel.com/"}
+	for _, item := range urls {
+		if _, err := htmlSite.GetWithHeaders(ctx, item, n8novelHeadersForURL(item)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func n8novelHeadersForURL(rawURL string) map[string]string {
 	headers := map[string]string{
-		"Referer": "https://www.8novel.com/",
-		"Origin":  "https://www.8novel.com",
+		"Referer":                   "https://www.8novel.com/",
+		"Origin":                    "https://www.8novel.com",
+		"Pragma":                    "no-cache",
+		"Sec-Fetch-Dest":            "document",
+		"Sec-Fetch-Mode":            "navigate",
+		"Sec-Fetch-Site":            "same-origin",
+		"Sec-Fetch-User":            "?1",
+		"Sec-Ch-Ua":                 `"Chromium";v="136", "Google Chrome";v="136", "Not.A/Brand";v="99"`,
+		"Sec-Ch-Ua-Mobile":          "?0",
+		"Sec-Ch-Ua-Platform":        `"Windows"`,
+		"Upgrade-Insecure-Requests": "1",
 	}
 	parsed, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil || parsed == nil {
@@ -310,8 +330,9 @@ func n8novelHeadersForURL(rawURL string) map[string]string {
 	}
 	host := strings.ToLower(strings.TrimPrefix(parsed.Host, "www."))
 	if host == "article.8novel.com" {
-		headers["Referer"] = "https://article.8novel.com/"
+		headers["Referer"] = "https://www.8novel.com/"
 		headers["Origin"] = "https://article.8novel.com"
+		headers["Sec-Fetch-Site"] = "same-site"
 	}
 	return headers
 }

@@ -53,6 +53,7 @@ func TestManualDefaultRangeDownloadHealth(t *testing.T) {
 		{siteKey: "n69shuba", bookURL: "https://www.69shuba.com/book/88724.htm", chapterURL: "https://www.69shuba.com/txt/88724/39943182", timeout: 2 * time.Minute},
 		{siteKey: "piaotia", bookURL: "https://www.piaotia.com/bookinfo/1/1705.html", chapterURL: "https://www.piaotia.com/html/1/1705/762992.html", timeout: 7 * time.Minute},
 		{siteKey: "ixdzs8", bookURL: "https://ixdzs8.com/read/38804/", chapterURL: "https://ixdzs8.com/read/38804/p1.html", timeout: 6 * time.Minute},
+		{siteKey: "n8novel", bookURL: "https://www.8novel.com/novelbooks/109806/", chapterURL: "https://article.8novel.com/read/109806/?1769597", timeout: 6 * time.Minute},
 		{siteKey: "novalpie", bookURL: "https://novalpie.jp/novel/2393?sid=main5", chapterURL: "https://novalpie.jp/viewer/51118", timeout: 3 * time.Minute},
 		{siteKey: "ruochu", bookURL: "https://www.ruochu.com/book/158713", chapterURL: "https://www.ruochu.com/book/158713/13869103", timeout: 2 * time.Minute},
 		{siteKey: "n17k", bookURL: "https://www.17k.com/book/3631088.html", chapterURL: "https://www.17k.com/chapter/3631088/49406153.html", timeout: 2 * time.Minute},

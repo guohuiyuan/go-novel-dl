@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"regexp"
 	"strings"
@@ -37,7 +38,8 @@ func NewIxdzs8Site(cfg config.ResolvedSiteConfig) *Ixdzs8Site {
 	if cfg.General.Timeout > 0 {
 		timeout = time.Duration(cfg.General.Timeout * float64(time.Second))
 	}
-	client := &http.Client{Timeout: timeout}
+	jar, _ := cookiejar.New(nil)
+	client := newSiteHTTPClient(timeout, siteHTTPClientOptions{Jar: jar})
 	baseURL := "https://ixdzs8.com"
 	return &Ixdzs8Site{
 		cfg:        cfg,
@@ -102,11 +104,21 @@ func (s *Ixdzs8Site) DownloadPlan(ctx context.Context, ref model.BookRef) (*mode
 	if err != nil {
 		return nil, err
 	}
-	book := &model.Book{Site: s.Key(), ID: ref.BookID, Title: fallback(metaProperty(infoDoc, "og:novel:book_name"), cleanText(nodeText(findFirst(infoDoc, func(n *html.Node) bool {
-		return n.Type == html.ElementNode && n.Data == "h1" && hasAncestorClass(n, "n-text")
-	})))), Author: fallback(metaProperty(infoDoc, "og:novel:author"), cleanText(nodeText(findFirst(infoDoc, func(n *html.Node) bool { return n.Type == html.ElementNode && n.Data == "a" && hasClass(n, "bauthor") })))), Description: cleanIxdzsSummary(metaProperty(infoDoc, "og:description")), SourceURL: s.bookInfoURL(ref.BookID), CoverURL: fallback(metaProperty(infoDoc, "og:image"), attrValue(findFirst(infoDoc, func(n *html.Node) bool {
-		return n.Type == html.ElementNode && n.Data == "img" && hasAncestorClass(n, "n-img")
-	}), "src")), DownloadedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
+	book := &model.Book{
+		Site: s.Key(),
+		ID:   ref.BookID,
+		Title: fallback(metaProperty(infoDoc, "og:novel:book_name"), cleanText(nodeText(findFirst(infoDoc, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "h1" && hasAncestorClass(n, "n-text")
+		})))),
+		Author:      fallback(metaProperty(infoDoc, "og:novel:author"), cleanText(nodeText(findFirst(infoDoc, func(n *html.Node) bool { return n.Type == html.ElementNode && n.Data == "a" && hasClass(n, "bauthor") })))),
+		Description: cleanIxdzsSummary(metaProperty(infoDoc, "og:description")),
+		SourceURL:   s.bookInfoURL(ref.BookID),
+		CoverURL: fallback(metaProperty(infoDoc, "og:image"), attrValue(findFirst(infoDoc, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "img" && hasAncestorClass(n, "n-img")
+		}), "src")),
+		DownloadedAt: time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
+	}
 	var payload struct {
 		Data []struct {
 			OrderNum any    `json:"ordernum"`
@@ -123,7 +135,12 @@ func (s *Ixdzs8Site) DownloadPlan(ctx context.Context, ref model.BookRef) (*mode
 			continue
 		}
 		cid := "p" + ord
-		chapters = append(chapters, model.Chapter{ID: cid, Title: compactWhitespace(item.Title), URL: s.chapterURL(ref.BookID, cid), Order: len(chapters) + 1})
+		chapters = append(chapters, model.Chapter{
+			ID:    cid,
+			Title: compactWhitespace(item.Title),
+			URL:   s.chapterURL(ref.BookID, cid),
+			Order: len(chapters) + 1,
+		})
 	}
 	book.Chapters = applyChapterRange(chapters, ref)
 	return book, nil
@@ -272,7 +289,9 @@ func parseIxdzsSearchResults(markup string) ([]model.SearchResult, error) {
 			LatestChapter: cleanText(nodeText(findFirst(item, func(n *html.Node) bool {
 				return n.Type == html.ElementNode && n.Data == "span" && hasClass(n, "l-chapter")
 			}))),
-			CoverURL: attrValue(findFirst(item, func(n *html.Node) bool { return n.Type == html.ElementNode && n.Data == "img" }), "src"),
+			CoverURL: attrValue(findFirst(item, func(n *html.Node) bool {
+				return n.Type == html.ElementNode && n.Data == "img"
+			}), "src"),
 		})
 	}
 	return results, nil
@@ -304,7 +323,7 @@ func (s *Ixdzs8Site) fetchVerifiedHTML(ctx context.Context, rawURL string) (stri
 	if err != nil {
 		return "", err
 	}
-	if !strings.Contains(markup, "正在验证浏览器") {
+	if !isIxdzsChallengeMarkup(markup) {
 		return markup, nil
 	}
 	m := ixdzsTokenRegexp.FindStringSubmatch(markup)
@@ -319,7 +338,14 @@ func (s *Ixdzs8Site) fetchVerifiedHTML(ctx context.Context, rawURL string) (stri
 	if _, err := s.html.Get(ctx, challengeURL); err != nil {
 		return "", err
 	}
-	return s.html.Get(ctx, rawURL)
+	verifiedMarkup, err := s.html.Get(ctx, rawURL)
+	if err != nil {
+		return "", err
+	}
+	if isIxdzsChallengeMarkup(verifiedMarkup) {
+		return "", fmt.Errorf("ixdzs8 challenge not bypassed")
+	}
+	return verifiedMarkup, nil
 }
 
 func (s *Ixdzs8Site) postCatalog(ctx context.Context, bookID string) (string, error) {
@@ -369,4 +395,8 @@ func cleanIxdzsSummary(s string) string {
 
 func isIxdzsAd(text string) bool {
 	return strings.TrimSpace(text) == "" || strings.Contains(text, "ixdzs")
+}
+
+func isIxdzsChallengeMarkup(markup string) bool {
+	return ixdzsTokenRegexp.MatchString(markup) && strings.Contains(markup, "challenge=")
 }

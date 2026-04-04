@@ -67,3 +67,16 @@ func TestParseN8novelChapterContent(t *testing.T) {
 		t.Fatalf("unexpected last paragraph: %q", paragraphs[2])
 	}
 }
+
+func TestN8NovelHeadersForArticleHost(t *testing.T) {
+	headers := n8novelHeadersForURL("https://article.8novel.com/read/3365/?106235")
+	if headers["Origin"] != "https://article.8novel.com" {
+		t.Fatalf("unexpected origin header: %q", headers["Origin"])
+	}
+	if headers["Referer"] != "https://www.8novel.com/" {
+		t.Fatalf("unexpected referer header: %q", headers["Referer"])
+	}
+	if headers["Sec-Fetch-Site"] != "same-site" {
+		t.Fatalf("unexpected sec-fetch-site: %q", headers["Sec-Fetch-Site"])
+	}
+}

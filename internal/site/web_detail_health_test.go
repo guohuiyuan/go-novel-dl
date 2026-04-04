@@ -29,15 +29,17 @@ func TestManualWebSourceDetailHealth(t *testing.T) {
 	filter := parseManualHealthFilter(os.Getenv("GO_NOVEL_DL_HEALTH_SITES"))
 
 	testCases := []webDetailHealthCase{
-		{siteKey: "ciweimao", keyword: "Gal武圣", timeout: 90 * time.Second},
-		{siteKey: "ciyuanji", keyword: "斗罗", timeout: 90 * time.Second},
-		{siteKey: "faloo", keyword: "原神：加护在身", timeout: 2 * time.Minute},
-		{siteKey: "fsshu", keyword: "他们越反对，越是说明我做对了", timeout: 90 * time.Second},
-		{siteKey: "linovelib", keyword: "隐匿的存在", timeout: 3 * time.Minute},
-		{siteKey: "n17k", keyword: "诡秘之地", timeout: 90 * time.Second},
-		{siteKey: "n23qb", keyword: "御兽", timeout: 3 * time.Minute},
-		{siteKey: "ruochu", keyword: "总裁", timeout: 90 * time.Second},
-		{siteKey: "sfacg", keyword: "少女", timeout: 2 * time.Minute},
+		{siteKey: "ciweimao", keyword: "Gal姝﹀湥", timeout: 90 * time.Second},
+		{siteKey: "ciyuanji", keyword: "鏂楃綏", timeout: 90 * time.Second},
+		{siteKey: "faloo", keyword: "鍘熺锛氬姞鎶ゅ湪韬?", timeout: 2 * time.Minute},
+		{siteKey: "fsshu", keyword: "浠栦滑瓒婂弽瀵癸紝瓒婃槸璇存槑鎴戝仛瀵逛簡", timeout: 90 * time.Second},
+		{siteKey: "ixdzs8", keyword: "斗罗", timeout: 90 * time.Second},
+		{siteKey: "linovelib", keyword: "闅愬尶鐨勫瓨鍦?", timeout: 3 * time.Minute},
+		{siteKey: "n17k", keyword: "璇＄涔嬪湴", timeout: 90 * time.Second},
+		{siteKey: "n8novel", keyword: "斗罗", timeout: 2 * time.Minute},
+		{siteKey: "n23qb", keyword: "寰″吔", timeout: 3 * time.Minute},
+		{siteKey: "ruochu", keyword: "鎬昏", timeout: 90 * time.Second},
+		{siteKey: "sfacg", keyword: "灏戝コ", timeout: 2 * time.Minute},
 	}
 
 	for _, tc := range testCases {

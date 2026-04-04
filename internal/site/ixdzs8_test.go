@@ -62,7 +62,7 @@ func TestIxdzs8DownloadPlanFetchChapterAndSearch(t *testing.T) {
 		_, _ = w.Write([]byte(`{"data":[{"ordernum":246,"title":"第246章 测试章节"}]}`))
 	})
 	mux.HandleFunc("/read/15918/p246.html", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`<html><body><section class="page-content"><div class="page-d-top"><h1>第246章 测试章节</h1></div><p>ixdzs8.com</p><p>正文第一段</p><p>正文第二段</p><p>本章完</p></section></body></html>`))
+		_, _ = w.Write([]byte(`<html><body><article class="page-content"><div class="page-d-top"><h1>第246章 测试章节</h1></div><section><p>ixdzs8.com</p><p>正文第一段</p><p>正文第二段</p><p>本章完</p></section></article></body></html>`))
 	})
 	mux.HandleFunc("/bsearch", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -119,16 +119,20 @@ func TestIxdzs8DownloadPlanFetchChapterAndSearch(t *testing.T) {
 }
 
 func TestIxdzs8ChallengeFlow(t *testing.T) {
-	verified := false
 	mux := http.NewServeMux()
 	mux.HandleFunc("/bsearch", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("challenge") == "token-1" {
-			verified = true
-			_, _ = w.Write([]byte(`<html><body><ul class="u-list"></ul></body></html>`))
+			http.SetCookie(w, &http.Cookie{
+				Name:  "ixdzs_verify",
+				Value: "ok",
+				Path:  "/",
+			})
+			_, _ = w.Write([]byte(`<html><body>challenge accepted</body></html>`))
 			return
 		}
-		if !verified {
-			_, _ = w.Write([]byte(`<html><body>正在验证浏览器<script>let token = "token-1";</script></body></html>`))
+		cookie, err := r.Cookie("ixdzs_verify")
+		if err != nil || cookie.Value != "ok" {
+			_, _ = w.Write([]byte(`<html><head><title>正在验证浏览器</title></head><body><p>请稍等，正在进行安全验证...</p><script>let token = "token-1";window.location.href = location.pathname + "?challenge=" + encodeURIComponent(token);</script></body></html>`))
 			return
 		}
 		_, _ = w.Write([]byte(`<html><body><ul class="u-list"></ul></body></html>`))
@@ -144,7 +148,7 @@ func TestIxdzs8ChallengeFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fetch verified html: %v", err)
 	}
-	if strings.Contains(markup, "正在验证浏览器") {
+	if isIxdzsChallengeMarkup(markup) || strings.Contains(markup, "正在验证浏览器") {
 		t.Fatalf("expected challenge to be bypassed, got: %s", markup)
 	}
 }
