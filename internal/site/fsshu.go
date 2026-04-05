@@ -232,7 +232,7 @@ func (s *FsshuSite) DownloadPlan(ctx context.Context, ref model.BookRef) (*model
 		}
 	}
 
-	book.Chapters = dedupChapters(chapters)
+	book.Chapters = applyChapterRange(dedupChapters(chapters), ref)
 
 	if len(book.Chapters) == 0 {
 		return nil, fmt.Errorf("no chapters found")
@@ -283,7 +283,7 @@ func (s *FsshuSite) FetchChapter(ctx context.Context, bookID string, chapter mod
 			texts := make([]string, 0)
 			for _, txt := range strings.Split(cleanText(nodeTextPreserveLineBreaks(article)), "\n") {
 				txt = strings.TrimSpace(txt)
-				if txt == "" || isBiqugeAdLine(txt) {
+				if txt == "" || isBiqugeAdLine(txt) || isFsshuPageIndicator(txt) {
 					continue
 				}
 				texts = append(texts, txt)
@@ -293,10 +293,11 @@ func (s *FsshuSite) FetchChapter(ctx context.Context, bookID string, chapter mod
 			}
 		}
 
-		if idx > 0 && !strings.Contains(markup, fmt.Sprintf("_%d.html", idx+2)) {
-			break
+		nextPagePath := fmt.Sprintf("/%s/%s/%s_%d.html", s.bookPrefix, bookPath, chapter.ID, idx+2)
+		if s.bookPrefix == "" {
+			nextPagePath = fmt.Sprintf("/%s/%s_%d.html", bookPath, chapter.ID, idx+2)
 		}
-		if idx == 0 && len(blocks) > 0 {
+		if !strings.Contains(markup, nextPagePath) {
 			break
 		}
 	}
@@ -470,6 +471,11 @@ func parseFsshuSearchResults(markup, baseURL, siteKey string, resolve func(strin
 	}
 
 	return results, nil
+}
+
+func isFsshuPageIndicator(line string) bool {
+	line = strings.TrimSpace(line)
+	return strings.HasPrefix(line, "第(") && strings.Contains(line, "/") && strings.HasSuffix(line, ")页")
 }
 
 func newSiteHTTPClientWithProxy(timeout time.Duration) *http.Client {
