@@ -48,6 +48,12 @@ func TestCanReuseChapterContentForSite_ESJStrictMode(t *testing.T) {
 	}
 }
 
+func TestCanReuseChapterContentForSite_FsshuMatchesDefaultBehavior(t *testing.T) {
+	if !canReuseChapterContentForSite("fsshu", "normal content") {
+		t.Fatalf("expected fsshu content to keep default reuse behavior")
+	}
+}
+
 func TestBookHasUsableContent(t *testing.T) {
 	tests := []struct {
 		name string

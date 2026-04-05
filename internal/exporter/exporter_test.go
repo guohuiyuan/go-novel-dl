@@ -77,6 +77,24 @@ func TestEPUBExportCreatesValidArchive(t *testing.T) {
 	}
 }
 
+func TestDescriptionRenderingPreservesNewlines(t *testing.T) {
+	book := &model.Book{
+		Title:       "Render Test",
+		Author:      "Tester",
+		Description: "line1\nline2",
+	}
+
+	htmlOutput := string(renderHTML(book))
+	if !strings.Contains(htmlOutput, "line1<br/>line2") {
+		t.Fatalf("expected HTML description to preserve newlines, got: %s", htmlOutput)
+	}
+
+	coverPage := buildCoverPage(book.Title, book.Author, book.Description, "")
+	if !strings.Contains(coverPage, "line1<br/>line2") {
+		t.Fatalf("expected EPUB cover description to preserve newlines, got: %s", coverPage)
+	}
+}
+
 func TestEPUBExportEmbedsChapterImages(t *testing.T) {
 	pngBytes := tinyPNGBytes(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

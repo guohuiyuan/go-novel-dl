@@ -32,6 +32,60 @@ func TestIxdzs8ResolveURL(t *testing.T) {
 	}
 }
 
+func TestIxdzs8DownloadPlanHandlesCatalogChallenge(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/read/15918/", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`<html><head>
+<meta property="og:novel:book_name" content="测试爱下书籍" />
+<meta property="og:novel:author" content="测试作者" />
+<meta property="og:description" content="测试简介" />
+</head><body></body></html>`))
+	})
+	mux.HandleFunc("/novel/clist/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Query().Get("challenge") == "token-2" {
+			http.SetCookie(w, &http.Cookie{
+				Name:  "ixdzs_verify",
+				Value: "ok",
+				Path:  "/",
+			})
+			_, _ = w.Write([]byte(`<html><body>challenge accepted</body></html>`))
+			return
+		}
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		cookie, err := r.Cookie("ixdzs_verify")
+		if err != nil || cookie.Value != "ok" {
+			_, _ = w.Write([]byte(`<html><body><p>請稍等，正在進行安全驗證...</p><script>const token='token-2';window.location.href = location.pathname + "?challenge=" + encodeURIComponent(token);</script></body></html>`))
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if r.Form.Get("bid") != "15918" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":[{"ordernum":246,"title":"第246章 测试章节"}]}`))
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	s := NewIxdzs8Site(config.DefaultConfig().ResolveSiteConfig("ixdzs8"))
+	s.baseURL = server.URL
+	s.catalogURL = server.URL + "/novel/clist/"
+
+	book, err := s.DownloadPlan(context.Background(), model.BookRef{BookID: "15918"})
+	if err != nil {
+		t.Fatalf("download plan: %v", err)
+	}
+	if len(book.Chapters) != 1 || book.Chapters[0].ID != "p246" {
+		t.Fatalf("unexpected chapter plan after challenge: %+v", book.Chapters)
+	}
+}
+
 func TestIxdzs8DownloadPlanFetchChapterAndSearch(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/read/15918/", func(w http.ResponseWriter, r *http.Request) {

@@ -60,16 +60,16 @@ func TestFsshuFetchChapterCollectsAllPages(t *testing.T) {
 
 func TestFsshuDownloadPlanAppliesChapterRange(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/biquge/115_115495/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/biquge/test_book/", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`<html><head>
-<meta property="og:novel:book_name" content="这是规则怪谈啊，让我多子多福？">
-<meta property="og:novel:author" content="木又清遥">
-<meta property="og:description" content="测试简介">
+<meta property="og:novel:book_name" content="test book">
+<meta property="og:novel:author" content="test author">
+<meta property="og:description" content="line1\nline2">
 <meta property="og:image" content="/cover.jpg">
 </head><body>
 <div class="book_list2">
-  <a href="/biquge/115_115495/c273955.html">第1章 多子多福，目标诡空姐？</a>
-  <a href="/biquge/115_115495/c273956.html">第2章 后续章节</a>
+  <a href="/biquge/test_book/c1.html">chapter 1</a>
+  <a href="/biquge/test_book/c2.html">chapter 2</a>
 </div>
 </body></html>`))
 	})
@@ -80,9 +80,9 @@ func TestFsshuDownloadPlanAppliesChapterRange(t *testing.T) {
 	s.baseURL = server.URL
 
 	book, err := s.DownloadPlan(context.Background(), model.BookRef{
-		BookID:  "115_115495",
-		StartID: "c273955",
-		EndID:   "c273955",
+		BookID:  "test_book",
+		StartID: "c1",
+		EndID:   "c1",
 	})
 	if err != nil {
 		t.Fatalf("download plan: %v", err)
@@ -90,8 +90,11 @@ func TestFsshuDownloadPlanAppliesChapterRange(t *testing.T) {
 	if len(book.Chapters) != 1 {
 		t.Fatalf("expected 1 chapter after range filter, got %d", len(book.Chapters))
 	}
-	if book.Chapters[0].ID != "c273955" {
+	if book.Chapters[0].ID != "c1" {
 		t.Fatalf("unexpected ranged chapter: %+v", book.Chapters[0])
+	}
+	if book.Description != "line1\nline2" {
+		t.Fatalf("unexpected normalized description: %q", book.Description)
 	}
 }
 

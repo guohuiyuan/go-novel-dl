@@ -234,7 +234,7 @@ func renderHTML(book *model.Book) []byte {
 	buf.WriteString("</head><body>")
 	fmt.Fprintf(&buf, "<h1>%s</h1><p><strong>%s</strong></p>", escapeHTML(book.Title), escapeHTML(book.Author))
 	if book.Description != "" {
-		fmt.Fprintf(&buf, "<p>%s</p>", escapeHTML(book.Description))
+		fmt.Fprintf(&buf, "<p style=\"white-space:pre-line;\">%s</p>", escapeHTMLPreserveNewlines(book.Description))
 	}
 	for _, chapter := range book.Chapters {
 		fmt.Fprintf(&buf, "<article><h2>%s</h2><pre>%s</pre></article>", escapeHTML(chapter.Title), escapeHTML(chapter.Content))
@@ -818,8 +818,12 @@ func buildCoverPage(title, author, description, coverImageHref string) string {
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head><title>%s</title><link rel="stylesheet" type="text/css" href="styles.css"/></head>
-<body><section class="cover">%s<h1>%s</h1><p class="author">%s</p><p>%s</p></section></body>
-</html>`, escapeHTML(title), image, escapeHTML(title), escapeHTML(author), escapeHTML(description))
+<body><section class="cover">%s<h1>%s</h1><p class="author">%s</p><p style="white-space:pre-line;">%s</p></section></body>
+</html>`, escapeHTML(title), image, escapeHTML(title), escapeHTML(author), escapeHTMLPreserveNewlines(description))
+}
+
+func escapeHTMLPreserveNewlines(value string) string {
+	return strings.ReplaceAll(escapeHTML(value), "\n", "<br/>")
 }
 
 func buildChapterPageWithBlocks(bookTitle string, chapter model.Chapter, blocks []chapterBlock, fetcher *epubAssetFetcher) string {

@@ -188,7 +188,7 @@ func (s *FsshuSite) DownloadPlan(ctx context.Context, ref model.BookRef) (*model
 		ID:           ref.BookID,
 		Title:        metaProperty(doc, "og:novel:book_name"),
 		Author:       metaProperty(doc, "og:novel:author"),
-		Description:  metaProperty(doc, "og:description"),
+		Description:  cleanFsshuDescription(metaProperty(doc, "og:description")),
 		SourceURL:    fmt.Sprintf("%s/%s/%s/", s.baseURL, s.bookPrefix, bookPath),
 		CoverURL:     normalizeMaybeProtocol(metaProperty(doc, "og:image")),
 		DownloadedAt: time.Now().UTC(),
@@ -476,6 +476,17 @@ func parseFsshuSearchResults(markup, baseURL, siteKey string, resolve func(strin
 func isFsshuPageIndicator(line string) bool {
 	line = strings.TrimSpace(line)
 	return strings.HasPrefix(line, "第(") && strings.Contains(line, "/") && strings.HasSuffix(line, ")页")
+}
+
+func cleanFsshuDescription(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	value = strings.ReplaceAll(value, `\r\n`, "\n")
+	value = strings.ReplaceAll(value, `\n`, "\n")
+	value = strings.ReplaceAll(value, `\r`, "\n")
+	return cleanText(value)
 }
 
 func newSiteHTTPClientWithProxy(timeout time.Duration) *http.Client {

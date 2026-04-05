@@ -187,9 +187,7 @@ func (s *SfacgSite) FetchChapter(ctx context.Context, bookID string, chapter mod
 	if container == nil {
 		return chapter, fmt.Errorf("sfacg chapter content not found")
 	}
-	paragraphs := cleanContentParagraphs(findAll(container, func(n *html.Node) bool {
-		return n.Type == html.ElementNode && (n.Data == "div" || n.Data == "p")
-	}), nil)
+	paragraphs := parseSfacgChapterParagraphs(container)
 	paragraphs = compactParagraphs(paragraphs)
 	if len(paragraphs) == 0 {
 		return chapter, fmt.Errorf("sfacg chapter content not found")
@@ -331,4 +329,83 @@ func firstSlashField(items []string, idx int) string {
 		return strings.TrimSpace(parts[idx])
 	}
 	return ""
+}
+
+func parseSfacgChapterParagraphs(container *html.Node) []string {
+	paragraphs := make([]string, 0)
+	for child := container.FirstChild; child != nil; child = child.NextSibling {
+		switch child.Type {
+		case html.TextNode:
+			if text := cleanText(child.Data); text != "" && !isSfacgChapterNavLine(text) {
+				paragraphs = append(paragraphs, text)
+			}
+		case html.ElementNode:
+			if hasClass(child, "yuedu_menu") || hasClass(child, "Tips") || child.Data == "script" || child.Data == "style" {
+				continue
+			}
+			for _, line := range collectSfacgTextLines(child) {
+				if isSfacgChapterNavLine(line) {
+					continue
+				}
+				paragraphs = append(paragraphs, line)
+			}
+		}
+	}
+	return paragraphs
+}
+
+func collectSfacgTextLines(node *html.Node) []string {
+	lines := make([]string, 0)
+	var current strings.Builder
+	flush := func() {
+		if text := cleanText(current.String()); text != "" {
+			lines = append(lines, text)
+		}
+		current.Reset()
+	}
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n == nil {
+			return
+		}
+		switch n.Type {
+		case html.TextNode:
+			current.WriteString(n.Data)
+			return
+		case html.ElementNode:
+			if hasClass(n, "yuedu_menu") || hasClass(n, "Tips") || n.Data == "script" || n.Data == "style" {
+				return
+			}
+			if n.Data == "br" {
+				flush()
+				return
+			}
+			isBlock := n.Data == "p" || n.Data == "div"
+			if isBlock {
+				flush()
+			}
+			for child := n.FirstChild; child != nil; child = child.NextSibling {
+				walk(child)
+			}
+			if isBlock {
+				flush()
+			}
+			return
+		}
+		for child := n.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+	walk(node)
+	flush()
+	return lines
+}
+
+func isSfacgChapterNavLine(line string) bool {
+	switch strings.TrimSpace(line) {
+	case "上一章", "目录", "下一章":
+		return true
+	default:
+		return false
+	}
 }

@@ -21,7 +21,7 @@ import (
 var (
 	ixdzsBookRe      = regexp.MustCompile(`^/read/(\d+)/?$`)
 	ixdzsChapterRe   = regexp.MustCompile(`^/read/(\d+)/(p\d+)\.html$`)
-	ixdzsTokenRegexp = regexp.MustCompile(`let\s+token\s*=\s*"([^"]+)"`)
+	ixdzsTokenRegexp = regexp.MustCompile(`(?i)(?:let|var|const)\s+token\s*=\s*["']([^"']+)["']`)
 )
 
 type Ixdzs8Site struct {
@@ -319,57 +319,35 @@ func ixdzsSearchBookID(raw string) string {
 }
 
 func (s *Ixdzs8Site) fetchVerifiedHTML(ctx context.Context, rawURL string) (string, error) {
-	markup, err := s.html.Get(ctx, rawURL)
-	if err != nil {
-		return "", err
+	for attempt := 0; attempt < 3; attempt++ {
+		markup, err := s.html.Get(ctx, rawURL)
+		if err != nil {
+			return "", err
+		}
+		if !isIxdzsChallengeMarkup(markup) {
+			return markup, nil
+		}
+		if err := s.completeIxdzsChallenge(ctx, rawURL, markup); err != nil {
+			return "", err
+		}
 	}
-	if !isIxdzsChallengeMarkup(markup) {
-		return markup, nil
-	}
-	m := ixdzsTokenRegexp.FindStringSubmatch(markup)
-	if len(m) != 2 {
-		return "", fmt.Errorf("ixdzs8 challenge token not found")
-	}
-	separator := "?"
-	if strings.Contains(rawURL, "?") {
-		separator = "&"
-	}
-	challengeURL := rawURL + separator + "challenge=" + url.QueryEscape(m[1])
-	if _, err := s.html.Get(ctx, challengeURL); err != nil {
-		return "", err
-	}
-	verifiedMarkup, err := s.html.Get(ctx, rawURL)
-	if err != nil {
-		return "", err
-	}
-	if isIxdzsChallengeMarkup(verifiedMarkup) {
-		return "", fmt.Errorf("ixdzs8 challenge not bypassed")
-	}
-	return verifiedMarkup, nil
+	return "", fmt.Errorf("ixdzs8 challenge not bypassed")
 }
 
 func (s *Ixdzs8Site) postCatalog(ctx context.Context, bookID string) (string, error) {
-	form := url.Values{}
-	form.Set("bid", bookID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.catalogURL, strings.NewReader(form.Encode()))
-	if err != nil {
-		return "", err
+	for attempt := 0; attempt < 3; attempt++ {
+		payload, err := s.postCatalogOnce(ctx, bookID)
+		if err != nil {
+			return "", err
+		}
+		if !isIxdzsChallengeMarkup(payload) {
+			return payload, nil
+		}
+		if err := s.completeIxdzsChallenge(ctx, s.catalogURL, payload); err != nil {
+			return "", err
+		}
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("User-Agent", "go-novel-dl/0.1 (+https://github.com/guohuiyuan/go-novel-dl)")
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("ixdzs8 catalog http %d", resp.StatusCode)
-	}
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
+	return "", fmt.Errorf("ixdzs8 catalog challenge not bypassed")
 }
 
 func (s *Ixdzs8Site) bookInfoURL(bookID string) string {
@@ -398,5 +376,59 @@ func isIxdzsAd(text string) bool {
 }
 
 func isIxdzsChallengeMarkup(markup string) bool {
-	return ixdzsTokenRegexp.MatchString(markup) && strings.Contains(markup, "challenge=")
+	if !ixdzsTokenRegexp.MatchString(markup) {
+		return false
+	}
+	return strings.Contains(markup, "challenge=") ||
+		strings.Contains(markup, "正在进行安全验证") ||
+		strings.Contains(markup, "正在進行安全驗證") ||
+		strings.Contains(markup, "请稍等") ||
+		strings.Contains(markup, "請稍等")
+}
+
+func (s *Ixdzs8Site) completeIxdzsChallenge(ctx context.Context, rawURL, markup string) error {
+	m := ixdzsTokenRegexp.FindStringSubmatch(markup)
+	if len(m) != 2 {
+		return fmt.Errorf("ixdzs8 challenge token not found")
+	}
+	challengeURL, err := url.Parse(rawURL)
+	if err != nil {
+		return err
+	}
+	query := challengeURL.Query()
+	query.Set("challenge", m[1])
+	challengeURL.RawQuery = query.Encode()
+	if _, err := s.html.GetWithHeaders(ctx, challengeURL.String(), map[string]string{"Referer": rawURL}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Ixdzs8Site) postCatalogOnce(ctx context.Context, bookID string) (string, error) {
+	form := url.Values{}
+	form.Set("bid", bookID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.catalogURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+	req.Header.Set("User-Agent", defaultBrowserUserAgent)
+	req.Header.Set("Accept", "application/json, text/plain, */*")
+	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+	req.Header.Set("Origin", strings.TrimRight(s.baseURL, "/"))
+	req.Header.Set("Referer", s.bookInfoURL(bookID))
+	req.Header.Set("X-Requested-With", "XMLHttpRequest")
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("ixdzs8 catalog http %d", resp.StatusCode)
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }
