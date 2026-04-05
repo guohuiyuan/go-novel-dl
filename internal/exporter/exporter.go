@@ -32,6 +32,12 @@ import (
 
 type Service struct{}
 
+const (
+	bookInfoPageID    = "book-info"
+	bookInfoPageHref  = "cover.xhtml"
+	bookInfoPageTitle = "书籍信息"
+)
+
 type epubAsset struct {
 	ID        string
 	Href      string
@@ -326,6 +332,10 @@ func renderEPUBLikeESJScript(path string, book *model.Book) error {
 		_ = zw.Close()
 		return err
 	}
+	if err := writeZipFile(zw, "OEBPS/styles.css", []byte(defaultEPUBCSS)); err != nil {
+		_ = zw.Close()
+		return err
+	}
 
 	pkg, err := buildEPUBContentLikeESJScript(book)
 	if err != nil {
@@ -524,20 +534,27 @@ func buildEPUBContentLikeESJScript(book *model.Book) (*epubPackage, error) {
 	wg.Wait()
 
 	assets := make([]*epubAsset, 0)
-	manifestItems := make([]string, 0)
-	spineItems := make([]string, 0, len(chapterBuilds))
-	navPoints := make([]string, 0, len(chapterBuilds))
-	chapterFiles := make(map[string]string, len(chapterBuilds))
+	manifestItems := []string{
+		`<item id="css" href="styles.css" media-type="text/css"/>`,
+		fmt.Sprintf(`<item id="%s" href="%s" media-type="application/xhtml+xml"/>`, bookInfoPageID, bookInfoPageHref),
+		`<item id="nav" href="nav.xhtml" properties="nav" media-type="application/xhtml+xml"/>`,
+	}
+	spineItems := []string{fmt.Sprintf(`<itemref idref="%s"/>`, bookInfoPageID)}
+	navPoints := []string{fmt.Sprintf(`<li><a href="%s">%s</a></li>`, bookInfoPageHref, escapeHTML(bookInfoPageTitle))}
+	chapterFiles := make(map[string]string, len(chapterBuilds)+1)
+	coverImageHref := ""
 
 	if strings.TrimSpace(book.CoverURL) != "" {
 		coverData, coverType, err := downloadAssetForESJ(book.CoverURL, "https://www.esjzone.cc/")
 		if err == nil && len(coverData) > 0 {
 			ext := imageExtensionForESJ(coverType)
 			coverName := "cover." + ext
+			coverImageHref = coverName
 			assets = append(assets, &epubAsset{ID: "cover-image", Href: coverName, MediaType: coverType, Data: coverData})
 			manifestItems = append(manifestItems, fmt.Sprintf(`<item id="cover-image" href="%s" media-type="%s" properties="cover-image"/>`, coverName, coverType))
 		}
 	}
+	chapterFiles[bookInfoPageHref] = buildCoverPage(fallback(book.Title, book.ID), fallback(book.Author, "unknown"), book.Description, coverImageHref)
 
 	for idx, chap := range chapterBuilds {
 		chapterID := fmt.Sprintf("chap_%d", idx+1)
@@ -561,7 +578,6 @@ func buildEPUBContentLikeESJScript(book *model.Book) (*epubPackage, error) {
 		}
 		manifestItems = append(manifestItems, fmt.Sprintf(`<item id="%s" href="%s" media-type="application/xhtml+xml"/>`, chapterID, chap.name))
 	}
-	manifestItems = append(manifestItems, `<item id="nav" href="nav.xhtml" properties="nav" media-type="application/xhtml+xml"/>`)
 
 	nav := fmt.Sprintf(esjNavTemplate, strings.Join(navPoints, ""))
 	coverMeta := ""
@@ -719,10 +735,11 @@ func buildEPUBContent(book *model.Book) (*epubPackage, error) {
 	manifestItems := []string{
 		`<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>`,
 		`<item id="css" href="styles.css" media-type="text/css"/>`,
+		fmt.Sprintf(`<item id="%s" href="%s" media-type="application/xhtml+xml"/>`, bookInfoPageID, bookInfoPageHref),
 	}
-	spineItems := make([]string, 0, len(book.Chapters))
-	navPoints := make([]string, 0, len(book.Chapters))
-	chapterFiles := make(map[string]string, len(book.Chapters))
+	spineItems := []string{fmt.Sprintf(`<itemref idref="%s"/>`, bookInfoPageID)}
+	navPoints := []string{fmt.Sprintf(`<li><a href="%s">%s</a></li>`, bookInfoPageHref, escapeHTML(bookInfoPageTitle))}
+	chapterFiles := make(map[string]string, len(book.Chapters)+1)
 	chapterBlocksByFile := make(map[string][]chapterBlock, len(book.Chapters))
 	chapterByFile := make(map[string]model.Chapter, len(book.Chapters))
 	imageURLs := make([]string, 0)
@@ -735,6 +752,7 @@ func buildEPUBContent(book *model.Book) (*epubPackage, error) {
 		coverImageID = asset.ID
 		manifestItems = append(manifestItems, fmt.Sprintf(`<item id="%s" href="%s" media-type="%s" properties="cover-image"/>`, asset.ID, asset.Href, asset.MediaType))
 	}
+	chapterFiles[bookInfoPageHref] = buildCoverPage(fallback(book.Title, book.ID), fallback(book.Author, "unknown"), book.Description, coverImageHref)
 
 	for idx, chapter := range book.Chapters {
 		fileName := fmt.Sprintf("chapter-%03d.xhtml", idx+1)
@@ -814,12 +832,16 @@ func buildCoverPage(title, author, description, coverImageHref string) string {
 	if strings.TrimSpace(coverImageHref) != "" {
 		image = fmt.Sprintf(`<figure class="cover-art"><img src="%s" alt="%s"/></figure>`, escapeHTML(coverImageHref), escapeHTML(title))
 	}
+	descriptionSection := ""
+	if strings.TrimSpace(description) != "" {
+		descriptionSection = fmt.Sprintf(`<section class="book-description"><h2>简介</h2><p style="white-space:pre-line;">%s</p></section>`, escapeHTMLPreserveNewlines(description))
+	}
 	return fmt.Sprintf(`<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head><title>%s</title><link rel="stylesheet" type="text/css" href="styles.css"/></head>
-<body><section class="cover">%s<h1>%s</h1><p class="author">%s</p><p style="white-space:pre-line;">%s</p></section></body>
-</html>`, escapeHTML(title), image, escapeHTML(title), escapeHTML(author), escapeHTMLPreserveNewlines(description))
+<body><section class="cover">%s<h1>%s</h1><p class="author">%s</p>%s</section></body>
+</html>`, escapeHTML(title), image, escapeHTML(title), escapeHTML(author), descriptionSection)
 }
 
 func escapeHTMLPreserveNewlines(value string) string {
@@ -1543,4 +1565,4 @@ const ncxTemplate = `<?xml version="1.0" encoding="utf-8"?>
 
 const esjEPUBParagraphCSS = `.novel-paragraph{margin:0;line-height:1.9;text-indent:2em;}.novel-paragraph-first{text-indent:0;}.novel-paragraph + .novel-paragraph{margin-top:3.8em;}`
 
-const defaultEPUBCSS = `body{font-family:Georgia,serif;line-height:1.9;margin:5%;}h1,h2{line-height:1.3;}article{page-break-after:always;}.novel-paragraph{margin:0;line-height:1.9;text-indent:2em;}.novel-paragraph-first{text-indent:0;}.novel-paragraph + .novel-paragraph{margin-top:3.8em;}.cover{margin-top:12%;text-align:center;}.cover-art,.illustration{margin:1.5em auto;text-align:center;text-indent:0;}.cover-art img,.illustration img{height:auto;max-width:100%;}.cover-art img{max-height:70vh;}.author{font-style:italic;}`
+const defaultEPUBCSS = `body{font-family:Georgia,serif;line-height:1.9;margin:5%;}h1,h2{line-height:1.3;}article{page-break-after:always;}.novel-paragraph{margin:0;line-height:1.9;text-indent:2em;}.novel-paragraph-first{text-indent:0;}.novel-paragraph + .novel-paragraph{margin-top:3.8em;}.cover{margin-top:12%;text-align:center;}.cover-art,.illustration{margin:1.5em auto;text-align:center;text-indent:0;}.cover-art img,.illustration img{height:auto;max-width:100%;}.cover-art img{max-height:70vh;}.author{font-style:italic;}.book-description{margin:2em auto 0;max-width:36em;text-align:left;}.book-description h2{text-align:center;}`

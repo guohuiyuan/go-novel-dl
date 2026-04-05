@@ -20,6 +20,27 @@ import (
 	"github.com/guohuiyuan/go-novel-dl/internal/model"
 )
 
+func readZipEntry(t *testing.T, r *zip.ReadCloser, name string) string {
+	t.Helper()
+	for _, file := range r.File {
+		if file.Name != name {
+			continue
+		}
+		rc, err := file.Open()
+		if err != nil {
+			t.Fatalf("open zip entry %s: %v", name, err)
+		}
+		body, err := io.ReadAll(rc)
+		rc.Close()
+		if err != nil {
+			t.Fatalf("read zip entry %s: %v", name, err)
+		}
+		return string(body)
+	}
+	t.Fatalf("zip entry not found: %s", name)
+	return ""
+}
+
 func tinyPNGBytes(t *testing.T) []byte {
 	t.Helper()
 	img := image.NewRGBA(image.Rect(0, 0, 1, 1))
@@ -92,6 +113,67 @@ func TestDescriptionRenderingPreservesNewlines(t *testing.T) {
 	coverPage := buildCoverPage(book.Title, book.Author, book.Description, "")
 	if !strings.Contains(coverPage, "line1<br/>line2") {
 		t.Fatalf("expected EPUB cover description to preserve newlines, got: %s", coverPage)
+	}
+}
+
+func TestEPUBExportIncludesBookInfoPageForAllPaths(t *testing.T) {
+	service := New()
+	cases := []struct {
+		name string
+		site string
+	}{
+		{name: "standard", site: "linovelib"},
+		{name: "esj", site: "esjzone"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			book := &model.Book{
+				Site:         tc.site,
+				ID:           "book-info-1",
+				Title:        "Book Info Test",
+				Author:       "Tester",
+				Description:  "line1\nline2",
+				DownloadedAt: time.Now().UTC(),
+				UpdatedAt:    time.Now().UTC(),
+				Chapters:     []model.Chapter{{ID: "1", Title: "Chapter 1", Content: "Hello world."}},
+			}
+
+			paths, err := service.Export(book, tc.site, config.DefaultConfig().General.Output, t.TempDir(), []string{"epub"})
+			if err != nil {
+				t.Fatalf("export epub: %v", err)
+			}
+
+			r, err := zip.OpenReader(paths[0])
+			if err != nil {
+				t.Fatalf("open epub zip: %v", err)
+			}
+			defer r.Close()
+
+			coverPage := readZipEntry(t, r, "OEBPS/cover.xhtml")
+			if !strings.Contains(coverPage, "Book Info Test") {
+				t.Fatalf("expected cover page to include title, got: %s", coverPage)
+			}
+			if !strings.Contains(coverPage, "Tester") {
+				t.Fatalf("expected cover page to include author, got: %s", coverPage)
+			}
+			if !strings.Contains(coverPage, "line1<br/>line2") {
+				t.Fatalf("expected cover page to include description, got: %s", coverPage)
+			}
+
+			nav := readZipEntry(t, r, "OEBPS/nav.xhtml")
+			if !strings.Contains(nav, `href="cover.xhtml"`) {
+				t.Fatalf("expected nav to include book info page, got: %s", nav)
+			}
+
+			opf := readZipEntry(t, r, "OEBPS/content.opf")
+			if !strings.Contains(opf, `id="book-info" href="cover.xhtml"`) {
+				t.Fatalf("expected manifest to include book info page, got: %s", opf)
+			}
+			if !strings.Contains(opf, `idref="book-info"`) {
+				t.Fatalf("expected spine to include book info page, got: %s", opf)
+			}
+		})
 	}
 }
 
