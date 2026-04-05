@@ -72,6 +72,9 @@ func DefaultConfig() Config {
 			}},
 		},
 		Sites: map[string]SiteConfig{
+			"alicesw": {
+				BookIDs: []model.BookRef{{BookID: "50427"}},
+			},
 			"esjzone": {
 				BookIDs:       []model.BookRef{{BookID: "1660702902"}},
 				LoginRequired: boolPtr(true),

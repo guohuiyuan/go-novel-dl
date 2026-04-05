@@ -109,6 +109,7 @@ type defaultSiteCatalogRow struct {
 }
 
 var defaultSiteCatalog = []defaultSiteCatalogRow{
+	{Key: "alicesw", DisplayName: "爱丽丝书屋", WorkerLimit: 0, FetchImages: true},
 	{Key: "esjzone", DisplayName: "ESJ Zone", LoginRequired: true, WorkerLimit: 0, FetchImages: true, MirrorHosts: []string{"https://www.esjzone.one"}},
 	{Key: "faloo", DisplayName: "Faloo", WorkerLimit: 0, FetchImages: true},
 	{Key: "fsshu", DisplayName: "Fsshu", WorkerLimit: 0, FetchImages: true},

@@ -84,6 +84,9 @@ func (r *Registry) Keys() []string {
 
 func NewDefaultRegistry() *Registry {
 	registry := NewRegistry()
+	registry.RegisterWithHosts("alicesw", []string{"alicesw.com"}, func(cfg config.ResolvedSiteConfig) Site {
+		return NewAliceswSite(cfg)
+	})
 	// Disabled: connection issues
 	registry.RegisterWithHosts("esjzone", []string{"esjzone.cc", "esjzone.one"}, func(cfg config.ResolvedSiteConfig) Site {
 		return NewESJZoneSite(cfg)
