@@ -27,6 +27,7 @@
   /* 阴影更轻柔 */
   --shadow: 0 4px 20px rgba(16, 185, 129, 0.04);
   --shadow-hover: 0 10px 24px rgba(16, 185, 129, 0.12);
+  --image-blur-radius: 18px;
 }
 
 * { box-sizing: border-box; }
@@ -328,6 +329,18 @@ h3 { font-size: 14px; font-weight: 700; color: #334155; }
 .result-cover-button { position: relative; width: 100%; padding: 0; background: transparent; cursor: pointer; border-radius: 8px; overflow: hidden; }
 .result-cover { display: block; width: 100%; aspect-ratio: 3 / 4; object-fit: cover; transition: transform 0.3s ease; background: #f8fafc; }
 .result-card:hover .result-cover { transform: scale(1.03); }
+
+body.web-images-blurred .result-cover,
+body.web-images-blurred .detail-cover {
+  filter: blur(var(--image-blur-radius));
+  transform: scale(1.04);
+  transform-origin: center;
+  clip-path: inset(0 round 10px);
+}
+
+body.web-images-blurred .result-card:hover .result-cover {
+  transform: scale(1.07);
+}
 
 .result-cover-overlay {
   position: absolute; bottom: 0; left: 0; width: 100%; padding: 8px 0; text-align: center;

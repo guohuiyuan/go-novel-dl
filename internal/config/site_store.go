@@ -59,6 +59,7 @@ type GeneralConfigRecord struct {
 	Timeout         float64  `json:"timeout"`
 	WebPageSize     int      `json:"web_page_size"`
 	CLIPageSize     int      `json:"cli_page_size"`
+	BlurWebImages   bool     `json:"blur_web_images"`
 	LocaleStyle     string   `json:"locale_style"`
 	Formats         []string `json:"formats"`
 	AppendTimestamp bool     `json:"append_timestamp"`
@@ -611,6 +612,7 @@ func mergeGeneralConfig(cfg *Config) error {
 	cfg.General.Timeout = record.Timeout
 	cfg.General.WebPageSize = record.WebPageSize
 	cfg.General.CLIPageSize = record.CLIPageSize
+	cfg.General.BlurWebImages = record.BlurWebImages
 	cfg.General.LocaleStyle = record.LocaleStyle
 	cfg.General.Output.Formats = cloneStrings(record.Formats)
 	cfg.General.Output.AppendTimestamp = record.AppendTimestamp
@@ -632,6 +634,7 @@ func defaultGeneralRecord(general GeneralConfig) GeneralConfigRecord {
 		Timeout:         general.Timeout,
 		WebPageSize:     general.WebPageSize,
 		CLIPageSize:     general.CLIPageSize,
+		BlurWebImages:   general.BlurWebImages,
 		LocaleStyle:     general.LocaleStyle,
 		Formats:         cloneStrings(general.Output.Formats),
 		AppendTimestamp: general.Output.AppendTimestamp,

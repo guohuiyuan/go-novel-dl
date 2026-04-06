@@ -47,6 +47,7 @@ func DefaultConfig() Config {
 			LoginRequired:     false,
 			WebPageSize:       50,
 			CLIPageSize:       30,
+			BlurWebImages:     false,
 			Output: OutputConfig{
 				Formats:              []string{"txt", "epub"},
 				AppendTimestamp:      true,

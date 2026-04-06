@@ -98,6 +98,27 @@ func TestIndexPageIncludesSourceTagFilterControls(t *testing.T) {
 	}
 }
 
+func TestIndexPageIncludesBlurWebImagesControl(t *testing.T) {
+	service := newTestService()
+	service.GeneralConfig = config.GeneralConfigRecord{BlurWebImages: true}
+	router := newRouter(service)
+
+	req := httptest.NewRequest(http.MethodGet, RoutePrefix+"/", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	body := resp.Body.String()
+	for _, needle := range []string{`id="generalBlurWebImages"`, `"blur_web_images":true`} {
+		if !strings.Contains(body, needle) {
+			t.Fatalf("expected index page to contain %s, body=%s", needle, body)
+		}
+	}
+}
+
 func TestSearchEndpointPaginatesMixedSearchableSources(t *testing.T) {
 	service := newTestService()
 	router := newRouter(service)

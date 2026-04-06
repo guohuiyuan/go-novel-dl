@@ -95,6 +95,7 @@ func applyGeneral(dst *GeneralConfig, raw map[string]any) error {
 	stringField(raw, "backend", &dst.Backend)
 	stringField(raw, "locale_style", &dst.LocaleStyle)
 	boolField(raw, "login_required", &dst.LoginRequired)
+	boolField(raw, "blur_web_images", &dst.BlurWebImages)
 
 	if outputRaw := asMap(raw["output"]); outputRaw != nil {
 		applyOutputConfig(&dst.Output, outputRaw)

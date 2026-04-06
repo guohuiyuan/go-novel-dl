@@ -32,6 +32,7 @@ type GeneralConfig struct {
 	LoginRequired     bool
 	WebPageSize       int
 	CLIPageSize       int
+	BlurWebImages     bool
 	Output            OutputConfig
 	Parser            ParserConfig
 	Debug             DebugConfig

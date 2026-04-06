@@ -174,6 +174,8 @@ const generalLocaleStyleNode = document.getElementById("generalLocaleStyle");
 const generalFormatsNode = document.getElementById("generalFormats");
 const generalAppendTimestampNode = document.getElementById("generalAppendTimestamp");
 const generalIncludePictureNode = document.getElementById("generalIncludePicture");
+const generalBlurWebImagesNode = document.getElementById("generalBlurWebImages");
+const generalBlurWebImagesLabelNode = generalBlurWebImagesNode ? generalBlurWebImagesNode.nextElementSibling : null;
 const generalWebPageSizeNode = document.getElementById("generalWebPageSize");
 const generalCLIPageSizeNode = document.getElementById("generalCLIPageSize");
 const generalRawDataDirNode = document.getElementById("generalRawDataDir");
@@ -193,6 +195,7 @@ function bindRangeValue(inputId) {
 bootstrap();
 
 function bootstrap() {
+  if (generalBlurWebImagesLabelNode) generalBlurWebImagesLabelNode.textContent = "Blur web images (display only)";
   renderSourceTagFilters();
   renderSourceSelector();
   renderWarnings([]);
@@ -987,11 +990,13 @@ function renderGeneralConfigForm(item) {
   generalFormatsNode.value = Array.isArray(item.formats) ? item.formats.join(",") : "txt,epub";
   generalAppendTimestampNode.checked = item.append_timestamp !== false;
   generalIncludePictureNode.checked = item.include_picture !== false;
+  generalBlurWebImagesNode.checked = item.blur_web_images === true;
   setRangeVal("generalWebPageSize", item.web_page_size || 50);
   setRangeVal("generalCLIPageSize", item.cli_page_size || 30);
   generalRawDataDirNode.value = item.raw_data_dir || "./data/raw_data";
   generalCacheDirNode.value = item.cache_dir || "./data/novel_cache";
   generalOutputDirNode.value = item.output_dir || "./data/downloads";
+  applyImageBlurSetting(item);
 }
 
 async function loadGeneralConfig() {
@@ -1015,6 +1020,7 @@ async function saveGeneralConfig() {
     formats: (generalFormatsNode.value || "txt,epub").split(",").map((item) => item.trim()).filter(Boolean),
     append_timestamp: generalAppendTimestampNode.checked,
     include_picture: generalIncludePictureNode.checked,
+    blur_web_images: generalBlurWebImagesNode.checked,
     web_page_size: Math.max(1, Number.parseInt(generalWebPageSizeNode.value || "50", 10) || 50),
     cli_page_size: Math.max(1, Number.parseInt(generalCLIPageSizeNode.value || "30", 10) || 30),
     raw_data_dir: generalRawDataDirNode.value.trim(),
@@ -1031,6 +1037,10 @@ async function saveGeneralConfig() {
   appState.generalConfig = data.item || payload;
   renderGeneralConfigForm(appState.generalConfig);
   setStatus("已保存全局配置。新任务将使用最新参数。");
+}
+
+function applyImageBlurSetting(item) {
+  document.body.classList.toggle("web-images-blurred", Boolean(item && item.blur_web_images));
 }
 
 async function saveSiteConfig() {
