@@ -100,6 +100,10 @@ func searchTimeoutSecondsForSites(sites []string) float64 {
 			if timeout < 45 {
 				timeout = 45
 			}
+		case "tianyabooks":
+			if timeout < 180 {
+				timeout = 180
+			}
 		case "esjzone":
 			if timeout < 50 {
 				timeout = 50

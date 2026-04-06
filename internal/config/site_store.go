@@ -126,6 +126,7 @@ var defaultSiteCatalog = []defaultSiteCatalogRow{
 	{Key: "n17k", DisplayName: "17K小说网", WorkerLimit: 0, FetchImages: true},
 	{Key: "n8novel", DisplayName: "无限轻小说", WorkerLimit: 0, FetchImages: true, LocaleStyle: "simplified"},
 	{Key: "shuhaige", DisplayName: "书海阁小说网", WorkerLimit: 0, FetchImages: true},
+	{Key: "tianyabooks", DisplayName: "天涯书库", WorkerLimit: 0, FetchImages: true},
 	{Key: "tongrenshe", DisplayName: "同人社", WorkerLimit: 0, FetchImages: true},
 }
 

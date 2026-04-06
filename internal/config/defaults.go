@@ -155,6 +155,9 @@ func DefaultConfig() Config {
 			"shuhaige": {
 				BookIDs: []model.BookRef{{BookID: "126726"}},
 			},
+			"tianyabooks": {
+				BookIDs: []model.BookRef{{BookID: "cn/chandelizhi"}},
+			},
 		},
 		Plugins: PluginsConfig{
 			EnableLocalPlugins: false,

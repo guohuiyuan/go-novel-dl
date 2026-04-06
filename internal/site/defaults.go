@@ -25,6 +25,7 @@ var defaultAvailableSiteKeys = []string{
 	"ciweimao",
 	"n8novel",
 	"shuhaige",
+	"tianyabooks",
 	"alicesw",
 }
 

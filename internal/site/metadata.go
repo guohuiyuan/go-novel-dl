@@ -96,6 +96,10 @@ var siteMetadata = map[string]SiteMetadata{
 		Title: "同人社",
 		Tags:  []string{"同人二创", "简体中文", "转载站"},
 	},
+	"tianyabooks": {
+		Title: "天涯书库",
+		Tags:  []string{"简体中文", "经典图书", "转载站"},
+	},
 }
 
 func descriptorMetadata(key string) SiteMetadata {

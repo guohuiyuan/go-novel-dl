@@ -81,6 +81,7 @@ func shouldRetrySiteRequest(err error) bool {
 		strings.Contains(message, "unexpected eof"),
 		strings.Contains(message, " eof"),
 		strings.Contains(message, "connection reset"),
+		strings.Contains(message, "forcibly closed"),
 		strings.Contains(message, "actively refused"):
 		return true
 	default:
