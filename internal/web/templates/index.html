@@ -1,15 +1,15 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
-  <title>Novel DL 聚合搜索与下载</title>
+  <title>&#x5C0F;&#x8BF4;&#x805A;&#x5408;&#x641C;&#x7D22;&#x4E0E;&#x4E0B;&#x8F7D;</title>
   <link rel="icon" type="image/png" sizes="256x256" href="{{ .Root }}/icon-256.png">
   <link rel="stylesheet" href="{{ .Root }}/style.css">
 </head>
 <body>
-  <button id="openGeneralConfig" class="settings-float" aria-label="设置中心">
+  <button id="openGeneralConfig" class="settings-float" aria-label="璁剧疆涓績">
     <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
       <circle cx="12" cy="12" r="3"></circle>
       <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
@@ -19,18 +19,18 @@
   <div class="page-shell">
     <header class="hero">
       <div class="hero-copy panel-card">
-        <p class="eyebrow">Novel DL Web <a href="https://github.com/guohuiyuan/go-novel-dl" target="_blank" rel="noopener noreferrer" style="margin-left: 10px; text-decoration: none; color: inherit;">🔗 GitHub</a></p>
-        <h1>聚合搜索与下载</h1>
-        <p class="lead">多渠道并发检索，封面点开详情，查看简介、章节并直接发起下载。</p>
+        <p class="eyebrow">Novel DL Web <a href="https://github.com/guohuiyuan/go-novel-dl" target="_blank" rel="noopener noreferrer" style="margin-left: 10px; text-decoration: none; color: inherit;">馃敆 GitHub</a></p>
+        <h1>鑱氬悎鎼滅储涓庝笅杞?/h1>
+        <p class="lead">澶氭笭閬撳苟鍙戞绱紝灏侀潰鐐瑰紑璇︽儏锛屾煡鐪嬬畝浠嬨€佺珷鑺傚苟鐩存帴鍙戣捣涓嬭浇銆?/p>
       </div>
     </header>
 
-    <nav class="tab-bar" aria-label="主视图">
+    <nav class="tab-bar" aria-label="&#x4E3B;&#x89C6;&#x56FE;">
       <button type="button" id="searchTabButton" class="tab-button is-active" data-tab="search">
-        搜索
+        鎼滅储
       </button>
       <button type="button" id="tasksTabButton" class="tab-button" data-tab="tasks">
-        下载任务
+        涓嬭浇浠诲姟
         <span id="taskTabCount" class="tab-count">0</span>
       </button>
     </nav>
@@ -40,29 +40,29 @@
         <section class="panel-card control-panel">
           <form id="searchForm" class="search-form">
             <label class="search-field" for="keyword">
-              <span class="field-label">关键词</span>
-              <input id="keyword" class="search-input" type="text" placeholder="输入书名、作者、关键词，或直接粘贴小说链接" autocomplete="off">
+              <span class="field-label">鍏抽敭璇?/span>
+              <input id="keyword" class="search-input" type="text" placeholder="杈撳叆涔﹀悕銆佷綔鑰呫€佸叧閿瘝锛屾垨鐩存帴绮樿创灏忚閾炬帴" autocomplete="off">
             </label>
-            <button class="search-button" type="submit">开始搜索</button>
+            <button class="search-button" type="submit">寮€濮嬫悳绱?/button>
           </form>
 
           <div class="selection-toolbar">
-            <button type="button" id="selectAllSources" class="tool-button">全选</button>
-            <button type="button" id="clearSources" class="tool-button is-ghost">清空</button>
+            <button type="button" id="selectAllSources" class="tool-button">鍏ㄩ€?/button>
+            <button type="button" id="clearSources" class="tool-button is-ghost">娓呯┖</button>
           </div>
 
           <section class="source-tag-panel" aria-labelledby="sourceTagHeading">
             <div class="source-tag-panel-head">
-              <span id="sourceTagHeading" class="field-label">标签筛选 · 多选取交集</span>
-              <button type="button" id="clearTagFilters" class="tool-button is-ghost" hidden>清除标签</button>
+              <span id="sourceTagHeading" class="field-label">鏍囩绛涢€?路 澶氶€夊彇浜ら泦</span>
+              <button type="button" id="clearTagFilters" class="tool-button is-ghost" hidden>娓呴櫎鏍囩</button>
             </div>
             <div id="sourceTagFilters" class="source-tag-filters"></div>
           </section>
 
           <div class="panel-header">
             <div>
-              <h2>渠道</h2>
-              <p id="sourceSummary" class="panel-hint">高亮即已选。</p>
+              <h2>娓犻亾</h2>
+              <p id="sourceSummary" class="panel-hint">楂樹寒鍗冲凡閫夈€?/p>
             </div>
           </div>
 
@@ -72,27 +72,27 @@
 
         <section class="panel-card results-panel">
           <div class="feedback-stack">
-            <div id="status" class="status-card">选择渠道后输入关键词开始搜索。</div>
+            <div id="status" class="status-card">閫夋嫨娓犻亾鍚庤緭鍏ュ叧閿瘝寮€濮嬫悳绱€?/div>
             <div id="warnings" class="warning-list"></div>
           </div>
 
           <div class="results-head">
             <div>
-              <h2>搜索结果</h2>
-              <p id="resultMeta" class="panel-hint">输入关键词后开始搜索。</p>
+              <h2>鎼滅储缁撴灉</h2>
+              <p id="resultMeta" class="panel-hint">杈撳叆鍏抽敭璇嶅悗寮€濮嬫悳绱€?/p>
             </div>
             <div class="results-tools">
               <span id="resultCount" class="count-badge">0</span>
               <div class="pagination">
-                <button type="button" id="prevPage" class="page-button">上一页</button>
-                <span id="pageIndicator" class="page-indicator">第 1 页 · 每页 {{.PageSize}} 本</span>
-                <button type="button" id="nextPage" class="page-button">下一页</button>
+                <button type="button" id="prevPage" class="page-button">涓婁竴椤?/button>
+                <span id="pageIndicator" class="page-indicator">绗?1 椤?路 姣忛〉 {{.PageSize}} 鏈?/span>
+                <button type="button" id="nextPage" class="page-button">涓嬩竴椤?/button>
               </div>
             </div>
           </div>
 
           <div id="results" class="results-grid">
-            <div class="empty-state">输入关键词后开始搜索。</div>
+            <div class="empty-state">杈撳叆鍏抽敭璇嶅悗寮€濮嬫悳绱€?/div>
           </div>
         </section>
       </div>
@@ -102,14 +102,14 @@
       <section class="panel-card tasks-panel">
         <div class="panel-header">
           <div>
-            <h2>下载任务</h2>
-            <p class="panel-hint">这里显示当前会话创建的下载任务和导出结果。</p>
+            <h2>涓嬭浇浠诲姟</h2>
+            <p class="panel-hint">杩欓噷鏄剧ず褰撳墠浼氳瘽鍒涘缓鐨勪笅杞戒换鍔″拰瀵煎嚭缁撴灉銆?/p>
           </div>
           <span id="taskCount" class="count-badge">0</span>
         </div>
 
         <div id="tasks" class="task-list">
-          <div class="empty-state empty-state-compact">还没有下载任务。</div>
+          <div class="empty-state empty-state-compact">杩樻病鏈変笅杞戒换鍔°€?/div>
         </div>
       </section>
     </section>
@@ -119,137 +119,137 @@
     <div id="siteConfigBackdrop" class="site-config-backdrop"></div>
     <section class="site-config-modal" role="dialog" aria-modal="true" aria-labelledby="siteConfigHeading">
       <div class="site-config-head">
-        <h2 id="siteConfigHeading">设置中心</h2>
-        <button type="button" id="closeSiteConfig" class="detail-close">关闭</button>
+        <h2 id="siteConfigHeading">璁剧疆涓績</h2>
+        <button type="button" id="closeSiteConfig" class="detail-close">鍏抽棴</button>
       </div>
 
       <div class="settings-layout">
         <section class="config-section-card">
           <div class="config-section-head">
-            <h3>全局配置</h3>
+            <h3>鍏ㄥ眬閰嶇疆</h3>
           </div>
           <form id="generalConfigForm" class="site-config-form">
             <label class="search-field" for="generalWorkers">
-              <span class="field-label">默认下载协程 (推荐1-10)</span>
+              <span class="field-label">榛樿涓嬭浇鍗忕▼ (鎺ㄨ崘1-10)</span>
               <div class="range-wrap">
                 <input id="generalWorkers" class="search-input slider" type="range" min="1" max="10" step="1">
                 <span id="generalWorkersVal" class="range-val">4</span>
               </div>
             </label>
             <label class="search-field" for="generalTimeout">
-              <span class="field-label">超时时间 (秒)</span>
+              <span class="field-label">瓒呮椂鏃堕棿 (绉?</span>
               <div class="range-wrap">
                 <input id="generalTimeout" class="search-input slider" type="range" min="1" max="60" step="1">
                 <span id="generalTimeoutVal" class="range-val">10</span>
               </div>
             </label>
             <label class="search-field" for="generalRequestInterval">
-              <span class="field-label">请求间隔 (秒)</span>
+              <span class="field-label">璇锋眰闂撮殧 (绉?</span>
               <div class="range-wrap">
                 <input id="generalRequestInterval" class="search-input slider" type="range" min="0" max="10" step="0.1">
                 <span id="generalRequestIntervalVal" class="range-val">0.5</span>
               </div>
             </label>
             <label class="search-field" for="generalMaxConnections">
-              <span class="field-label">最大连接数</span>
+              <span class="field-label">鏈€澶ц繛鎺ユ暟</span>
               <div class="range-wrap">
                 <input id="generalMaxConnections" class="search-input slider" type="range" min="1" max="100" step="1">
                 <span id="generalMaxConnectionsVal" class="range-val">10</span>
               </div>
             </label>
             <label class="search-field" for="generalMaxRPS">
-              <span class="field-label">最大 RPS</span>
+              <span class="field-label">鏈€澶?RPS</span>
               <div class="range-wrap">
                 <input id="generalMaxRPS" class="search-input slider" type="range" min="0.1" max="50" step="0.1">
                 <span id="generalMaxRPSVal" class="range-val">5.0</span>
               </div>
             </label>
             <label class="search-field" for="generalRetryTimes">
-              <span class="field-label">重试次数</span>
+              <span class="field-label">閲嶈瘯娆℃暟</span>
               <div class="range-wrap">
                 <input id="generalRetryTimes" class="search-input slider" type="range" min="0" max="10" step="1">
                 <span id="generalRetryTimesVal" class="range-val">3</span>
               </div>
             </label>
             <label class="search-field" for="generalBackoffFactor">
-              <span class="field-label">退避系数</span>
+              <span class="field-label">閫€閬跨郴鏁?/span>
               <div class="range-wrap">
                 <input id="generalBackoffFactor" class="search-input slider" type="range" min="1" max="5" step="0.1">
                 <span id="generalBackoffFactorVal" class="range-val">2.0</span>
               </div>
             </label>
             <label class="search-field" for="generalLocaleStyle">
-              <span class="field-label">文本风格</span>
+              <span class="field-label">鏂囨湰椋庢牸</span>
               <select id="generalLocaleStyle" class="search-input">
                 <option value="simplified">simplified</option>
                 <option value="traditional">traditional</option>
               </select>
             </label>
             <label class="search-field" for="generalFormats">
-              <span class="field-label">默认导出格式（逗号分隔）</span>
+              <span class="field-label">榛樿瀵煎嚭鏍煎紡锛堥€楀彿鍒嗛殧锛?/span>
               <input id="generalFormats" class="search-input" type="text" placeholder="txt,epub">
             </label>
             <label class="site-config-check">
               <input id="generalAppendTimestamp" type="checkbox">
-              <span>文件名追加时间戳</span>
+              <span>鏂囦欢鍚嶈拷鍔犳椂闂存埑</span>
             </label>
             <label class="site-config-check">
               <input id="generalIncludePicture" type="checkbox">
-              <span>默认抓取图片</span>
+              <span>榛樿鎶撳彇鍥剧墖</span>
             </label>
             <label class="site-config-check">
               <input id="generalBlurWebImages" type="checkbox">
-              <span>Web 绔欑偣鍥剧墖妯＄硦鍖栵紙浠呭奖鍝嶉〉闈㈡樉绀猴級</span>
+              <span>&#x7F51;&#x9875;&#x56FE;&#x7247;&#x6A21;&#x7CCA;&#x5316;&#xFF08;&#x4EC5;&#x5F71;&#x54CD;&#x9875;&#x9762;&#x663E;&#x793A;&#xFF09;</span>
             </label>
             <label class="search-field" for="generalWebPageSize">
-              <span class="field-label">Web 每页数量</span>
+              <span class="field-label">Web 姣忛〉鏁伴噺</span>
               <div class="range-wrap">
                 <input id="generalWebPageSize" class="search-input slider" type="range" min="10" max="100" step="1">
                 <span id="generalWebPageSizeVal" class="range-val">50</span>
               </div>
             </label>
             <label class="search-field" for="generalCLIPageSize">
-              <span class="field-label">CLI 每页数量</span>
+              <span class="field-label">CLI 姣忛〉鏁伴噺</span>
               <div class="range-wrap">
                 <input id="generalCLIPageSize" class="search-input slider" type="range" min="10" max="100" step="1">
                 <span id="generalCLIPageSizeVal" class="range-val">30</span>
               </div>
             </label>
             <label class="search-field" for="generalRawDataDir">
-              <span class="field-label">Raw 数据目录</span>
+              <span class="field-label">Raw 鏁版嵁鐩綍</span>
               <input id="generalRawDataDir" class="search-input" type="text">
             </label>
             <label class="search-field" for="generalCacheDir">
-              <span class="field-label">缓存目录</span>
+              <span class="field-label">缂撳瓨鐩綍</span>
               <input id="generalCacheDir" class="search-input" type="text">
             </label>
             <label class="search-field" for="generalOutputDir">
-              <span class="field-label">导出目录</span>
+              <span class="field-label">瀵煎嚭鐩綍</span>
               <input id="generalOutputDir" class="search-input" type="text">
             </label>
             <div class="site-config-actions">
-              <button id="saveGeneralConfig" type="submit" class="search-button">保存全局配置</button>
+              <button id="saveGeneralConfig" type="submit" class="search-button">淇濆瓨鍏ㄥ眬閰嶇疆</button>
             </div>
           </form>
         </section>
 
         <section class="config-section-card">
           <div class="config-section-head">
-            <h3>站点配置</h3>
+            <h3>绔欑偣閰嶇疆</h3>
           </div>
           <form id="siteConfigForm" class="site-config-form">
             <label class="search-field" for="siteConfigKey">
-              <span class="field-label">站点</span>
+              <span class="field-label">绔欑偣</span>
               <select id="siteConfigKey" class="search-input"></select>
             </label>
 
             <label class="site-config-check">
               <input id="siteLoginRequired" type="checkbox">
-              <span>需要登录</span>
+              <span>闇€瑕佺櫥褰?/span>
             </label>
 
             <label class="search-field" for="siteWorkerLimit">
-              <span class="field-label">下载协程数 (0 为使用全局默认)</span>
+              <span class="field-label">涓嬭浇鍗忕▼鏁?(0 涓轰娇鐢ㄥ叏灞€榛樿)</span>
               <div class="range-wrap">
                 <input id="siteWorkerLimit" class="search-input slider" type="range" min="0" max="10" step="1">
                 <span id="siteWorkerLimitVal" class="range-val">0</span>
@@ -258,13 +258,13 @@
 
             <label class="site-config-check">
               <input id="siteFetchImages" type="checkbox">
-              <span>抓取图片（关闭后仅保留文本）</span>
+              <span>鎶撳彇鍥剧墖锛堝叧闂悗浠呬繚鐣欐枃鏈級</span>
             </label>
 
             <label class="search-field" for="siteLocaleStyle">
-              <span class="field-label">文字转换</span>
+              <span class="field-label">鏂囧瓧杞崲</span>
               <select id="siteLocaleStyle" class="search-input">
-                <option value="">跟随全局</option>
+                <option value="">璺熼殢鍏ㄥ眬</option>
                 <option value="original">original</option>
                 <option value="traditional">traditional</option>
                 <option value="simplified">simplified</option>
@@ -272,15 +272,15 @@
             </label>
 
             <label class="search-field" for="siteUsername">
-              <span class="field-label">用户名</span>
+              <span class="field-label">鐢ㄦ埛鍚?/span>
               <input id="siteUsername" class="search-input" type="text" autocomplete="off">
             </label>
 
             <label class="search-field" for="sitePassword">
-              <span class="field-label">密码</span>
+              <span class="field-label">瀵嗙爜</span>
               <div class="input-icon-wrap">
                 <input id="sitePassword" class="search-input" type="password" autocomplete="off">
-                <button id="toggleSitePassword" type="button" class="input-icon-btn" aria-label="切换可见性">
+                <button id="toggleSitePassword" type="button" class="input-icon-btn" aria-label="&#x5207;&#x6362;&#x53EF;&#x89C1;&#x6027;">
                   <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
                     <circle cx="12" cy="12" r="3"></circle>
@@ -295,12 +295,12 @@
             </label>
 
             <label class="search-field" for="siteMirrorHosts">
-              <span class="field-label">镜像地址（每行一个）</span>
+              <span class="field-label">闀滃儚鍦板潃锛堟瘡琛屼竴涓級</span>
               <textarea id="siteMirrorHosts" class="site-config-textarea" rows="3"></textarea>
             </label>
 
             <div class="site-config-actions">
-              <button id="saveSiteConfig" type="submit" class="search-button">保存配置</button>
+              <button id="saveSiteConfig" type="submit" class="search-button">淇濆瓨閰嶇疆</button>
             </div>
           </form>
         </section>
@@ -312,15 +312,15 @@
     <div id="detailBackdrop" class="detail-backdrop"></div>
     <aside class="detail-panel" role="dialog" aria-modal="true" aria-labelledby="detailHeading">
       <div class="detail-topbar">
-        <button type="button" id="detailCloseButton" class="detail-close">关闭</button>
+        <button type="button" id="detailCloseButton" class="detail-close">鍏抽棴</button>
       </div>
       <div id="detailContent" class="detail-content">
-        <div class="empty-state empty-state-compact">点击封面查看小说详情。</div>
+        <div class="empty-state empty-state-compact">鐐瑰嚮灏侀潰鏌ョ湅灏忚璇︽儏銆?/div>
       </div>
     </aside>
   </div>
 
-  <button id="backToTop" class="back-to-top" aria-label="回到顶部">
+  <button id="backToTop" class="back-to-top" aria-label="鍥炲埌椤堕儴">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
       <path d="M12 19V5M5 12l7-7 7 7"/>
     </svg>

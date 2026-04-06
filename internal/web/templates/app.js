@@ -195,7 +195,7 @@ function bindRangeValue(inputId) {
 bootstrap();
 
 function bootstrap() {
-  if (generalBlurWebImagesLabelNode) generalBlurWebImagesLabelNode.textContent = "Blur web images (display only)";
+  if (generalBlurWebImagesLabelNode) generalBlurWebImagesLabelNode.textContent = "\u7f51\u9875\u56fe\u7247\u6a21\u7cca\u5316\uff08\u4ec5\u5f71\u54cd\u9875\u9762\u663e\u793a\uff09";
   renderSourceTagFilters();
   renderSourceSelector();
   renderWarnings([]);
