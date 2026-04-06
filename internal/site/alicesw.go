@@ -201,7 +201,6 @@ func (s *AliceswSite) Search(ctx context.Context, keyword string, limit int) ([]
 			results = append(results, item)
 			if len(results) >= target {
 				results = results[:target]
-				enrichSearchResultsParallel(ctx, results, 6, s.populateSearchDetail)
 				return results, nil
 			}
 		}
@@ -209,8 +208,6 @@ func (s *AliceswSite) Search(ctx context.Context, keyword string, limit int) ([]
 			break
 		}
 	}
-
-	enrichSearchResultsParallel(ctx, results, 6, s.populateSearchDetail)
 	return results, nil
 }
 
