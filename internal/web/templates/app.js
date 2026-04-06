@@ -450,6 +450,7 @@ function renderSourceTagFilters() {
 function toggleSourceTag(tagText) {
   if (appState.selectedSourceTags.has(tagText)) appState.selectedSourceTags.delete(tagText);
   else appState.selectedSourceTags.add(tagText);
+  const removedCount = pruneSelectedSitesByVisibleSources();
   renderSourceTagFilters();
   renderSourceSelector();
 
@@ -458,7 +459,8 @@ function toggleSourceTag(tagText) {
     setStatus("已清空渠道标签筛选。");
     return;
   }
-  setStatus(`已按标签 ${Array.from(appState.selectedSourceTags).join("、")} 筛选，当前显示 ${visibleCount} 个渠道。`);
+  const removedLabel = removedCount > 0 ? `，并取消选择 ${removedCount} 个不匹配渠道` : "";
+  setStatus(`已按标签 ${Array.from(appState.selectedSourceTags).join("、")} 筛选，当前显示 ${visibleCount} 个渠道${removedLabel}。`);
 }
 
 function sourceTagCatalog() {
@@ -485,22 +487,24 @@ function filteredSources() {
   });
 }
 
+function pruneSelectedSitesByVisibleSources() {
+  const visibleKeys = new Set(filteredSources().map((source) => source.key));
+  let removedCount = 0;
+  Array.from(appState.selectedSites).forEach((siteKey) => {
+    if (visibleKeys.has(siteKey)) return;
+    appState.selectedSites.delete(siteKey);
+    removedCount += 1;
+  });
+  return removedCount;
+}
+
 function sourceSummaryText(visibleCount) {
   const total = allSources.length;
   const selectedCount = appState.selectedSites.size;
   if (appState.selectedSourceTags.size === 0) {
     return `已选择 ${selectedCount} / ${total} 个渠道，高亮即已选。`;
   }
-
-  const visibleKeys = new Set(filteredSources().map((source) => source.key));
-  let hiddenSelected = 0;
-  appState.selectedSites.forEach((siteKey) => {
-    if (!visibleKeys.has(siteKey)) hiddenSelected += 1;
-  });
-
-  let summary = `标签筛选：${Array.from(appState.selectedSourceTags).join("、")}；当前显示 ${visibleCount} / ${total} 个渠道，已选择 ${selectedCount} 个。`;
-  if (hiddenSelected > 0) summary += ` 其中 ${hiddenSelected} 个已选渠道当前被隐藏。`;
-  return summary;
+  return `标签筛选：${Array.from(appState.selectedSourceTags).join("、")}；当前显示 ${visibleCount} / ${total} 个渠道，已选择 ${selectedCount} 个。`;
 }
 
 function renderWarnings(warnings) {
