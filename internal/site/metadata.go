@@ -92,6 +92,10 @@ var siteMetadata = map[string]SiteMetadata{
 		Title: "一笔阁",
 		Tags:  []string{"简体中文", "繁体中文", "转载站", "笔趣阁"},
 	},
+	"tongrenshe": {
+		Title: "同人社",
+		Tags:  []string{"同人二创", "简体中文", "转载站"},
+	},
 }
 
 func descriptorMetadata(key string) SiteMetadata {

@@ -65,6 +65,7 @@ func TestManualDefaultRangeDownloadHealth(t *testing.T) {
 		{siteKey: "ciyuanji", bookURL: "https://www.ciyuanji.com/b_d_12030.html", chapterURL: "https://www.ciyuanji.com/chapter/12030_3046684.html", timeout: 3 * time.Minute},
 		{siteKey: "qbtr", bookURL: "https://www.qbtr.cc/tongren/8978.html", chapterURL: "https://www.qbtr.cc/tongren/8978/1.html", timeout: 2 * time.Minute},
 		{siteKey: "ciweimao", bookURL: "https://www.ciweimao.com/book/100011781", chapterURL: "https://www.ciweimao.com/chapter/100257072", timeout: 3 * time.Minute},
+		{siteKey: "tongrenshe", bookURL: "https://tongrenshe.cc/tongren/8899.html", chapterURL: "https://tongrenshe.cc/tongren/8899/1.html", timeout: 2 * time.Minute},
 	}
 
 	for _, tc := range testCases {

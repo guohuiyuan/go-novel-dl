@@ -860,6 +860,8 @@ func searchTimeoutForSites(sites []string) time.Duration {
 			timeout = maxDuration(timeout, 50*time.Second)
 		case "n8novel":
 			timeout = maxDuration(timeout, 45*time.Second)
+		case "tongrenshe":
+			timeout = maxDuration(timeout, 45*time.Second)
 		case "biquge5", "piaotia":
 			timeout = maxDuration(timeout, 45*time.Second)
 		case "linovelib":

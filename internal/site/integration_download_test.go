@@ -55,6 +55,12 @@ func TestIntegrationDownloadAvailableSites(t *testing.T) {
 			minChapters: 1,
 		},
 		{
+			name:        "tongrenshe",
+			siteKey:     "tongrenshe",
+			ref:         model.BookRef{BookID: "8899", StartID: "1", EndID: "1"},
+			minChapters: 1,
+		},
+		{
 			name:        "wenku8",
 			siteKey:     "wenku8",
 			ref:         model.BookRef{BookID: "2835", StartID: "113354", EndID: "113354"},

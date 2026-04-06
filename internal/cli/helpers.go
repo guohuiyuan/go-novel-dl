@@ -92,6 +92,27 @@ func withTimeout(parent context.Context, timeoutSeconds float64) (context.Contex
 	return context.WithTimeout(parent, time.Duration(timeoutSeconds*float64(time.Second)))
 }
 
+func searchTimeoutSecondsForSites(sites []string) float64 {
+	timeout := 5.0
+	for _, siteKey := range sites {
+		switch strings.ToLower(strings.TrimSpace(siteKey)) {
+		case "tongrenshe", "n8novel", "biquge5", "piaotia":
+			if timeout < 45 {
+				timeout = 45
+			}
+		case "esjzone":
+			if timeout < 50 {
+				timeout = 50
+			}
+		case "linovelib":
+			if timeout < 180 {
+				timeout = 180
+			}
+		}
+	}
+	return timeout
+}
+
 func requireSite(cmd *cobra.Command, site string) error {
 	if strings.TrimSpace(site) == "" {
 		return fmt.Errorf("当前操作必须指定 --site")

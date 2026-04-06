@@ -40,6 +40,21 @@ func TestInteractiveSitesMatchWebVisibleSources(t *testing.T) {
 	}
 }
 
+func TestSearchTimeoutSecondsForSites(t *testing.T) {
+	if got := searchTimeoutSecondsForSites([]string{"sfacg"}); got != 5 {
+		t.Fatalf("expected default timeout, got %v", got)
+	}
+	if got := searchTimeoutSecondsForSites([]string{"tongrenshe"}); got != 45 {
+		t.Fatalf("expected tongrenshe timeout, got %v", got)
+	}
+	if got := searchTimeoutSecondsForSites([]string{"sfacg", "esjzone"}); got != 50 {
+		t.Fatalf("expected esjzone timeout, got %v", got)
+	}
+	if got := searchTimeoutSecondsForSites([]string{"linovelib", "tongrenshe"}); got != 180 {
+		t.Fatalf("expected linovelib timeout, got %v", got)
+	}
+}
+
 type stubSite struct {
 	key  string
 	caps site.Capabilities

@@ -49,14 +49,21 @@ func newSearchCmd() *cobra.Command {
 				effectivePageSize = defaultCLISearchPageSize
 			}
 
-			ctx, cancel := withTimeout(cmd.Context(), timeout)
-			defer cancel()
-
 			keyword := args[0]
 			selectedSites := normalizeSites(sites)
 			if len(selectedSites) == 0 {
 				selectedSites = interactiveSites(runtime)
 			}
+			effectiveTimeout := timeout
+			if !cmd.Flags().Changed("timeout") {
+				if siteTimeout := searchTimeoutSecondsForSites(selectedSites); siteTimeout > effectiveTimeout {
+					effectiveTimeout = siteTimeout
+				}
+			}
+
+			ctx, cancel := withTimeout(cmd.Context(), effectiveTimeout)
+			defer cancel()
+
 			if shouldRequireESJAuthForSearch(selectedSites, runtime.AllSearchSites()) {
 				resolved := runtime.Config.ResolveSiteConfig("esjzone")
 				if strings.TrimSpace(resolved.Cookie) == "" && strings.TrimSpace(resolved.Password) == "" {

@@ -126,6 +126,7 @@ var defaultSiteCatalog = []defaultSiteCatalogRow{
 	{Key: "n17k", DisplayName: "17K", WorkerLimit: 0, FetchImages: true},
 	{Key: "n8novel", DisplayName: "无限轻小说", WorkerLimit: 0, FetchImages: true, LocaleStyle: "simplified"},
 	{Key: "shuhaige", DisplayName: "Shuhaige", WorkerLimit: 0, FetchImages: true},
+	{Key: "tongrenshe", DisplayName: "Tongrenshe", WorkerLimit: 0, FetchImages: true},
 }
 
 var supportedSiteKeys = func() map[string]struct{} {
