@@ -49,6 +49,7 @@ const appState = {
   hasPrev: false,
   hasNext: false,
   selectedSites: new Set(defaultSources.map((source) => source.key)),
+  selectedSourceTags: new Set(),
   tasks: new Map(),
   pollers: new Map(),
   detailCache: new Map(),
@@ -131,6 +132,8 @@ const taskCountNode = document.getElementById("taskCount");
 const taskTabCountNode = document.getElementById("taskTabCount");
 const sourceSummaryNode = document.getElementById("sourceSummary");
 const sourceSelectorNode = document.getElementById("sourceSelector");
+const sourceTagFiltersNode = document.getElementById("sourceTagFilters");
+const clearTagFiltersButton = document.getElementById("clearTagFilters");
 const tasksNode = document.getElementById("tasks");
 const searchTabButton = document.getElementById("searchTabButton");
 const tasksTabButton = document.getElementById("tasksTabButton");
@@ -190,6 +193,7 @@ function bindRangeValue(inputId) {
 bootstrap();
 
 function bootstrap() {
+  renderSourceTagFilters();
   renderSourceSelector();
   renderWarnings([]);
   renderResults([]);
@@ -212,15 +216,27 @@ function bootstrap() {
   tasksTabButton.addEventListener("click", () => activateTab("tasks"));
 
   selectAllSourcesButton.addEventListener("click", () => {
-    appState.selectedSites = new Set(allSources.map((source) => source.key));
+    const visibleSources = filteredSources();
+    if (!visibleSources.length) return setStatus("当前标签筛选下没有可选择的渠道。");
+    visibleSources.forEach((source) => appState.selectedSites.add(source.key));
     renderSourceSelector();
-    setStatus(`已选中全部 ${appState.selectedSites.size} 个渠道。`);
+    setStatus(appState.selectedSourceTags.size > 0 ? `已选中当前筛选范围内的 ${visibleSources.length} 个渠道。` : `已选中全部 ${appState.selectedSites.size} 个渠道。`);
   });
 
   clearSourcesButton.addEventListener("click", () => {
-    appState.selectedSites = new Set();
+    const visibleSources = filteredSources();
+    if (!visibleSources.length) return setStatus("当前标签筛选下没有可清空的渠道。");
+    visibleSources.forEach((source) => appState.selectedSites.delete(source.key));
     renderSourceSelector();
-    setStatus("已清空渠道选择。");
+    setStatus(appState.selectedSourceTags.size > 0 ? `已清空当前筛选范围内的 ${visibleSources.length} 个渠道选择。` : "已清空渠道选择。");
+  });
+
+  clearTagFiltersButton.addEventListener("click", () => {
+    if (appState.selectedSourceTags.size === 0) return;
+    appState.selectedSourceTags = new Set();
+    renderSourceTagFilters();
+    renderSourceSelector();
+    setStatus("已清空渠道标签筛选。");
   });
 
   prevPageButton.addEventListener("click", async () => {
@@ -354,7 +370,14 @@ async function performSearch() {
 
 function renderSourceSelector() {
   sourceSelectorNode.innerHTML = "";
-  allSources.forEach((source) => {
+  const visibleSources = filteredSources();
+  if (!visibleSources.length) {
+    sourceSelectorNode.appendChild(createEmptyState("当前标签组合下没有匹配的渠道。", true));
+    sourceSummaryNode.textContent = sourceSummaryText(0);
+    return;
+  }
+
+  visibleSources.forEach((source) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "source-option";
@@ -384,13 +407,100 @@ function renderSourceSelector() {
     button.addEventListener("click", () => toggleSource(source.key));
     sourceSelectorNode.appendChild(button);
   });
-  sourceSummaryNode.textContent = `已选择 ${appState.selectedSites.size} / ${allSources.length} 个渠道，高亮即已选。`;
+  sourceSummaryNode.textContent = sourceSummaryText(visibleSources.length);
 }
 
 function toggleSource(siteKey) {
   if (appState.selectedSites.has(siteKey)) appState.selectedSites.delete(siteKey);
   else appState.selectedSites.add(siteKey);
   renderSourceSelector();
+}
+
+function renderSourceTagFilters() {
+  if (!sourceTagFiltersNode) return;
+  sourceTagFiltersNode.innerHTML = "";
+
+  const tags = sourceTagCatalog();
+  clearTagFiltersButton.hidden = appState.selectedSourceTags.size === 0;
+
+  if (!tags.length) {
+    sourceTagFiltersNode.appendChild(createEmptyInline("当前没有可用的渠道标签。"));
+    return;
+  }
+
+  tags.forEach((item) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "source-tag-filter";
+    button.setAttribute("aria-pressed", String(appState.selectedSourceTags.has(item.label)));
+    if (appState.selectedSourceTags.has(item.label)) button.classList.add("is-active");
+
+    const label = document.createElement("span");
+    label.textContent = item.label;
+    const count = document.createElement("span");
+    count.className = "source-tag-filter-count";
+    count.textContent = String(item.count);
+
+    button.append(label, count);
+    button.addEventListener("click", () => toggleSourceTag(item.label));
+    sourceTagFiltersNode.appendChild(button);
+  });
+}
+
+function toggleSourceTag(tagText) {
+  if (appState.selectedSourceTags.has(tagText)) appState.selectedSourceTags.delete(tagText);
+  else appState.selectedSourceTags.add(tagText);
+  renderSourceTagFilters();
+  renderSourceSelector();
+
+  const visibleCount = filteredSources().length;
+  if (appState.selectedSourceTags.size === 0) {
+    setStatus("已清空渠道标签筛选。");
+    return;
+  }
+  setStatus(`已按标签 ${Array.from(appState.selectedSourceTags).join("、")} 筛选，当前显示 ${visibleCount} 个渠道。`);
+}
+
+function sourceTagCatalog() {
+  const counts = new Map();
+  const ordered = [];
+  allSources.forEach((source) => {
+    sourceTags(source).forEach((tagText) => {
+      if (!counts.has(tagText)) ordered.push(tagText);
+      counts.set(tagText, (counts.get(tagText) || 0) + 1);
+    });
+  });
+  return ordered.map((label) => ({ label, count: counts.get(label) || 0 }));
+}
+
+function sourceTags(source) {
+  return (Array.isArray(source.tags) ? source.tags : []).map((tagText) => `${tagText || ""}`.trim()).filter(Boolean);
+}
+
+function filteredSources() {
+  if (appState.selectedSourceTags.size === 0) return allSources;
+  return allSources.filter((source) => {
+    const tags = new Set(sourceTags(source));
+    return Array.from(appState.selectedSourceTags).every((tagText) => tags.has(tagText));
+  });
+}
+
+function sourceSummaryText(visibleCount) {
+  const total = allSources.length;
+  const selectedCount = appState.selectedSites.size;
+  if (appState.selectedSourceTags.size === 0) {
+    return `已选择 ${selectedCount} / ${total} 个渠道，高亮即已选。`;
+  }
+
+  const visibleKeys = new Set(filteredSources().map((source) => source.key));
+  let hiddenSelected = 0;
+  appState.selectedSites.forEach((siteKey) => {
+    if (!visibleKeys.has(siteKey)) hiddenSelected += 1;
+  });
+
+  let summary = `标签筛选：${Array.from(appState.selectedSourceTags).join("、")}；当前显示 ${visibleCount} / ${total} 个渠道，已选择 ${selectedCount} 个。`;
+  if (hiddenSelected > 0) summary += ` 其中 ${hiddenSelected} 个已选渠道当前被隐藏。`;
+  return summary;
 }
 
 function renderWarnings(warnings) {
