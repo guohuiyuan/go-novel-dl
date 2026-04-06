@@ -27,6 +27,9 @@ func TestInteractiveSitesMatchWebVisibleSources(t *testing.T) {
 	registry.Register("biquge345", func(cfg config.ResolvedSiteConfig) site.Site {
 		return stubSite{key: "biquge345", caps: site.Capabilities{Download: true, Search: true}}
 	})
+	registry.Register("tongrenshe", func(cfg config.ResolvedSiteConfig) site.Site {
+		return stubSite{key: "tongrenshe", caps: site.Capabilities{Download: true, Search: true}}
+	})
 
 	cfg := config.DefaultConfig()
 	console := ui.NewConsole(strings.NewReader(""), io.Discard, io.Discard)

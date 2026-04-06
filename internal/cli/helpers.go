@@ -149,7 +149,7 @@ func interactiveSiteVisible(descriptor site.SiteDescriptor) bool {
 		return false
 	}
 	switch strings.ToLower(strings.TrimSpace(descriptor.Key)) {
-	case "biquge345":
+	case "biquge345", "tongrenshe":
 		return false
 	default:
 		return true

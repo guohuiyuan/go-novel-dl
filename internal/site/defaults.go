@@ -23,7 +23,6 @@ var defaultAvailableSiteKeys = []string{
 	"sfacg",
 	"ciyuanji",
 	"ciweimao",
-	"tongrenshe",
 	"n8novel",
 	"shuhaige",
 	"alicesw",

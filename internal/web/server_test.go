@@ -53,6 +53,9 @@ func TestMetaIncludesSearchableDownloadSources(t *testing.T) {
 	if findDescriptor(payload.AllSources, "biquge345") != nil {
 		t.Fatalf("did not expect biquge345 in searchable web sources")
 	}
+	if findDescriptor(payload.AllSources, "tongrenshe") != nil {
+		t.Fatalf("did not expect tongrenshe in searchable web sources")
+	}
 
 	esjzone := findDescriptor(payload.AllSources, "esjzone")
 	if esjzone == nil {
@@ -393,6 +396,16 @@ func newTestService() *Service {
 		return fakeWebSite{
 			key:         "biquge345",
 			displayName: "Biquge345",
+			capabilities: site.Capabilities{
+				Download: true,
+				Search:   true,
+			},
+		}
+	})
+	registry.Register("tongrenshe", func(cfg config.ResolvedSiteConfig) site.Site {
+		return fakeWebSite{
+			key:         "tongrenshe",
+			displayName: "同人社",
 			capabilities: site.Capabilities{
 				Download: true,
 				Search:   true,

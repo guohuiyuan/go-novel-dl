@@ -877,7 +877,7 @@ func detailTimeoutForSite(siteKey string) time.Duration {
 
 func hideWebSource(siteKey string) bool {
 	switch strings.ToLower(strings.TrimSpace(siteKey)) {
-	case "biquge345":
+	case "biquge345", "tongrenshe":
 		return true
 	default:
 		return false
