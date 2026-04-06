@@ -9,3 +9,4 @@ novel-dl-desktop
 tmp/
 .claude
 cmd/novel-dl/*.syso
+*.log

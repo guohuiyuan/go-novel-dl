@@ -1,10 +1,15 @@
 package site
 
-import "github.com/guohuiyuan/go-novel-dl/internal/config"
+import (
+	"strings"
+
+	"github.com/guohuiyuan/go-novel-dl/internal/config"
+)
 
 type SiteDescriptor struct {
 	Key              string       `json:"key"`
 	DisplayName      string       `json:"display_name"`
+	Tags             []string     `json:"tags,omitempty"`
 	Capabilities     Capabilities `json:"capabilities"`
 	DefaultAvailable bool         `json:"default_available"`
 }
@@ -108,10 +113,17 @@ func (r *Registry) SiteDescriptor(key string) (SiteDescriptor, bool) {
 		return SiteDescriptor{}, false
 	}
 
+	metadata := descriptorMetadata(key)
+	displayName := strings.TrimSpace(metadata.Title)
+	if displayName == "" {
+		displayName = site.DisplayName()
+	}
+
 	_, isDefault := DefaultAvailableSiteSet()[key]
 	return SiteDescriptor{
 		Key:              key,
-		DisplayName:      site.DisplayName(),
+		DisplayName:      displayName,
+		Tags:             metadata.Tags,
 		Capabilities:     site.Capabilities(),
 		DefaultAvailable: isDefault,
 	}, true

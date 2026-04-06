@@ -369,7 +369,18 @@ function renderSourceSelector() {
     key.className = "source-option-key";
     key.textContent = source.key;
 
-    button.appendChild(title); button.appendChild(key);
+    const tags = document.createElement("div");
+    tags.className = "source-option-tags";
+    (Array.isArray(source.tags) ? source.tags : []).filter(Boolean).forEach((tagText) => {
+      const tag = document.createElement("span");
+      tag.className = "source-option-tag";
+      tag.textContent = tagText;
+      tags.appendChild(tag);
+    });
+
+    button.appendChild(title);
+    button.appendChild(key);
+    button.appendChild(tags);
     button.addEventListener("click", () => toggleSource(source.key));
     sourceSelectorNode.appendChild(button);
   });

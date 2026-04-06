@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -51,6 +52,29 @@ func TestMetaIncludesSearchableDownloadSources(t *testing.T) {
 	}
 	if findDescriptor(payload.AllSources, "biquge345") != nil {
 		t.Fatalf("did not expect biquge345 in searchable web sources")
+	}
+
+	esjzone := findDescriptor(payload.AllSources, "esjzone")
+	if esjzone == nil {
+		t.Fatalf("expected esjzone descriptor to be present")
+	}
+	if esjzone.DisplayName != "ESJ Zone" {
+		t.Fatalf("expected metadata title for esjzone, got %q", esjzone.DisplayName)
+	}
+	wantTags := []string{"简体中文", "轻小说", "转载站", "翻译", "NSFW"}
+	if !reflect.DeepEqual(esjzone.Tags, wantTags) {
+		t.Fatalf("expected esjzone tags %v, got %v", wantTags, esjzone.Tags)
+	}
+
+	yodu := findDescriptor(payload.AllSources, "yodu")
+	if yodu == nil {
+		t.Fatalf("expected yodu descriptor to be present")
+	}
+	if yodu.DisplayName != "Yodu" {
+		t.Fatalf("expected fallback display name for yodu, got %q", yodu.DisplayName)
+	}
+	if len(yodu.Tags) != 0 {
+		t.Fatalf("expected no metadata tags for yodu, got %v", yodu.Tags)
 	}
 }
 
