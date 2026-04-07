@@ -10,3 +10,4 @@ tmp/
 .claude
 cmd/novel-dl/*.syso
 *.log
+logo_256x256.png
