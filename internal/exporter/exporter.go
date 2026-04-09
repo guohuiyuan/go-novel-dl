@@ -197,7 +197,6 @@ func normalizeTXTChapterContent(content string) string {
 		return strings.TrimSpace(normalizeExportInlineWhitespace(strings.ReplaceAll(content, "\r\n", "\n")))
 	}
 	parts := make([]string, 0, len(blocks))
-	hasTextParagraph := false
 	for _, block := range blocks {
 		if imageURL := strings.TrimSpace(block.ImageURL); imageURL != "" {
 			parts = append(parts, chapterImagePlaceholder+" "+imageURL)
@@ -219,12 +218,8 @@ func normalizeTXTChapterContent(content string) string {
 		if len(cleanedLines) == 0 {
 			continue
 		}
-		for idx, line := range cleanedLines {
-			if hasTextParagraph || idx > 0 {
-				line = "    " + line
-			}
-			parts = append(parts, line)
-			hasTextParagraph = true
+		for _, line := range cleanedLines {
+			parts = append(parts, "    "+line)
 		}
 	}
 	if len(parts) == 0 {
@@ -457,7 +452,7 @@ func buildEPUBContentLikeESJScript(book *model.Book) (*epubPackage, error) {
 				imageIndex++
 				continue
 			}
-			if paragraphHTML := buildEPUBParagraphHTML(block.Paragraph, !hasTextParagraph); paragraphHTML != "" {
+			if paragraphHTML := buildEPUBParagraphHTML(block.Paragraph); paragraphHTML != "" {
 				bodyParts = append(bodyParts, paragraphHTML)
 				hasTextParagraph = true
 			}
@@ -850,12 +845,10 @@ func escapeHTMLPreserveNewlines(value string) string {
 
 func buildChapterPageWithBlocks(bookTitle string, chapter model.Chapter, blocks []chapterBlock, fetcher *epubAssetFetcher) string {
 	body := make([]string, 0, len(blocks))
-	hasTextParagraph := false
 	for _, block := range blocks {
 		if block.ImageURL == "" {
-			if paragraphHTML := buildEPUBParagraphHTML(block.Paragraph, !hasTextParagraph); paragraphHTML != "" {
+			if paragraphHTML := buildEPUBParagraphHTML(block.Paragraph); paragraphHTML != "" {
 				body = append(body, paragraphHTML)
-				hasTextParagraph = true
 			}
 			continue
 		}
@@ -874,7 +867,7 @@ func buildChapterPageWithBlocks(bookTitle string, chapter model.Chapter, blocks 
 </html>`, escapeHTML(bookTitle), escapeHTML(chapter.Title), escapeHTML(chapter.Title), strings.Join(body, ""))
 }
 
-func buildEPUBParagraphHTML(paragraph string, firstParagraph bool) string {
+func buildEPUBParagraphHTML(paragraph string) string {
 	paragraph = strings.TrimSpace(normalizeExportInlineWhitespace(strings.ReplaceAll(paragraph, "\r\n", "\n")))
 	if paragraph == "" {
 		return ""
@@ -892,12 +885,8 @@ func buildEPUBParagraphHTML(paragraph string, firstParagraph bool) string {
 		return ""
 	}
 	parts := make([]string, 0, len(escaped))
-	for idx, line := range escaped {
-		className := "novel-paragraph"
-		if firstParagraph && idx == 0 {
-			className += " novel-paragraph-first"
-		}
-		parts = append(parts, `<p class="`+className+`">`+line+`</p>`)
+	for _, line := range escaped {
+		parts = append(parts, `<p class="novel-paragraph">`+line+`</p>`)
 	}
 	return strings.Join(parts, "")
 }
@@ -1563,6 +1552,6 @@ const ncxTemplate = `<?xml version="1.0" encoding="utf-8"?>
   </navMap>
 </ncx>`
 
-const esjEPUBParagraphCSS = `.novel-paragraph{margin:0;line-height:1.9;text-indent:2em;}.novel-paragraph-first{text-indent:0;}.novel-paragraph + .novel-paragraph{margin-top:3.8em;}`
+const esjEPUBParagraphCSS = `.novel-paragraph{margin:0;line-height:1.9;text-indent:2em;}.novel-paragraph + .novel-paragraph{margin-top:3.8em;}`
 
-const defaultEPUBCSS = `body{font-family:Georgia,serif;line-height:1.9;margin:5%;}h1,h2{line-height:1.3;}article{page-break-after:always;}.novel-paragraph{margin:0;line-height:1.9;text-indent:2em;}.novel-paragraph-first{text-indent:0;}.novel-paragraph + .novel-paragraph{margin-top:3.8em;}.cover{margin-top:12%;text-align:center;}.cover-art,.illustration{margin:1.5em auto;text-align:center;text-indent:0;}.cover-art img,.illustration img{height:auto;max-width:100%;}.cover-art img{max-height:70vh;}.author{font-style:italic;}.book-description{margin:2em auto 0;max-width:36em;text-align:left;}.book-description h2{text-align:center;}`
+const defaultEPUBCSS = `body{font-family:Georgia,serif;line-height:1.9;margin:5%;}h1,h2{line-height:1.3;}article{page-break-after:always;}.novel-paragraph{margin:0;line-height:1.9;text-indent:2em;}.novel-paragraph + .novel-paragraph{margin-top:3.8em;}.cover{margin-top:12%;text-align:center;}.cover-art,.illustration{margin:1.5em auto;text-align:center;text-indent:0;}.cover-art img,.illustration img{height:auto;max-width:100%;}.cover-art img{max-height:70vh;}.author{font-style:italic;}.book-description{margin:2em auto 0;max-width:36em;text-align:left;}.book-description h2{text-align:center;}`
