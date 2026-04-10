@@ -93,15 +93,20 @@ func (s *LinovelibSite) DownloadPlan(ctx context.Context, ref model.BookRef) (*m
 	if err != nil {
 		return nil, err
 	}
-	volumes := collectLinovelibVolumeIDs(infoMarkup)
-	if len(volumes) == 0 {
-		catalogMarkup, err := s.getWithRetry(ctx, fmt.Sprintf("https://www.linovelib.com/novel/%s/catalog", ref.BookID))
-		if err != nil {
-			return nil, err
-		}
+	volumes := make([]string, 0)
+	catalogMarkup, catalogErr := s.getWithRetry(ctx, fmt.Sprintf("https://www.linovelib.com/novel/%s/catalog", ref.BookID))
+	if catalogErr == nil {
 		volumes = collectLinovelibVolumeIDs(catalogMarkup)
 	}
-	reverseStrings(volumes)
+	if len(volumes) == 0 {
+		volumes = collectLinovelibVolumeIDs(infoMarkup)
+		// Detail pages commonly list the newest volume first, while export should
+		// keep the reading order from the first volume onward.
+		reverseStrings(volumes)
+	}
+	if len(volumes) == 0 && catalogErr != nil {
+		return nil, catalogErr
+	}
 	infoDoc, err := parseHTML(infoMarkup)
 	if err != nil {
 		return nil, err
