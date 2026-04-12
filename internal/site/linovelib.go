@@ -1,6 +1,7 @@
 package site
 
 import (
+	"bytes"
 	"context"
 	_ "embed"
 	"encoding/json"
@@ -17,11 +18,12 @@ import (
 )
 
 var (
-	linovelibBookRe    = regexp.MustCompile(`^/novel/(\d+)\.html$`)
-	linovelibVolRe     = regexp.MustCompile(`/novel/\d+/(vol_\d+)\.html`)
-	linovelibChapterRe = regexp.MustCompile(`^/novel/(\d+)/(\d+)(?:_\d+)?\.html$`)
-	linovelibVersionRe = regexp.MustCompile(`/themes/zhpc/js/pctheme\.js\?([a-zA-Z0-9._-]+)|/scripts/chapterlog\.js\?([a-zA-Z0-9._-]+)`)
-	linovelibStoreRe   = regexp.MustCompile(`_(\d+)_0\.html$`)
+	linovelibBookRe        = regexp.MustCompile(`^/novel/(\d+)\.html$`)
+	linovelibVolRe         = regexp.MustCompile(`/novel/\d+/(vol_\d+)\.html`)
+	linovelibChapterRe     = regexp.MustCompile(`^/novel/(\d+)/(\d+)(?:_\d+)?\.html$`)
+	linovelibChapterPageRe = regexp.MustCompile(`^/novel/(\d+)/(\d+)(?:_(\d+))?\.html$`)
+	linovelibVersionRe     = regexp.MustCompile(`/themes/zhpc/js/pctheme\.js\?([a-zA-Z0-9._-]+)|/scripts/chapterlog\.js\?([a-zA-Z0-9._-]+)`)
+	linovelibStoreRe       = regexp.MustCompile(`_(\d+)_0\.html$`)
 )
 
 //go:embed resources/linovelib.json
@@ -161,27 +163,24 @@ func (s *LinovelibSite) DownloadPlan(ctx context.Context, ref model.BookRef) (*m
 }
 
 func (s *LinovelibSite) FetchChapter(ctx context.Context, bookID string, chapter model.Chapter) (model.Chapter, error) {
-	pages := make([]string, 0, 1)
+	paragraphs := make([]string, 0)
+	currentURL := linovelibChapterPageURL(bookID, chapter.ID, 1)
+	visited := map[string]struct{}{}
 	for idx := 1; ; idx++ {
-		url := fmt.Sprintf("https://www.linovelib.com/novel/%s/%s.html", bookID, chapter.ID)
-		if idx > 1 {
-			url = fmt.Sprintf("https://www.linovelib.com/novel/%s/%s_%d.html", bookID, chapter.ID, idx)
+		if _, ok := visited[currentURL]; ok {
+			break
 		}
-		markup, err := s.getWithRetry(ctx, url)
+		visited[currentURL] = struct{}{}
+
+		markup, err := s.getWithRetry(ctx, currentURL)
 		if err != nil {
 			if idx == 1 {
 				return chapter, err
 			}
 			break
 		}
-		pages = append(pages, markup)
-		if !strings.Contains(markup, fmt.Sprintf("/%s/%s_%d.html", bookID, chapter.ID, idx+1)) {
-			break
-		}
-	}
-	paragraphs := make([]string, 0)
-	for _, page := range pages {
-		doc, err := parseHTML(page)
+
+		doc, err := parseHTML(markup)
 		if err != nil {
 			return chapter, err
 		}
@@ -190,7 +189,13 @@ func (s *LinovelibSite) FetchChapter(ctx context.Context, bookID string, chapter
 				chapter.Title = cleanText(nodeText(node))
 			}
 		}
-		paragraphs = append(paragraphs, s.parseChapterPage(page, doc, chapter.ID)...)
+		paragraphs = append(paragraphs, s.parseChapterPage(markup, doc, chapter.ID)...)
+
+		nextURL := linovelibNextPageURL(markup, doc, currentURL, bookID, chapter.ID, idx)
+		if nextURL == "" {
+			break
+		}
+		currentURL = nextURL
 	}
 	if len(paragraphs) == 0 {
 		return chapter, fmt.Errorf("linovelib chapter content not found")
@@ -232,24 +237,33 @@ func (s *LinovelibSite) parseChapterPage(markup string, doc *html.Node, chapterI
 	}
 	useSubst := strings.Contains(markup, "yuedu()") && strings.Contains(markup, "/themes/zhpc/js/pctheme.js")
 	useShuffle := strings.Contains(markup, "/scripts/chapterlog.js")
-	paragraphs := make([]string, 0)
+	children := make([]*html.Node, 0)
 	for child := container.FirstChild; child != nil; child = child.NextSibling {
-		if child.Type != html.ElementNode {
-			continue
+		if child.Type == html.ElementNode {
+			children = append(children, child)
 		}
+	}
+	if useShuffle {
+		cid := 0
+		fmt.Sscanf(chapterID, "%d", &cid)
+		slots := make([]int, 0)
+		nodes := make([]*html.Node, 0)
+		for idx, child := range children {
+			if linovelibChapterlogParagraph(child) {
+				slots = append(slots, idx)
+				nodes = append(nodes, child)
+			}
+		}
+		nodes = reorderLinovelibParagraphNodes(nodes, cid)
+		for idx, slot := range slots {
+			children[slot] = nodes[idx]
+		}
+	}
+	paragraphs := make([]string, 0)
+	for _, child := range children {
 		switch child.Data {
 		case "p":
-			text := ""
-			for node := child.FirstChild; node != nil; node = node.NextSibling {
-				if node.Type == html.TextNode {
-					text += node.Data
-				} else {
-					text += nodeText(node)
-				}
-			}
-			if compactWhitespace(text) == "" {
-				continue
-			}
+			text := linovelibParagraphText(child)
 			if useSubst {
 				text = applyLinovelibSubst(text)
 			}
@@ -266,11 +280,6 @@ func (s *LinovelibSite) parseChapterPage(markup string, doc *html.Node, chapterI
 				paragraphs = append(paragraphs, "[图片] "+absolutizeURL("https://www.linovelib.com", src))
 			}
 		}
-	}
-	if useShuffle {
-		cid := 0
-		fmt.Sscanf(chapterID, "%d", &cid)
-		paragraphs = reorderLinovelibParagraphs(paragraphs, cid)
 	}
 	return paragraphs
 }
@@ -320,6 +329,94 @@ func reverseStrings(values []string) {
 	}
 }
 
+func linovelibChapterPageURL(bookID, chapterID string, page int) string {
+	if page <= 1 {
+		return fmt.Sprintf("https://www.linovelib.com/novel/%s/%s.html", bookID, chapterID)
+	}
+	return fmt.Sprintf("https://www.linovelib.com/novel/%s/%s_%d.html", bookID, chapterID, page)
+}
+
+func linovelibNextPageURL(markup string, doc *html.Node, currentURL, bookID, chapterID string, currentPage int) string {
+	targetPage := currentPage + 1
+	for _, a := range findAll(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "a"
+	}) {
+		if resolved := linovelibResolveChapterPageURL(currentURL, attrValue(a, "href"), bookID, chapterID, targetPage); resolved != "" {
+			return resolved
+		}
+	}
+
+	expectedPath := fmt.Sprintf("/novel/%s/%s_%d.html", bookID, chapterID, targetPage)
+	if strings.Contains(markup, expectedPath) {
+		return absolutizeURL("https://www.linovelib.com", expectedPath)
+	}
+
+	expectedRelative := fmt.Sprintf("%s_%d.html", chapterID, targetPage)
+	if strings.Contains(markup, expectedRelative) {
+		return absolutizeURL(currentURL, expectedRelative)
+	}
+	return ""
+}
+
+func linovelibResolveChapterPageURL(baseURL, rawURL, bookID, chapterID string, page int) string {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" || strings.HasPrefix(strings.ToLower(rawURL), "javascript:") {
+		return ""
+	}
+	resolved := absolutizeURL(baseURL, rawURL)
+	parsed, err := normalizeURL(resolved)
+	if err != nil {
+		return ""
+	}
+	match := linovelibChapterPageRe.FindStringSubmatch(parsed.Path)
+	if len(match) != 4 || match[1] != bookID || match[2] != chapterID {
+		return ""
+	}
+	targetPage := 1
+	if match[3] != "" {
+		fmt.Sscanf(match[3], "%d", &targetPage)
+	}
+	if targetPage != page {
+		return ""
+	}
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return parsed.String()
+}
+
+func linovelibParagraphText(node *html.Node) string {
+	if node == nil {
+		return ""
+	}
+	text := ""
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		if child.Type == html.TextNode {
+			text += child.Data
+		} else {
+			text += nodeText(child)
+		}
+	}
+	return text
+}
+
+func linovelibParagraphInnerHTML(node *html.Node) string {
+	if node == nil {
+		return ""
+	}
+	var buf bytes.Buffer
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		_ = html.Render(&buf, child)
+	}
+	return buf.String()
+}
+
+func linovelibChapterlogParagraph(node *html.Node) bool {
+	if node == nil || node.Type != html.ElementNode || node.Data != "p" {
+		return false
+	}
+	return multiSpaceRe.ReplaceAllString(linovelibParagraphInnerHTML(node), "") != ""
+}
+
 func reorderLinovelibParagraphs(paragraphs []string, chapterID int) []string {
 	n := len(paragraphs)
 	if n <= 20 || chapterID == 0 {
@@ -329,6 +426,19 @@ func reorderLinovelibParagraphs(paragraphs []string, chapterID int) []string {
 	reordered := make([]string, n)
 	for i, p := range paragraphs {
 		reordered[order[i]] = p
+	}
+	return reordered
+}
+
+func reorderLinovelibParagraphNodes(nodes []*html.Node, chapterID int) []*html.Node {
+	n := len(nodes)
+	if n <= 20 || chapterID == 0 {
+		return nodes
+	}
+	order := chapterlogOrder(n, chapterID)
+	reordered := make([]*html.Node, n)
+	for idx, node := range nodes {
+		reordered[order[idx]] = node
 	}
 	return reordered
 }
