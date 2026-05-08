@@ -824,9 +824,10 @@ function renderDetail(result, variant, book, loading, errorMessage) {
 
   const heading = document.createElement("h2");
   heading.id = "detailHeading"; heading.className = "detail-title";
-  if (book && book.source_url) {
+  const detailURL = displayDetailURL(result, activeVariant, book);
+  if (detailURL) {
     const titleLink = document.createElement("a");
-    titleLink.className = "detail-title-link"; titleLink.href = book.source_url;
+    titleLink.className = "detail-title-link"; titleLink.href = detailURL;
     titleLink.target = "_blank"; titleLink.rel = "noopener noreferrer";
     titleLink.textContent = title;
     heading.appendChild(titleLink);
@@ -1541,6 +1542,7 @@ function createEmptyInline(text) {
 function displayResultTitle(result) { return result.title || (result.primary && result.primary.title) || (result.primary && result.primary.book_id) || "未命名小说"; }
 function displayResultAuthor(result) { return result.author || (result.primary && result.primary.author) || "未知作者"; }
 function displayResultURL(result) { return result.url || (result.primary && result.primary.url) || ""; }
+function displayDetailURL(result, variant, book) { return (book && book.source_url) || (variant && variant.url) || displayResultURL(result); }
 function displayDetailTitle(result, variant, book) { return (book && book.title) || result.title || (variant && variant.title) || (variant && variant.book_id) || "未命名小说"; }
 function displayDetailAuthor(result, variant, book) { return (book && book.author) || result.author || (variant && variant.author) || "未知作者"; }
 function displayDetailDescription(result, book) { return (book && book.description) || result.description || "暂无简介。"; }

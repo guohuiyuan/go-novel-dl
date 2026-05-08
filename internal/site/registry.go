@@ -127,7 +127,7 @@ func NewDefaultRegistry() *Registry {
 	registry.RegisterWithHosts("ixdzs8", []string{"ixdzs8.com"}, func(cfg config.ResolvedSiteConfig) Site {
 		return NewIxdzs8Site(cfg)
 	})
-	registry.RegisterWithHosts("novalpie", []string{"novalpie.cc", "novalpie.jp"}, func(cfg config.ResolvedSiteConfig) Site {
+	registry.RegisterWithHosts("novalpie", []string{"novalpie.cc", "novalpie.jp", "novalpia.cc"}, func(cfg config.ResolvedSiteConfig) Site {
 		return NewNovalpieSite(cfg)
 	})
 	registry.RegisterWithHosts("ruochu", []string{"ruochu.com"}, func(cfg config.ResolvedSiteConfig) Site {
