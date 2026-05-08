@@ -2,6 +2,12 @@ package site
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"crypto/rsa"
+	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -175,5 +181,108 @@ func TestAliceswDownloadPlanUsesDetailPageChaptersBeforeCatalogEndpoint(t *testi
 	}
 	if got := atomic.LoadInt32(&catalogHits); got != 0 {
 		t.Fatalf("expected catalog endpoint not to be requested, got %d hits", got)
+	}
+}
+
+func TestAliceswFetchChapterUsesEncryptedChapterAPI(t *testing.T) {
+	payload := encryptAliceswTestPayload(t, "第一段。\n第二段。")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/book/36074/38005042dca69.html":
+			_, _ = w.Write([]byte(`<html><body>
+<h3 class="j_chapterName">加载中...</h3>
+<div class="read-content j_readContent">章节加载中...</div>
+<script>
+book.initial = {
+  source_id: 36074,
+  chapter_id: '38005042dca69',
+  t: '1778252533',
+  sign: 'abc123',
+};
+</script>
+</body></html>`))
+		case "/home/chapter/info":
+			if r.Header.Get("X-Requested-With") != "XMLHttpRequest" {
+				t.Fatalf("missing ajax header")
+			}
+			timestamp := r.Header.Get("x-request-timestamp")
+			if timestamp == "" {
+				t.Fatalf("missing request timestamp")
+			}
+			if got, want := r.Header.Get("x-request-token"), aliceswRequestToken(timestamp, "36074", "38005042dca69"); got != want {
+				t.Fatalf("unexpected request token: %q want %q", got, want)
+			}
+			if r.URL.Query().Get("id") != "36074" || r.URL.Query().Get("key") != "38005042dca69" || r.URL.Query().Get("t") != "1778252533" || r.URL.Query().Get("sign") != "abc123" {
+				t.Fatalf("unexpected query: %s", r.URL.RawQuery)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code": 1,
+				"data": map[string]any{
+					"chapter": payload,
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	cfg := config.DefaultConfig().ResolveSiteConfig("alicesw")
+	site := NewAliceswSite(cfg)
+	site.base = server.URL
+
+	chapter, err := site.FetchChapter(context.Background(), "34479", model.Chapter{
+		ID:    "36074-38005042dca69",
+		Title: "旧标题",
+	})
+	if err != nil {
+		t.Fatalf("fetch chapter: %v", err)
+	}
+	if chapter.Title != "加密标题" {
+		t.Fatalf("unexpected title: %q", chapter.Title)
+	}
+	if chapter.Content != "第一段。\n第二段。" {
+		t.Fatalf("unexpected content: %q", chapter.Content)
+	}
+	if !chapter.Downloaded {
+		t.Fatalf("expected chapter to be downloaded")
+	}
+}
+
+func encryptAliceswTestPayload(t *testing.T, plaintext string) aliceswEncryptedChapterPayload {
+	t.Helper()
+	privateKey, err := getAliceswPrivateKey()
+	if err != nil {
+		t.Fatalf("private key: %v", err)
+	}
+	aesKey := make([]byte, 32)
+	iv := make([]byte, aes.BlockSize)
+	if _, err := rand.Read(aesKey); err != nil {
+		t.Fatalf("aes key: %v", err)
+	}
+	if _, err := rand.Read(iv); err != nil {
+		t.Fatalf("iv: %v", err)
+	}
+	encryptedKey, err := rsa.EncryptPKCS1v15(rand.Reader, &privateKey.PublicKey, []byte(base64.StdEncoding.EncodeToString(aesKey)))
+	if err != nil {
+		t.Fatalf("encrypt key: %v", err)
+	}
+	block, err := aes.NewCipher(aesKey)
+	if err != nil {
+		t.Fatalf("cipher: %v", err)
+	}
+	padded := append([]byte(nil), []byte(plaintext)...)
+	padding := aes.BlockSize - len(padded)%aes.BlockSize
+	for i := 0; i < padding; i++ {
+		padded = append(padded, byte(padding))
+	}
+	ciphertext := make([]byte, len(padded))
+	cipher.NewCBCEncrypter(block, iv).CryptBlocks(ciphertext, padded)
+	return aliceswEncryptedChapterPayload{
+		Title:          "加密标题",
+		ContentEncrypt: base64.StdEncoding.EncodeToString(ciphertext),
+		AESKeyEncrypt:  base64.StdEncoding.EncodeToString(encryptedKey),
+		IV:             base64.StdEncoding.EncodeToString(iv),
+		EncryptMethod:  "AES-CBC",
 	}
 }

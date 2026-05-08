@@ -2,11 +2,23 @@ package site
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"encoding/pem"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/net/html"
@@ -16,19 +28,102 @@ import (
 )
 
 var (
-	aliceswBookRe       = regexp.MustCompile(`^/novel/(\d+)\.html$`)
-	aliceswCatalogRe    = regexp.MustCompile(`^/other/chapters/id/(\d+)\.html$`)
-	aliceswChapterRe    = regexp.MustCompile(`^/book/(\d+)/([^/.]+)\.html$`)
-	aliceswSearchRankRe = regexp.MustCompile(`^\d+\.\s*`)
-	aliceswBookIDJSONRe = regexp.MustCompile(`"Id"\s*:\s*(\d+)`)
-	aliceswBookIDDataRe = regexp.MustCompile(`/novel/(\d+)\.html`)
+	aliceswBookRe        = regexp.MustCompile(`^/novel/(\d+)\.html$`)
+	aliceswCatalogRe     = regexp.MustCompile(`^/other/chapters/id/(\d+)\.html$`)
+	aliceswChapterRe     = regexp.MustCompile(`^/book/(\d+)/([^/.]+)\.html$`)
+	aliceswSearchRankRe  = regexp.MustCompile(`^\d+\.\s*`)
+	aliceswBookIDJSONRe  = regexp.MustCompile(`"Id"\s*:\s*(\d+)`)
+	aliceswBookIDDataRe  = regexp.MustCompile(`/novel/(\d+)\.html`)
+	aliceswSourceIDRe    = regexp.MustCompile(`source_id:\s*(\d+)`)
+	aliceswChapterIDRe   = regexp.MustCompile(`chapter_id:\s*['"]([^'"]+)['"]`)
+	aliceswInitialTimeRe = regexp.MustCompile(`\bt:\s*['"]([^'"]+)['"]`)
+	aliceswSignRe        = regexp.MustCompile(`sign:\s*['"]([^'"]+)['"]`)
 )
+
+const (
+	aliceswTokenPrefix   = "B3wlP9Tzo$0RIdlvX&^sg30^0&feAox%"
+	aliceswTokenSuffix   = "Rs4qM7mGrQ6aTMr8HHvv3WikTcY&kW8R"
+	aliceswPrivateKeyPEM = `-----BEGIN RSA PRIVATE KEY-----
+MIIEogIBAAKCAQEAnOUiABBEw9zzOqivp4uJxTd3D5Givmwx2i+JLVdyj9iO2S1E
+crWOaO5k6lD4fbL0MnMH+luJhO3ySm1xDZy22ruzvPHhd+Sh3nH56+hOcj1jfpBx
+lDPlwyo2nDshY0VFr/3fonFjepp5PP+eZKYt9YWtxrVMWOc0yNH6HuRA+zwUX28W
+RlP/4vMWi6vEYt0XLt+lTBGqyvwxPYJBYivIehGz4exC7K1bpvX8LJWVARkvEIuf
+Y3sQHtC/BTeYoEsipfZYafTgQHJ+KAOZSq/CET0USeTt+Evfn6YcbWX577DrRyGt
+siJjojMEG5TKdDQWmGKTQb4E2+EpTrQYaCcaowIDAQABAoIBAC8L9noWZshkxPre
+Am43RYTB8Q3WGfsH7psCjhvukQfZZFxzWocbMiz8733j8d+ffeJy4/2K3V3jDDiN
+QM1YJOzKREdwMLAG+xL9EnhPHNbc2azmG2jZdxhi3CVVBdoCt7biZeEMJ0xobdqA
+vDpqKnXpNAbV7qLqEcX2UQ5aW7H6BdCgGk9HRBKXs/ll65NZmxORXLoAVg+w7Vzi
+XaLP6+43KNXUPLz0EPndDH9VkGlMcyu6q7pWLoz6eN0fNiP4Jfl9PbV4KFlye2xo
+4FI+Go8luM0onDL1+bKE5RJHXqfS+ow9hYzBJSz39jyNpiH7j8Hg8mMDPm0VIYtM
+sOF/RgECgYEAzuuziQzrT74ZW27AQqMFQFLvqMmnrhR4CPg0mRq/PMHSzh+Bs+nS
+Gib2d1ulkKIDHPOG9EWKXBOUvHOBmGro+sOS9fnfoJYeNhLmX5K1xcDJpsBOMdZv
+euEit2i7yy+KAc26fP+SoCQEHm1mlgZG1vcfJlPDofqwRyBeKHPAkGMCgYEAwhvb
+Fw3udE0hws92+9GYmjES8jNauBaP3hlu3lmxcnjlVqlkHbc9PkvddmCsSB/5TUCH
+7qJRgYLo+uov40zNNavXv8cTqWvDrJxTuDFn0OSjeIvqS9kXeVHjpBP6d4CCLAZM
+b6owfM8JtBFx9ef9ll5mwBekZDrspEXOgoCQwMECgYBujaILvFpQ7alQn5ibQcxB
+dM5VKQCs0oTbjflUP+UjCg+eT1kWDfxSOrT+SnnoD5eINVjKVAk7br7N/QylqaE2
+sZ1oTIu9mdckXu6064aw1HMo46AjooVHatgIlC2ZvpmGoytbM5VceEG3HA5uY4Yf
+vkLnUGO6vFzIc7O6+zVMLwKBgFmIab0vkt6YOUtXUIWEvwPYQOnwoBaraX7Dcm0j
+KAMqGnanuWMvgxM6ARO6MZ0vCloEuu5qdnfrfzVFUgNhCIKKGgD+fWY3K9FxZfhe
+6Yjj/Tb8Kn0DzJ0MFZk4Ed6PKvvNh/I1qRnYkZw6M7t+X2y9bF2MSiplN4PqIv/0
+90/BAoGAQXzOzA3q+vcA9mwKvwXrPiSscmZMekV6RBUxf1riRzTnds9uWSTKz8QM
+LpEoNB3tKSB+4raK6xJGJ914b+jc/B7ayHDksStOLeJLV6t5+bmoKjk6qBrUjTQX
+y8x2rsHReaJw0SbZy+4x55nYTi/0mdzomR7N27EzYtzM7iWk5w0=
+-----END RSA PRIVATE KEY-----`
+)
+
+var (
+	aliceswPrivateKeyOnce sync.Once
+	aliceswPrivateKey     *rsa.PrivateKey
+	aliceswPrivateKeyErr  error
+)
+
+func getAliceswPrivateKey() (*rsa.PrivateKey, error) {
+	aliceswPrivateKeyOnce.Do(func() {
+		block, _ := pem.Decode([]byte(aliceswPrivateKeyPEM))
+		if block == nil {
+			aliceswPrivateKeyErr = fmt.Errorf("alicesw private key pem not found")
+			return
+		}
+		aliceswPrivateKey, aliceswPrivateKeyErr = x509.ParsePKCS1PrivateKey(block.Bytes)
+	})
+	return aliceswPrivateKey, aliceswPrivateKeyErr
+}
 
 type AliceswSite struct {
 	cfg    config.ResolvedSiteConfig
 	html   HTMLSite
 	client *http.Client
 	base   string
+}
+
+type aliceswEncryptedChapterInitial struct {
+	SourceID  string
+	ChapterID string
+	Timestamp string
+	Sign      string
+}
+
+type aliceswChapterInfoResponse struct {
+	Code int    `json:"code"`
+	Msg  string `json:"msg"`
+	Data struct {
+		Chapter aliceswEncryptedChapterPayload `json:"chapter"`
+	} `json:"data"`
+}
+
+type aliceswEncryptedChapterPayload struct {
+	Title          string `json:"title"`
+	Content        string `json:"content"`
+	ContentEncrypt string `json:"content_encrypt"`
+	AESKeyEncrypt  string `json:"aes_key_encrypt"`
+	IV             string `json:"iv"`
+	EncryptMethod  string `json:"encrypt_method"`
+}
+
+type aliceswDecodedChapter struct {
+	Title      string
+	Paragraphs []string
 }
 
 func NewAliceswSite(cfg config.ResolvedSiteConfig) *AliceswSite {
@@ -162,7 +257,19 @@ func (s *AliceswSite) FetchChapter(ctx context.Context, bookID string, chapter m
 
 	title, paragraphs, err := parseAliceswChapterPage(markup)
 	if err != nil {
-		return chapter, err
+		encrypted, encryptedErr := s.fetchEncryptedChapter(ctx, rawURL, markup)
+		if encryptedErr != nil {
+			if _, ok := extractAliceswEncryptedChapterInitial(markup); ok {
+				return chapter, encryptedErr
+			}
+			return chapter, err
+		}
+		if encrypted.Title != "" {
+			chapter.Title = encrypted.Title
+		}
+		chapter.Content = strings.Join(encrypted.Paragraphs, "\n")
+		chapter.Downloaded = true
+		return chapter, nil
 	}
 	if title != "" {
 		chapter.Title = title
@@ -170,6 +277,204 @@ func (s *AliceswSite) FetchChapter(ctx context.Context, bookID string, chapter m
 	chapter.Content = strings.Join(paragraphs, "\n")
 	chapter.Downloaded = true
 	return chapter, nil
+}
+
+func (s *AliceswSite) fetchEncryptedChapter(ctx context.Context, referer, markup string) (aliceswDecodedChapter, error) {
+	initial, ok := extractAliceswEncryptedChapterInitial(markup)
+	if !ok {
+		return aliceswDecodedChapter{}, fmt.Errorf("alicesw encrypted chapter metadata not found")
+	}
+	payload, err := s.requestAliceswChapterInfo(ctx, initial, referer)
+	if err != nil {
+		return aliceswDecodedChapter{}, err
+	}
+	content, err := decryptAliceswEncryptedChapter(payload)
+	if err != nil {
+		return aliceswDecodedChapter{}, err
+	}
+	paragraphs := parseAliceswDecryptedChapterContent(content)
+	if len(paragraphs) == 0 {
+		return aliceswDecodedChapter{}, fmt.Errorf("alicesw encrypted chapter content not found")
+	}
+	return aliceswDecodedChapter{Title: cleanText(payload.Title), Paragraphs: paragraphs}, nil
+}
+
+func (s *AliceswSite) requestAliceswChapterInfo(ctx context.Context, initial aliceswEncryptedChapterInitial, referer string) (aliceswEncryptedChapterPayload, error) {
+	values := url.Values{}
+	values.Set("id", initial.SourceID)
+	values.Set("key", initial.ChapterID)
+	values.Set("t", initial.Timestamp)
+	values.Set("sign", initial.Sign)
+	rawURL := strings.TrimRight(s.base, "/") + "/home/chapter/info?" + values.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return aliceswEncryptedChapterPayload{}, err
+	}
+	timestamp := fmt.Sprintf("%d", time.Now().Unix())
+	req.Header.Set("User-Agent", defaultBrowserUserAgent)
+	req.Header.Set("Accept", "application/json, text/javascript, */*; q=0.01")
+	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("X-Requested-With", "XMLHttpRequest")
+	req.Header.Set("x-request-timestamp", timestamp)
+	req.Header.Set("x-request-token", aliceswRequestToken(timestamp, initial.SourceID, initial.ChapterID))
+	if strings.TrimSpace(referer) != "" {
+		req.Header.Set("Referer", referer)
+	}
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return aliceswEncryptedChapterPayload{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return aliceswEncryptedChapterPayload{}, fmt.Errorf("http %d for %s", resp.StatusCode, rawURL)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return aliceswEncryptedChapterPayload{}, err
+	}
+	var decoded aliceswChapterInfoResponse
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		return aliceswEncryptedChapterPayload{}, err
+	}
+	if decoded.Code != 1 {
+		if strings.TrimSpace(decoded.Msg) != "" {
+			return aliceswEncryptedChapterPayload{}, fmt.Errorf("alicesw chapter api: %s", decoded.Msg)
+		}
+		return aliceswEncryptedChapterPayload{}, fmt.Errorf("alicesw chapter api returned code %d", decoded.Code)
+	}
+	return decoded.Data.Chapter, nil
+}
+
+func extractAliceswEncryptedChapterInitial(markup string) (aliceswEncryptedChapterInitial, bool) {
+	initial := aliceswEncryptedChapterInitial{
+		SourceID:  firstAliceswSubmatch(aliceswSourceIDRe, markup),
+		ChapterID: firstAliceswSubmatch(aliceswChapterIDRe, markup),
+		Timestamp: firstAliceswSubmatch(aliceswInitialTimeRe, markup),
+		Sign:      firstAliceswSubmatch(aliceswSignRe, markup),
+	}
+	if initial.SourceID == "" || initial.ChapterID == "" || initial.Timestamp == "" || initial.Sign == "" {
+		return initial, false
+	}
+	return initial, true
+}
+
+func firstAliceswSubmatch(re *regexp.Regexp, value string) string {
+	if match := re.FindStringSubmatch(value); len(match) == 2 {
+		return strings.TrimSpace(match[1])
+	}
+	return ""
+}
+
+func aliceswRequestToken(timestamp, sourceID, chapterID string) string {
+	sum := sha256.Sum256([]byte(aliceswTokenPrefix + timestamp + sourceID + chapterID + aliceswTokenSuffix))
+	return hex.EncodeToString(sum[:])
+}
+
+func decryptAliceswEncryptedChapter(payload aliceswEncryptedChapterPayload) (string, error) {
+	if strings.TrimSpace(payload.ContentEncrypt) == "" {
+		if strings.TrimSpace(payload.Content) != "" {
+			return payload.Content, nil
+		}
+		return "", fmt.Errorf("alicesw encrypted content is empty")
+	}
+	privateKey, err := getAliceswPrivateKey()
+	if err != nil {
+		return "", err
+	}
+	encryptedKey, err := base64.StdEncoding.DecodeString(strings.TrimSpace(payload.AESKeyEncrypt))
+	if err != nil {
+		return "", err
+	}
+	aesKeyEncoded, err := rsa.DecryptPKCS1v15(rand.Reader, privateKey, encryptedKey)
+	if err != nil {
+		return "", err
+	}
+	aesKey, err := decodeAliceswBase64OrRaw(string(aesKeyEncoded))
+	if err != nil {
+		return "", err
+	}
+	iv, err := decodeAliceswBase64OrRaw(payload.IV)
+	if err != nil {
+		return "", err
+	}
+	if len(iv) != aes.BlockSize {
+		return "", fmt.Errorf("alicesw encrypted chapter iv length is %d", len(iv))
+	}
+	ciphertext, err := base64.StdEncoding.DecodeString(strings.TrimSpace(payload.ContentEncrypt))
+	if err != nil {
+		return "", err
+	}
+	if len(ciphertext) == 0 || len(ciphertext)%aes.BlockSize != 0 {
+		return "", fmt.Errorf("alicesw encrypted chapter ciphertext has invalid length")
+	}
+	block, err := aes.NewCipher(aesKey)
+	if err != nil {
+		return "", err
+	}
+	plaintext := make([]byte, len(ciphertext))
+	cipher.NewCBCDecrypter(block, iv).CryptBlocks(plaintext, ciphertext)
+	plaintext, err = aliceswPKCS7Unpad(plaintext, aes.BlockSize)
+	if err != nil {
+		return "", err
+	}
+	return string(plaintext), nil
+}
+
+func decodeAliceswBase64OrRaw(value string) ([]byte, error) {
+	value = strings.TrimSpace(value)
+	decoded, err := base64.StdEncoding.DecodeString(value)
+	if err == nil {
+		return decoded, nil
+	}
+	if value == "" {
+		return nil, err
+	}
+	return []byte(value), nil
+}
+
+func aliceswPKCS7Unpad(data []byte, blockSize int) ([]byte, error) {
+	if len(data) == 0 || len(data)%blockSize != 0 {
+		return nil, fmt.Errorf("invalid pkcs7 data length")
+	}
+	padding := int(data[len(data)-1])
+	if padding == 0 || padding > blockSize || padding > len(data) {
+		return nil, fmt.Errorf("invalid pkcs7 padding")
+	}
+	for _, value := range data[len(data)-padding:] {
+		if int(value) != padding {
+			return nil, fmt.Errorf("invalid pkcs7 padding")
+		}
+	}
+	return data[:len(data)-padding], nil
+}
+
+func parseAliceswDecryptedChapterContent(content string) []string {
+	content = strings.TrimSpace(strings.NewReplacer("\r\n", "\n", "\r", "\n", "<br>", "\n", "<br/>", "\n", "<br />", "\n").Replace(content))
+	if content == "" {
+		return nil
+	}
+	if strings.Contains(content, "<") && strings.Contains(content, ">") {
+		if doc, err := parseHTML(content); err == nil {
+			paragraphs := cleanContentParagraphs(findAll(doc, func(n *html.Node) bool {
+				return n.Type == html.ElementNode && n.Data == "p"
+			}), nil)
+			if len(paragraphs) > 0 {
+				return paragraphs
+			}
+			if text := strings.TrimSpace(nodeTextPreserveLineBreaks(doc)); text != "" {
+				content = text
+			}
+		}
+	}
+	lines := strings.Split(content, "\n")
+	paragraphs := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if text := cleanText(line); text != "" {
+			paragraphs = append(paragraphs, text)
+		}
+	}
+	return paragraphs
 }
 
 func (s *AliceswSite) Search(ctx context.Context, keyword string, limit int) ([]model.SearchResult, error) {

@@ -175,16 +175,13 @@ function ensureTemporaryWarningDialog() {
   if (existing) return existing;
   const dialog = document.createElement("div");
   dialog.id = "temporaryWarningDialog";
-  dialog.className = "temporary-warning-dialog";
+  dialog.className = "temporary-warning-dialog temporary-warning-toast";
   dialog.hidden = true;
-  dialog.addEventListener("click", (event) => {
-    if (event.target === dialog) hideTemporaryWarningDialog();
-  });
+  dialog.setAttribute("role", "status");
+  dialog.setAttribute("aria-live", "polite");
 
   const modal = document.createElement("section");
   modal.className = "temporary-warning-modal";
-  modal.setAttribute("role", "dialog");
-  modal.setAttribute("aria-modal", "true");
   modal.setAttribute("aria-labelledby", "temporaryWarningHeading");
 
   const head = document.createElement("div");
@@ -195,7 +192,8 @@ function ensureTemporaryWarningDialog() {
   const close = document.createElement("button");
   close.type = "button";
   close.className = "temporary-warning-close";
-  close.textContent = "知道了";
+  close.setAttribute("aria-label", "关闭临时提示");
+  close.textContent = "×";
   close.addEventListener("click", hideTemporaryWarningDialog);
   head.append(title, close);
 
