@@ -507,6 +507,41 @@ func newRouter(service *Service) *gin.Engine {
 		c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, fileName))
 		c.File(absPath)
 	})
+	group.GET("/api/chapter-content", func(c *gin.Context) {
+		siteKey := strings.TrimSpace(c.Query("site"))
+		bookID := strings.TrimSpace(c.Query("book_id"))
+		chapterID := strings.TrimSpace(c.Query("chapter_id"))
+		if siteKey == "" || bookID == "" || chapterID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "site, book_id, and chapter_id are required"})
+			return
+		}
+
+		timeout := detailTimeoutForSite(siteKey)
+		if timeout < 30*time.Second {
+			timeout = 30 * time.Second
+		}
+		ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
+		defer cancel()
+
+		resolved := service.Config.ResolveSiteConfig(siteKey)
+		client, err := service.Runtime.Registry.Build(siteKey, resolved)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		chapterTitle := strings.TrimSpace(c.Query("title"))
+		chapterURL := strings.TrimSpace(c.Query("url"))
+		ch := model.Chapter{ID: chapterID, Title: chapterTitle, URL: chapterURL}
+
+		result, err := client.FetchChapter(ctx, bookID, ch)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"chapter": result})
+	})
 
 	return router
 }

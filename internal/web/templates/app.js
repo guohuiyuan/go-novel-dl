@@ -293,6 +293,7 @@ function bootstrap() {
   });
   
   document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !readerOverlay.hidden) { closeReader(); return; }
     if (event.key === "Escape" && !detailOverlay.hidden) closeDetail();
     if (event.key === "Escape" && !siteConfigOverlay.hidden) closeSiteConfig();
   });
@@ -578,6 +579,7 @@ function openDetail(result, variant) {
   const activeVariant = variant || result.primary;
   const cacheKey = detailKey(activeVariant);
   appState.detailResult = result;
+  appState.activeDetailVariant = activeVariant;
   appState.activeDetailKey = cacheKey;
   detailOverlay.hidden = false;
   document.body.classList.add("has-overlay");
@@ -708,33 +710,224 @@ function renderDetail(result, variant, book, loading, errorMessage) {
 }
 
 function renderChapterList(chapters) {
-  const list = document.createElement("div");
-  list.className = "chapter-list";
-  let lastVolume = "";
-  chapters.forEach((chapter, index) => {
-    if (chapter.volume && chapter.volume !== lastVolume) {
-      lastVolume = chapter.volume;
-      const volume = document.createElement("div");
-      volume.className = "chapter-volume"; volume.textContent = chapter.volume;
-      list.appendChild(volume);
+  const CHAPTER_PAGE_SIZE = 100;
+  const container = document.createElement("div");
+  let currentPage = 1;
+  const totalPages = Math.ceil(chapters.length / CHAPTER_PAGE_SIZE);
+
+  function renderPage() {
+    container.innerHTML = "";
+    if (totalPages > 1) {
+      const paging = document.createElement("div");
+      paging.className = "chapter-paging";
+      const prevBtn = document.createElement("button");
+      prevBtn.type = "button"; prevBtn.className = "page-button"; prevBtn.textContent = "上一页";
+      prevBtn.disabled = currentPage <= 1;
+      prevBtn.addEventListener("click", () => { currentPage--; renderPage(); });
+      const indicator = document.createElement("span");
+      indicator.className = "page-indicator"; indicator.textContent = `${currentPage} / ${totalPages}`;
+      const nextBtn = document.createElement("button");
+      nextBtn.type = "button"; nextBtn.className = "page-button"; nextBtn.textContent = "下一页";
+      nextBtn.disabled = currentPage >= totalPages;
+      nextBtn.addEventListener("click", () => { currentPage++; renderPage(); });
+      paging.append(prevBtn, indicator, nextBtn);
+      container.appendChild(paging);
     }
-    const item = document.createElement("div"); item.className = "chapter-item";
-    const number = document.createElement("span"); number.className = "chapter-index"; number.textContent = String(chapter.order || index + 1);
-    const content = document.createElement("div");
-    const chapterTitle = chapter.title || `第 ${index + 1} 章`;
-    if (chapter.url) {
-      const titleLink = document.createElement("a");
-      titleLink.className = "chapter-title chapter-title-link"; titleLink.href = chapter.url;
-      titleLink.target = "_blank"; titleLink.rel = "noopener noreferrer"; titleLink.textContent = chapterTitle;
-      content.appendChild(titleLink);
-    } else {
-      const title = document.createElement("span"); title.className = "chapter-title"; title.textContent = chapterTitle;
+
+    const list = document.createElement("div");
+    list.className = "chapter-list";
+    const start = (currentPage - 1) * CHAPTER_PAGE_SIZE;
+    const end = Math.min(start + CHAPTER_PAGE_SIZE, chapters.length);
+    let lastVolume = "";
+    for (let i = start; i < end; i++) {
+      const chapter = chapters[i];
+      if (chapter.volume && chapter.volume !== lastVolume) {
+        lastVolume = chapter.volume;
+        const volume = document.createElement("div");
+        volume.className = "chapter-volume"; volume.textContent = chapter.volume;
+        list.appendChild(volume);
+      }
+      const item = document.createElement("div");
+      item.className = "chapter-item is-clickable";
+      const number = document.createElement("span");
+      number.className = "chapter-index"; number.textContent = String(chapter.order || i + 1);
+      const content = document.createElement("div");
+      const title = document.createElement("span");
+      title.className = "chapter-title"; title.textContent = chapter.title || `第 ${i + 1} 章`;
       content.appendChild(title);
+      item.appendChild(number); item.appendChild(content);
+      item.addEventListener("click", () => openReader(chapters, i));
+      list.appendChild(item);
     }
-    item.appendChild(number); item.appendChild(content); list.appendChild(item);
-  });
-  return list;
+    container.appendChild(list);
+
+    if (totalPages > 1) {
+      const pagingBottom = document.createElement("div");
+      pagingBottom.className = "chapter-paging";
+      const prevBtn2 = document.createElement("button");
+      prevBtn2.type = "button"; prevBtn2.className = "page-button"; prevBtn2.textContent = "上一页";
+      prevBtn2.disabled = currentPage <= 1;
+      prevBtn2.addEventListener("click", () => { currentPage--; renderPage(); });
+      const indicator2 = document.createElement("span");
+      indicator2.className = "page-indicator"; indicator2.textContent = `${currentPage} / ${totalPages}`;
+      const nextBtn2 = document.createElement("button");
+      nextBtn2.type = "button"; nextBtn2.className = "page-button"; nextBtn2.textContent = "下一页";
+      nextBtn2.disabled = currentPage >= totalPages;
+      nextBtn2.addEventListener("click", () => { currentPage++; renderPage(); });
+      pagingBottom.append(prevBtn2, indicator2, nextBtn2);
+      container.appendChild(pagingBottom);
+    }
+  }
+  renderPage();
+  return container;
 }
+
+// ===== Chapter Reader =====
+const readerOverlay = document.getElementById("readerOverlay");
+const readerCloseButton = document.getElementById("readerCloseButton");
+const readerTitle = document.getElementById("readerTitle");
+const readerContent = document.getElementById("readerContent");
+const readerBody = document.getElementById("readerBody");
+const readerProgress = document.getElementById("readerProgress");
+
+const readerState = { chapters: [], startIndex: 0, loadedMax: -1, loading: false, cache: new Map() };
+
+function openReader(chapters, index) {
+  readerState.chapters = chapters;
+  readerState.startIndex = index;
+  readerState.loadedMax = index - 1;
+  readerState.loading = false;
+  readerOverlay.hidden = false;
+  document.body.classList.add("has-overlay");
+  readerContent.innerHTML = "";
+  readerBody.scrollTop = 0;
+  updateReaderTitle(index);
+  appendNextChapter();
+  preloadAdjacent(index);
+}
+
+function closeReader() {
+  readerOverlay.hidden = true;
+  document.body.classList.remove("has-overlay");
+}
+
+function updateReaderTitle(index) {
+  const ch = readerState.chapters[index];
+  readerTitle.textContent = ch ? (ch.title || `第 ${index + 1} 章`) : "";
+  readerProgress.textContent = `${index + 1} / ${readerState.chapters.length}`;
+}
+
+function appendNextChapter() {
+  const nextIdx = readerState.loadedMax + 1;
+  if (nextIdx >= readerState.chapters.length) {
+    const end = document.createElement("div");
+    end.className = "reader-end-hint"; end.textContent = "— 已到最后一章 —";
+    readerContent.appendChild(end);
+    return;
+  }
+  if (readerState.loading) return;
+  readerState.loading = true;
+  readerState.loadedMax = nextIdx;
+
+  const ch = readerState.chapters[nextIdx];
+  // Add chapter divider if not the first loaded chapter
+  if (nextIdx > readerState.startIndex) {
+    const divider = document.createElement("div");
+    divider.className = "reader-chapter-divider";
+    divider.textContent = ch.title || `第 ${nextIdx + 1} 章`;
+    divider.dataset.chapterIndex = nextIdx;
+    readerContent.appendChild(divider);
+  }
+
+  const chapterBlock = document.createElement("div");
+  chapterBlock.className = "reader-chapter-block";
+  chapterBlock.dataset.chapterIndex = nextIdx;
+  readerContent.appendChild(chapterBlock);
+
+  const cached = readerState.cache.get(ch.id || nextIdx);
+  if (cached) {
+    renderChapterBlock(chapterBlock, cached);
+    readerState.loading = false;
+  } else {
+    chapterBlock.innerHTML = '<div class="reader-loading">正在加载...</div>';
+    fetchAndRenderChapter(ch, nextIdx, chapterBlock);
+  }
+}
+
+async function fetchAndRenderChapter(ch, index, block) {
+  const variant = appState.activeDetailVariant || (appState.detailResult && appState.detailResult.primary) || {};
+  const site = variant.site || "";
+  const bookID = variant.book_id || "";
+  if (!site || !bookID) { block.innerHTML = '<div class="reader-error">缺少站点信息</div>'; readerState.loading = false; return; }
+  try {
+    const url = new URL(`${window.location.origin}${root}/api/chapter-content`);
+    url.searchParams.set("site", site); url.searchParams.set("book_id", bookID);
+    url.searchParams.set("chapter_id", ch.id || ""); url.searchParams.set("title", ch.title || "");
+    url.searchParams.set("url", ch.url || "");
+    const resp = await fetch(url.toString());
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || "fetch failed");
+    const content = (data.chapter && data.chapter.content) || "";
+    readerState.cache.set(ch.id || index, content);
+    renderChapterBlock(block, content);
+  } catch (e) {
+    block.innerHTML = `<div class="reader-error">加载失败：${e.message}</div>`;
+  }
+  readerState.loading = false;
+}
+
+function renderChapterBlock(block, text) {
+  block.innerHTML = "";
+  if (!text.trim()) { block.innerHTML = '<div class="reader-error">章节内容为空</div>'; return; }
+  text.split(/\n/).forEach(line => {
+    if (!line.trim()) return;
+    const p = document.createElement("p");
+    p.textContent = line;
+    block.appendChild(p);
+  });
+}
+
+function preloadAdjacent(index) {
+  const variant = appState.activeDetailVariant || (appState.detailResult && appState.detailResult.primary) || {};
+  const site = variant.site || "";
+  const bookID = variant.book_id || "";
+  if (!site || !bookID) return;
+  for (let offset = 1; offset <= 3; offset++) {
+    const i = index + offset;
+    if (i >= readerState.chapters.length) break;
+    const ch = readerState.chapters[i];
+    if (readerState.cache.has(ch.id || i)) continue;
+    const url = new URL(`${window.location.origin}${root}/api/chapter-content`);
+    url.searchParams.set("site", site); url.searchParams.set("book_id", bookID);
+    url.searchParams.set("chapter_id", ch.id || ""); url.searchParams.set("title", ch.title || "");
+    url.searchParams.set("url", ch.url || "");
+    fetch(url.toString()).then(r => r.json()).then(data => {
+      if (data.chapter && data.chapter.content) readerState.cache.set(ch.id || i, data.chapter.content);
+    }).catch(() => {});
+  }
+}
+
+readerCloseButton.addEventListener("click", closeReader);
+
+// Scroll-based auto-load next chapter
+readerBody.addEventListener("scroll", () => {
+  const { scrollTop, scrollHeight, clientHeight } = readerBody;
+  // Update title based on visible chapter
+  const blocks = readerContent.querySelectorAll("[data-chapter-index]");
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const rect = blocks[i].getBoundingClientRect();
+    const bodyRect = readerBody.getBoundingClientRect();
+    if (rect.top <= bodyRect.top + 60) {
+      updateReaderTitle(parseInt(blocks[i].dataset.chapterIndex, 10));
+      break;
+    }
+  }
+  // Auto-load next when near bottom
+  if (scrollTop + clientHeight >= scrollHeight - 200 && !readerState.loading) {
+    appendNextChapter();
+    preloadAdjacent(readerState.loadedMax);
+  }
+});
 
 function resultBadge(text) {
   const node = document.createElement("span"); node.className = "result-badge"; node.textContent = text; return node;

@@ -316,12 +316,23 @@
     <div id="detailBackdrop" class="detail-backdrop"></div>
     <aside class="detail-panel" role="dialog" aria-modal="true" aria-labelledby="detailHeading">
       <div class="detail-topbar">
-        <button type="button" id="detailCloseButton" class="detail-close">关闭</button>
+        <button type="button" id="detailCloseButton" class="detail-close">← 返回</button>
       </div>
       <div id="detailContent" class="detail-content">
         <div class="empty-state empty-state-compact">点击封面查看小说详情。</div>
       </div>
     </aside>
+  </div>
+
+  <div id="readerOverlay" class="reader-overlay" hidden>
+    <div class="reader-topbar">
+      <button type="button" id="readerCloseButton" class="detail-close">← 返回</button>
+      <span id="readerTitle" class="reader-title"></span>
+      <span id="readerProgress" class="reader-progress"></span>
+    </div>
+    <div id="readerBody" class="reader-body">
+      <div id="readerContent" class="reader-content"></div>
+    </div>
   </div>
 
   <button id="backToTop" class="back-to-top" aria-label="回到顶部">
