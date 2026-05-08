@@ -24,15 +24,39 @@
 - 混合结果排序：结合关键词匹配、站点优先级、简介完整度、封面可用性选出主结果
 - URL 直达：CLI 下载和 Web 搜索都支持直接输入站点链接进行解析
 - 详情页预取：Web 详情通过 `DownloadPlan` 拉取目录与书籍元数据
+- Web 阅读器：支持按需加载章节正文、上下文预加载、滚动续读、主题/背景/字号和章节排版设置
+- Web 内容缓存：详情页和章节正文带 TTL 缓存与并发请求合并，减少重复抓取
 - 异步下载：Web 下载任务异步执行，通过轮询查询进度与导出文件
 - 分阶段存储：原始数据、处理后数据、导出文件分层保存
 - 多格式导出：支持 `txt`、`html`、`epub`
 - 图片处理：支持章节图片保留、EPUB 图片抓取与压缩
 - 统一配置：CLI 与 Web 共用 `data/site_catalog.db`
-- 站点级配置：支持可选登录/Cookie、镜像、并发、抓图、文字转换；ESJ Zone 搜索和详情无需预先配置账号
+- 站点级配置：支持可选登录/Cookie、镜像、并发、抓图、文字转换和缓存开关；ESJ Zone 搜索和详情无需预先配置账号
+- 站点兼容：支持 Alice Book House 加密章节接口、Linovelib 多页目录、N23QB 站点地图搜索等站点差异处理
 - Web 图片模糊化：全局配置可开启网页图片模糊显示，降低展示风险
 
 ![Web UI](./screenshots/web.png)
+
+## 版本更新摘要
+
+### v1.0.7
+
+- Web 新增章节正文接口 `/novel/api/chapter-content`，详情页可直接进入内置阅读器按需加载正文
+- 阅读器支持上下文预加载、滚动触发加载、主题切换、背景色选择、字号调整和章节排版格式切换
+- 详情页新增预热缓存、章节分页/批量显示控制、加载耗时展示和更完整的异常提示
+- Alice Book House 优化目录获取：优先使用详情页章节，目录接口失败或超时时可回退到详情页预览章节
+- Alice Book House 支持加密章节正文：自动请求 `/home/chapter/info`，按站点签名规则生成请求头，并完成 RSA/AES 解密
+- Alice Book House 会识别 `章节加载中...` 这类占位正文，避免把占位文本当成真实章节内容
+- 临时站点提示改为页面顶部非阻塞 toast，不再以遮罩对话框打断搜索、详情或阅读流程
+
+### v1.0.6
+
+- ESJ Zone 搜索和详情取消强制登录要求；只有遇到需要认证的章节时才触发登录/重试流程
+- 搜索缓存逻辑增强：关闭缓存时会跳过缓存读取，并在 Web 设置中心暴露缓存相关配置
+- N23QB 新增基于站点地图的搜索能力，用于规避普通搜索请求被拦截的情况
+- Linovelib 下载计划优先保持目录顺序，并支持章节中的相对下一页链接，提升多页章节抓取稳定性
+- 多个站点接入新的搜索缓存与错误处理逻辑，提升聚合搜索在单站失败时的容错性
+- 导出正文优化首行缩进表现，改善 TXT/HTML/EPUB 阅读排版一致性
 
 ## 架构概览
 
@@ -260,9 +284,13 @@ go run ./cmd/novel-dl config site-set esjzone ^
 - 搜索页仅展示“同时支持搜索和下载”的站点
 - 当前 Web 搜索页会隐藏 `biquge345`
 - 支持输入关键词，也支持直接输入书籍 URL
-- 详情接口通过 `DownloadPlan` 获取目录、简介、封面等信息
+- 详情接口通过 `DownloadPlan` 获取目录、简介、封面等信息，并缓存短时间内的重复请求
+- 详情页支持章节分页/批量展示、加载耗时提示、目录预热和错误提示
+- 内置阅读器通过章节正文接口按需拉取正文，支持滚动续读、上下文预加载和前端去重缓存
+- 阅读器支持主题、背景色、字号和章节排版格式调整
 - 下载任务异步执行，前端通过任务 ID 轮询进度
 - 设置中心可修改全局配置和站点配置
+- 临时站点提示以顶部 toast 展示，避免阻塞搜索、详情和阅读流程
 
 ### 路由前缀
 
@@ -280,6 +308,7 @@ GET  /novel/api/site-configs
 PUT  /novel/api/site-configs/:site
 POST /novel/api/search
 GET  /novel/api/books/detail
+GET  /novel/api/chapter-content
 POST /novel/api/download-tasks
 GET  /novel/api/download-tasks/:id
 GET  /novel/api/download-file
@@ -306,6 +335,12 @@ Content-Type: application/json
 GET /novel/api/books/detail?site=alicesw&book_id=50427
 ```
 
+章节正文示例：
+
+```http
+GET /novel/api/chapter-content?site=alicesw&book_id=38694&chapter_id=40207-1e77f397a3411
+```
+
 下载任务示例：
 
 ```http
@@ -324,6 +359,7 @@ Content-Type: application/json
 - `web_page_size`
 - `cli_page_size`
 - `blur_web_images`
+- `disable_cache`
 - `formats`
 - `include_picture`
 
