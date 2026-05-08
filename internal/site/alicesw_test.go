@@ -191,7 +191,7 @@ func TestAliceswFetchChapterUsesEncryptedChapterAPI(t *testing.T) {
 		case "/book/36074/38005042dca69.html":
 			_, _ = w.Write([]byte(`<html><body>
 <h3 class="j_chapterName">加载中...</h3>
-<div class="read-content j_readContent">章节加载中...</div>
+<div class="read-content j_readContent user_ad_content"><p>章节加载中...</p></div>
 <script>
 book.initial = {
   source_id: 36074,

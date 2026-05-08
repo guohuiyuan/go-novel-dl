@@ -699,10 +699,18 @@ func parseAliceswChapterPage(markup string) (string, []string, error) {
 	paragraphs := cleanContentParagraphs(findAll(content, func(n *html.Node) bool {
 		return n.Type == html.ElementNode && n.Data == "p" && hasAncestorClass(n, "read-content")
 	}), nil)
-	if len(paragraphs) == 0 {
+	if len(paragraphs) == 0 || isAliceswLoadingPlaceholder(paragraphs) {
 		return "", nil, fmt.Errorf("alicesw chapter content not found")
 	}
 	return title, paragraphs, nil
+}
+
+func isAliceswLoadingPlaceholder(paragraphs []string) bool {
+	if len(paragraphs) != 1 {
+		return false
+	}
+	text := strings.TrimSpace(strings.Trim(paragraphs[0], ".。…"))
+	return text == "章节加载中" || text == "加载中"
 }
 
 func extractAliceswBookIDFromChapterMarkup(markup string) string {
