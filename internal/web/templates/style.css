@@ -314,7 +314,7 @@ h3 { font-size: 14px; font-weight: 700; color: #334155; }
 .site-config-overlay { position: fixed; inset: 0; z-index: 70; }
 .site-config-backdrop { position: absolute; inset: 0; background: rgba(15, 23, 42, 0.4); backdrop-filter: blur(4px); }
 .site-config-modal {
-  position: relative; width: min(760px, calc(100vw - 24px)); max-height: calc(100vh - 24px);
+  position: relative; width: min(860px, calc(100vw - 24px)); max-height: calc(100vh - 24px);
   overflow: auto; margin: 12px auto; padding: 16px; border-radius: 16px;
   background: #fff; box-shadow: 0 10px 30px rgba(0,0,0,0.2);
 }
@@ -323,6 +323,10 @@ h3 { font-size: 14px; font-weight: 700; color: #334155; }
 .settings-layout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .config-section-card { border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: #f8fafc; }
 .config-section-head { display: grid; gap: 4px; margin-bottom: 8px; }
+.config-section-desc, .field-help {
+  color: var(--muted); font-size: 12px; line-height: 1.45;
+}
+.field-help { display: block; }
 
 .site-config-form { display: grid; gap: 10px; }
 

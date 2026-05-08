@@ -127,67 +127,45 @@
         <section class="config-section-card">
           <div class="config-section-head">
             <h3>全局配置</h3>
+            <p class="config-section-desc">这些设置会影响搜索、下载、导出和 Web 阅读。未显示的底层限流参数使用程序默认值。</p>
           </div>
           <form id="generalConfigForm" class="site-config-form">
             <label class="search-field" for="generalWorkers">
-              <span class="field-label">默认下载协程 (推荐1-10)</span>
+              <span class="field-label">下载并发</span>
               <div class="range-wrap">
                 <input id="generalWorkers" class="search-input slider" type="range" min="1" max="10" step="1">
                 <span id="generalWorkersVal" class="range-val">4</span>
               </div>
+              <span class="field-help">同时下载的章节数。过高更快，但更容易触发站点限制。</span>
             </label>
             <label class="search-field" for="generalTimeout">
-              <span class="field-label">超时时间 (秒)</span>
+              <span class="field-label">请求超时（秒）</span>
               <div class="range-wrap">
                 <input id="generalTimeout" class="search-input slider" type="range" min="1" max="60" step="1">
                 <span id="generalTimeoutVal" class="range-val">10</span>
               </div>
+              <span class="field-help">单次网络请求等待时间。慢站点可以调高。</span>
             </label>
             <label class="search-field" for="generalRequestInterval">
-              <span class="field-label">请求间隔 (秒)</span>
+              <span class="field-label">请求间隔（秒）</span>
               <div class="range-wrap">
                 <input id="generalRequestInterval" class="search-input slider" type="range" min="0" max="10" step="0.1">
                 <span id="generalRequestIntervalVal" class="range-val">0.5</span>
               </div>
-            </label>
-            <label class="search-field" for="generalMaxConnections">
-              <span class="field-label">最大连接数</span>
-              <div class="range-wrap">
-                <input id="generalMaxConnections" class="search-input slider" type="range" min="1" max="100" step="1">
-                <span id="generalMaxConnectionsVal" class="range-val">10</span>
-              </div>
-            </label>
-            <label class="search-field" for="generalMaxRPS">
-              <span class="field-label">最大 RPS</span>
-              <div class="range-wrap">
-                <input id="generalMaxRPS" class="search-input slider" type="range" min="0.1" max="50" step="0.1">
-                <span id="generalMaxRPSVal" class="range-val">5.0</span>
-              </div>
-            </label>
-            <label class="search-field" for="generalRetryTimes">
-              <span class="field-label">重试次数</span>
-              <div class="range-wrap">
-                <input id="generalRetryTimes" class="search-input slider" type="range" min="0" max="10" step="1">
-                <span id="generalRetryTimesVal" class="range-val">3</span>
-              </div>
-            </label>
-            <label class="search-field" for="generalBackoffFactor">
-              <span class="field-label">退避系数</span>
-              <div class="range-wrap">
-                <input id="generalBackoffFactor" class="search-input slider" type="range" min="1" max="5" step="0.1">
-                <span id="generalBackoffFactorVal" class="range-val">2.0</span>
-              </div>
+              <span class="field-help">同一站点连续请求之间的停顿。被限速时调高。</span>
             </label>
             <label class="search-field" for="generalLocaleStyle">
-              <span class="field-label">文本风格</span>
+              <span class="field-label">文字转换</span>
               <select id="generalLocaleStyle" class="search-input">
                 <option value="simplified">simplified</option>
                 <option value="traditional">traditional</option>
               </select>
+              <span class="field-help">影响搜索结果、章节标题和导出正文。</span>
             </label>
             <label class="search-field" for="generalFormats">
               <span class="field-label">默认导出格式（逗号分隔）</span>
               <input id="generalFormats" class="search-input" type="text" placeholder="txt,epub">
+              <span class="field-help">常用值：txt,epub。</span>
             </label>
             <label class="site-config-check">
               <input id="generalAppendTimestamp" type="checkbox">
@@ -211,6 +189,7 @@
                 <input id="generalWebPageSize" class="search-input slider" type="range" min="10" max="100" step="1">
                 <span id="generalWebPageSizeVal" class="range-val">50</span>
               </div>
+              <span class="field-help">影响搜索结果分页和列表扫描。</span>
             </label>
             <label class="search-field" for="generalCLIPageSize">
               <span class="field-label">CLI 每页数量</span>
@@ -222,14 +201,17 @@
             <label class="search-field" for="generalRawDataDir">
               <span class="field-label">Raw 数据目录</span>
               <input id="generalRawDataDir" class="search-input" type="text">
+              <span class="field-help">保存抓取到的原始书籍数据。</span>
             </label>
             <label class="search-field" for="generalCacheDir">
               <span class="field-label">缓存目录</span>
               <input id="generalCacheDir" class="search-input" type="text">
+              <span class="field-help">保存搜索索引、登录 Cookie 和章节缓存。</span>
             </label>
             <label class="search-field" for="generalOutputDir">
               <span class="field-label">导出目录</span>
               <input id="generalOutputDir" class="search-input" type="text">
+              <span class="field-help">txt、epub 等导出文件会保存到这里。</span>
             </label>
             <div class="site-config-actions">
               <button id="saveGeneralConfig" type="submit" class="search-button">保存全局配置</button>
@@ -240,39 +222,13 @@
         <section class="config-section-card">
           <div class="config-section-head">
             <h3>站点配置</h3>
+            <p class="config-section-desc">这里只保留认证和镜像配置的站点：Novalpie 和 ESJ Zone。</p>
           </div>
           <form id="siteConfigForm" class="site-config-form">
             <label class="search-field" for="siteConfigKey">
               <span class="field-label">站点</span>
               <select id="siteConfigKey" class="search-input"></select>
-            </label>
-
-            <label class="site-config-check">
-              <input id="siteLoginRequired" type="checkbox">
-              <span>需要登录</span>
-            </label>
-
-            <label class="search-field" for="siteWorkerLimit">
-              <span class="field-label">下载协程数 (0 为使用全局默认)</span>
-              <div class="range-wrap">
-                <input id="siteWorkerLimit" class="search-input slider" type="range" min="0" max="10" step="1">
-                <span id="siteWorkerLimitVal" class="range-val">0</span>
-              </div>
-            </label>
-
-            <label class="site-config-check">
-              <input id="siteFetchImages" type="checkbox">
-              <span>抓取图片（关闭后仅保留文本）</span>
-            </label>
-
-            <label class="search-field" for="siteLocaleStyle">
-              <span class="field-label">文字转换</span>
-              <select id="siteLocaleStyle" class="search-input">
-                <option value="">跟随全局</option>
-                <option value="original">original</option>
-                <option value="traditional">traditional</option>
-                <option value="simplified">simplified</option>
-              </select>
+              <span id="siteConfigHint" class="field-help"></span>
             </label>
 
             <label class="search-field" for="siteUsername">
@@ -294,13 +250,15 @@
             </label>
 
             <label class="search-field" for="siteCookie">
-              <span class="field-label">Cookie</span>
-              <textarea id="siteCookie" class="site-config-textarea" rows="4" placeholder="name=value; name2=value2"></textarea>
+              <span class="field-label">Cookie / Token</span>
+              <textarea id="siteCookie" class="site-config-textarea" rows="4" placeholder="Novalpie 填 Bearer eyJ...；ESJ Zone 填 name=value; name2=value2"></textarea>
+              <span id="siteCookieHelp" class="field-help"></span>
             </label>
 
             <label class="search-field" for="siteMirrorHosts">
               <span class="field-label">镜像地址（每行一个）</span>
               <textarea id="siteMirrorHosts" class="site-config-textarea" rows="3"></textarea>
+              <span class="field-help">只有站点主域不可用时再填写。</span>
             </label>
 
             <div class="site-config-actions">

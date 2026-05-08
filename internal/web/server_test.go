@@ -146,6 +146,77 @@ func TestIndexPageIncludesDisableCacheControl(t *testing.T) {
 	}
 }
 
+func TestIndexPageGlobalSettingsKeepOnlyUsefulRuntimeKnobs(t *testing.T) {
+	service := newTestService()
+	router := newRouter(service)
+
+	req := httptest.NewRequest(http.MethodGet, RoutePrefix+"/", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	body := resp.Body.String()
+	for _, needle := range []string{`id="generalWorkers"`, `id="generalTimeout"`, `id="generalRequestInterval"`, `id="generalFormats"`, `id="generalOutputDir"`} {
+		if !strings.Contains(body, needle) {
+			t.Fatalf("expected index page to contain %s, body=%s", needle, body)
+		}
+	}
+	for _, needle := range []string{`id="generalMaxConnections"`, `id="generalMaxRPS"`, `id="generalRetryTimes"`, `id="generalBackoffFactor"`} {
+		if strings.Contains(body, needle) {
+			t.Fatalf("expected index page to hide low-value runtime knob %s", needle)
+		}
+	}
+}
+
+func TestIndexPageSiteSettingsOnlyShowAuthAndMirrorFields(t *testing.T) {
+	service := newTestService()
+	router := newRouter(service)
+
+	req := httptest.NewRequest(http.MethodGet, RoutePrefix+"/", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	body := resp.Body.String()
+	for _, needle := range []string{`id="siteConfigKey"`, `id="siteUsername"`, `id="sitePassword"`, `id="siteCookie"`, `id="siteMirrorHosts"`} {
+		if !strings.Contains(body, needle) {
+			t.Fatalf("expected index page to contain %s, body=%s", needle, body)
+		}
+	}
+	for _, needle := range []string{`id="siteLoginRequired"`, `id="siteWorkerLimit"`, `id="siteFetchImages"`, `id="siteLocaleStyle"`} {
+		if strings.Contains(body, needle) {
+			t.Fatalf("expected index page to hide redundant site setting %s", needle)
+		}
+	}
+}
+
+func TestSettingsScriptLimitsSiteConfigChoices(t *testing.T) {
+	data, err := templateFS.ReadFile("templates/app.js")
+	if err != nil {
+		t.Fatalf("read app.js: %v", err)
+	}
+	script := string(data)
+	for _, needle := range []string{
+		`const configurableSiteKeys = ["novalpie", "esjzone"];`,
+		`.filter((item) => configurableSiteKeys.includes(item.key))`,
+	} {
+		if !strings.Contains(script, needle) {
+			t.Fatalf("expected app.js to contain %s", needle)
+		}
+	}
+	for _, needle := range []string{`login_required:`, `worker_limit:`, `fetch_images:`} {
+		if strings.Contains(script, needle) {
+			t.Fatalf("expected site config payload to omit %s", needle)
+		}
+	}
+}
+
 func TestSearchEndpointPaginatesMixedSearchableSources(t *testing.T) {
 	service := newTestService()
 	router := newRouter(service)

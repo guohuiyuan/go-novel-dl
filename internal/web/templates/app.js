@@ -1,6 +1,7 @@
 const root = window.__NOVEL_DL__.root;
 const defaultSources = window.__NOVEL_DL__.defaultSources || [];
 const allSources = window.__NOVEL_DL__.allSources || [];
+const configurableSiteKeys = ["novalpie", "esjzone"];
 const defaultPageSize = window.__NOVEL_DL__.pageSize || 50;
 const initialGeneralConfig = window.__NOVEL_DL__.generalConfig || {};
 const sourceLabelMap = new Map(
@@ -263,14 +264,12 @@ const siteConfigBackdrop = document.getElementById("siteConfigBackdrop");
 const closeSiteConfigButton = document.getElementById("closeSiteConfig");
 const siteConfigForm = document.getElementById("siteConfigForm");
 const siteConfigKeyNode = document.getElementById("siteConfigKey");
-const siteLoginRequiredNode = document.getElementById("siteLoginRequired");
-const siteWorkerLimitNode = document.getElementById("siteWorkerLimit");
-const siteFetchImagesNode = document.getElementById("siteFetchImages");
-const siteLocaleStyleNode = document.getElementById("siteLocaleStyle");
+const siteConfigHintNode = document.getElementById("siteConfigHint");
 const siteUsernameNode = document.getElementById("siteUsername");
 const sitePasswordNode = document.getElementById("sitePassword");
 const toggleSitePasswordButton = document.getElementById("toggleSitePassword");
 const siteCookieNode = document.getElementById("siteCookie");
+const siteCookieHelpNode = document.getElementById("siteCookieHelp");
 const siteMirrorHostsNode = document.getElementById("siteMirrorHosts");
 const generalConfigForm = document.getElementById("generalConfigForm");
 
@@ -318,7 +317,7 @@ function bootstrap() {
   setStatus("选择渠道后输入关键词开始搜索。");
 
   // 绑定滑动条联动显示
-  ['generalWorkers', 'generalTimeout', 'generalRequestInterval', 'generalMaxConnections', 'generalMaxRPS', 'generalRetryTimes', 'generalBackoffFactor', 'generalWebPageSize', 'generalCLIPageSize', 'siteWorkerLimit'].forEach(bindRangeValue);
+  ['generalWorkers', 'generalTimeout', 'generalRequestInterval', 'generalWebPageSize', 'generalCLIPageSize'].forEach(bindRangeValue);
 
   renderSiteWarnings();
   renderGeneralConfigForm(appState.generalConfig);
@@ -1564,13 +1563,21 @@ async function loadSiteConfigs() {
 
 function renderSiteConfigSelector(items) {
   siteConfigKeyNode.innerHTML = "";
-  items.forEach((item) => {
+  const visibleItems = items
+    .filter((item) => configurableSiteKeys.includes(item.key))
+    .sort((left, right) => configurableSiteKeys.indexOf(left.key) - configurableSiteKeys.indexOf(right.key));
+  visibleItems.forEach((item) => {
     const option = document.createElement("option");
     option.value = item.key; option.textContent = sourceLabel(item.key);
     siteConfigKeyNode.appendChild(option);
   });
-  if (items.length > 0) {
-    siteConfigKeyNode.value = items[0].key; populateSiteConfigForm(items[0].key);
+  if (visibleItems.length > 0) {
+    siteConfigKeyNode.value = visibleItems[0].key; populateSiteConfigForm(visibleItems[0].key);
+  } else {
+    const option = document.createElement("option");
+    option.value = ""; option.textContent = "暂无可配置站点";
+    siteConfigKeyNode.appendChild(option);
+    renderSiteConfigHelp("");
   }
 }
 
@@ -1582,10 +1589,6 @@ function setRangeVal(id, val) {
 function populateSiteConfigForm(siteKey) {
   const item = appState.siteConfigs.get(siteKey);
   if (!item) return;
-  siteLoginRequiredNode.checked = Boolean(item.login_required);
-  setRangeVal("siteWorkerLimit", item.worker_limit || 0);
-  siteFetchImagesNode.checked = item.fetch_images !== false;
-  siteLocaleStyleNode.value = (item.locale_style || "").trim();
   siteUsernameNode.value = item.username || "";
   sitePasswordNode.value = item.password || "";
   sitePasswordNode.type = "password";
@@ -1595,6 +1598,23 @@ function populateSiteConfigForm(siteKey) {
   
   siteCookieNode.value = item.cookie || "";
   siteMirrorHostsNode.value = Array.isArray(item.mirror_hosts) ? item.mirror_hosts.join("\n") : "";
+  renderSiteConfigHelp(siteKey);
+}
+
+function renderSiteConfigHelp(siteKey) {
+  if (!siteConfigHintNode || !siteCookieHelpNode) return;
+  if (siteKey === "novalpie") {
+    siteConfigHintNode.textContent = "Novalpie 使用 Token 读取加密正文。";
+    siteCookieHelpNode.textContent = "从浏览器开发者工具复制 Authorization 请求头，填写 Bearer eyJ...；也支持只填裸 JWT。";
+    return;
+  }
+  if (siteKey === "esjzone") {
+    siteConfigHintNode.textContent = "ESJ Zone 只有账号章节或镜像访问不稳定时才需要配置。";
+    siteCookieHelpNode.textContent = "可填写 Cookie，也可填写用户名和密码；成功登录后会复用 Cookie。";
+    return;
+  }
+  siteConfigHintNode.textContent = "";
+  siteCookieHelpNode.textContent = "";
 }
 
 async function openSiteConfig() {
@@ -1640,14 +1660,15 @@ async function loadGeneralConfig() {
 }
 
 async function saveGeneralConfig() {
+  const current = appState.generalConfig || {};
   const payload = {
     workers: Math.max(1, Number.parseInt(generalWorkersNode.value || "4", 10) || 4),
     timeout: Math.max(1, Number.parseFloat(generalTimeoutNode.value || "10") || 10),
     request_interval: Math.max(0, Number.parseFloat(generalRequestIntervalNode.value || "0.5") || 0.5),
-    max_connections: Math.max(1, Number.parseInt(generalMaxConnectionsNode.value || "10", 10) || 10),
-    max_rps: Math.max(0.1, Number.parseFloat(generalMaxRPSNode.value || "5") || 5),
-    retry_times: Math.max(0, Number.parseInt(generalRetryTimesNode.value || "3", 10) || 3),
-    backoff_factor: Math.max(1, Number.parseFloat(generalBackoffFactorNode.value || "2") || 2),
+    max_connections: Math.max(1, Number.parseInt(String(current.max_connections || 10), 10) || 10),
+    max_rps: Math.max(0.1, Number.parseFloat(String(current.max_rps || 5)) || 5),
+    retry_times: Math.max(0, Number.parseInt(String(current.retry_times ?? 3), 10) || 0),
+    backoff_factor: Math.max(1, Number.parseFloat(String(current.backoff_factor || 2)) || 2),
     locale_style: (generalLocaleStyleNode.value || "simplified").trim(),
     formats: (generalFormatsNode.value || "txt,epub").split(",").map((item) => item.trim()).filter(Boolean),
     append_timestamp: generalAppendTimestampNode.checked,
@@ -1680,10 +1701,6 @@ async function saveSiteConfig() {
   const siteKey = siteConfigKeyNode.value;
   if (!siteKey) return;
   const payload = {
-    login_required: siteLoginRequiredNode.checked,
-    worker_limit: Math.max(0, Number.parseInt(siteWorkerLimitNode.value || "0", 10) || 0),
-    fetch_images: siteFetchImagesNode.checked,
-    locale_style: siteLocaleStyleNode.value.trim(),
     username: siteUsernameNode.value.trim(),
     password: sitePasswordNode.value.trim(),
     cookie: siteCookieNode.value.trim(),
