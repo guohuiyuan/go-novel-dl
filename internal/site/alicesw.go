@@ -121,22 +121,24 @@ func (s *AliceswSite) DownloadPlan(ctx context.Context, ref model.BookRef) (*mod
 	if err != nil {
 		return nil, err
 	}
-	catalogMarkup, err := s.getWithRetry(ctx, s.catalogURL(bookID))
-	if err != nil {
-		return nil, err
-	}
-
 	infoDoc, err := parseHTML(infoMarkup)
-	if err != nil {
-		return nil, err
-	}
-	catalogDoc, err := parseHTML(catalogMarkup)
 	if err != nil {
 		return nil, err
 	}
 
 	book := s.parseBookDetail(infoDoc, bookID)
-	chapters := parseAliceswCatalogChapters(catalogDoc, s.base)
+	chapters := parseAliceswCatalogChapters(infoDoc, s.base)
+	if len(chapters) == 0 {
+		catalogMarkup, err := s.getWithRetry(ctx, s.catalogURL(bookID))
+		if err != nil {
+			return nil, err
+		}
+		catalogDoc, err := parseHTML(catalogMarkup)
+		if err != nil {
+			return nil, err
+		}
+		chapters = parseAliceswCatalogChapters(catalogDoc, s.base)
+	}
 	if len(chapters) == 0 {
 		return nil, fmt.Errorf("alicesw chapter list not found")
 	}

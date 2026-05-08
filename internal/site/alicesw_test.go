@@ -1,6 +1,15 @@
 package site
 
-import "testing"
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
+	"testing"
+
+	"github.com/guohuiyuan/go-novel-dl/internal/config"
+	"github.com/guohuiyuan/go-novel-dl/internal/model"
+)
 
 func TestParseAliceswSearchResults(t *testing.T) {
 	markup := `<html><body>
@@ -130,5 +139,41 @@ func TestExtractAliceswBookDetailFields(t *testing.T) {
 	tags := extractAliceswBookTags(doc)
 	if len(tags) != 2 || tags[0] != "系统" || tags[1] != "穿越" {
 		t.Fatalf("unexpected tags: %+v", tags)
+	}
+}
+
+func TestAliceswDownloadPlanUsesDetailPageChaptersBeforeCatalogEndpoint(t *testing.T) {
+	var catalogHits int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/novel/50427.html":
+			_, _ = w.Write([]byte(`<html><body>
+<div id="detail-box"><div class="box_info"><div class="novel_title">测试书</div></div></div>
+<ul class="mulu_list">
+  <li><a href="/book/51676/1af0fd0e46369.html">第一章</a></li>
+</ul>
+</body></html>`))
+		case "/other/chapters/id/50427.html":
+			atomic.AddInt32(&catalogHits, 1)
+			http.Error(w, "catalog endpoint should not be requested", http.StatusInternalServerError)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	cfg := config.DefaultConfig().ResolveSiteConfig("alicesw")
+	site := NewAliceswSite(cfg)
+	site.base = server.URL
+
+	book, err := site.DownloadPlan(context.Background(), model.BookRef{BookID: "50427"})
+	if err != nil {
+		t.Fatalf("download plan: %v", err)
+	}
+	if len(book.Chapters) != 1 || book.Chapters[0].ID != "51676-1af0fd0e46369" {
+		t.Fatalf("unexpected chapters: %+v", book.Chapters)
+	}
+	if got := atomic.LoadInt32(&catalogHits); got != 0 {
+		t.Fatalf("expected catalog endpoint not to be requested, got %d hits", got)
 	}
 }

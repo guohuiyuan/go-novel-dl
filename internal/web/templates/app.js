@@ -9,6 +9,7 @@ const sourceLabelMap = new Map(
 let siteWarnings = window.__NOVEL_DL__.siteWarnings || [];
 let siteStats = window.__NOVEL_DL__.siteStats || [];
 const siteWarningPanel = document.getElementById("siteWarningPanel");
+let siteWarningHideTimer = 0;
 
 const warningLevelIcons = {
   danger: "⚠️",
@@ -53,6 +54,7 @@ const appState = {
   tasks: new Map(),
   pollers: new Map(),
   detailCache: new Map(),
+  detailPending: new Map(),
   detailTimings: new Map(),
   detailResult: null,
   activeDetailKey: "",
@@ -66,16 +68,28 @@ const appState = {
 
 function renderSiteWarnings() {
   if (!siteWarningPanel) return;
-  if (siteWarnings.length === 0) {
+  if (siteWarningHideTimer) window.clearTimeout(siteWarningHideTimer);
+  const visibleWarnings = siteWarnings.filter((warning) => {
+    if (!isTransientSiteWarning(warning)) return true;
+    if (hasSeenTransientSiteWarning(warning)) return false;
+    markTransientSiteWarningSeen(warning);
+    return true;
+  });
+  if (visibleWarnings.length === 0) {
     siteWarningPanel.hidden = true;
     siteWarningPanel.innerHTML = "";
     return;
   }
   siteWarningPanel.hidden = false;
   siteWarningPanel.innerHTML = "";
-  siteWarnings.forEach((warning) => {
+  let hasTransientWarning = false;
+  visibleWarnings.forEach((warning) => {
     const card = document.createElement("article");
     card.className = `site-warning-card site-warning-${warning.level || "info"}`;
+    if (isTransientSiteWarning(warning)) {
+      card.dataset.transient = "true";
+      hasTransientWarning = true;
+    }
 
     const icon = document.createElement("span");
     icon.className = "site-warning-icon";
@@ -120,6 +134,38 @@ function renderSiteWarnings() {
     }
     siteWarningPanel.appendChild(card);
   });
+  if (hasTransientWarning) {
+    siteWarningHideTimer = window.setTimeout(() => {
+      siteWarningPanel.querySelectorAll('[data-transient="true"]').forEach((node) => node.remove());
+      if (!siteWarningPanel.children.length) {
+        siteWarningPanel.hidden = true;
+        siteWarningPanel.innerHTML = "";
+      }
+    }, 7000);
+  }
+}
+
+function isTransientSiteWarning(warning) {
+  return Boolean(warning && (warning.transient || String(warning.message || "").startsWith("临时提示")));
+}
+
+function transientSiteWarningKey(warning) {
+  return `novel-dl-site-warning:${warning.site_key || ""}:${warning.message || ""}`;
+}
+
+function hasSeenTransientSiteWarning(warning) {
+  try {
+    return window.sessionStorage.getItem(transientSiteWarningKey(warning)) === "1";
+  } catch (_) {
+    return false;
+  }
+}
+
+function markTransientSiteWarningSeen(warning) {
+  try {
+    window.sessionStorage.setItem(transientSiteWarningKey(warning), "1");
+  } catch (_) {
+  }
 }
 
 const keywordInput = document.getElementById("keyword");
@@ -355,13 +401,18 @@ async function performSearch() {
     appState.hasNext = Boolean(payload.has_next);
     appState.page = payload.page || appState.page;
 
+    const warnings = payload.warnings || [];
     renderResults(appState.results);
-    renderWarnings(payload.warnings || []);
+    renderWarnings(warnings);
     renderPaging();
     renderResultMeta();
 
-    if (!appState.results.length) return setStatus(`没有搜索到“${keyword}”，可以换关键词、减少渠道标签筛选，或直接粘贴小说链接。`, "empty");
-    setStatus(`当前显示第 ${appState.page} 页，共 ${totalLabel(appState.total, appState.totalExact)} 条结果。`);
+    if (!appState.results.length) {
+      const suffix = warnings.length ? `；${temporaryWarningSummary(warnings)}` : "";
+      return setStatus(`没有搜索到“${keyword}”，可以换关键词、减少渠道标签筛选，或直接粘贴小说链接${suffix}。`, "empty");
+    }
+    const warningSuffix = warnings.length ? `，${warnings.length} 个渠道临时跳过` : "";
+    setStatus(`当前显示第 ${appState.page} 页，共 ${totalLabel(appState.total, appState.totalExact)} 条结果${warningSuffix}。`);
     warmupDetailCache(appState.results);
   } catch (error) {
     appState.results = []; appState.total = 0; appState.totalExact = true;
@@ -516,9 +567,33 @@ function renderWarnings(warnings) {
   warnings.forEach((warning) => {
     const node = document.createElement("div");
     node.className = "warning-item";
-    node.textContent = `${sourceLabel(warning.site)}：${warning.error}`;
+    node.textContent = formatSearchWarning(warning);
     warningsNode.appendChild(node);
   });
+}
+
+function formatSearchWarning(warning) {
+  const site = sourceLabel(warning.site);
+  const error = String(warning.error || "");
+  const lower = error.toLowerCase();
+  let reason = error;
+  if (lower.includes("context deadline exceeded") || lower.includes("timeout")) {
+    reason = "临时提示：站点响应超时，已跳过该渠道，不影响其它渠道结果。";
+  } else if (lower.includes("http 403")) {
+    reason = "临时提示：站点返回 403，可能触发访问限制/反爬，已跳过该渠道。";
+  } else if (warning.site === "alicesw") {
+    reason = `临时提示：爱丽丝书屋源近期不稳定，建议暂时取消该渠道或使用书籍直链。${error ? ` 原因：${error}` : ""}`;
+  }
+  if (warning.site === "n8novel" && !reason.includes("无限轻小说")) {
+    reason += " 无限轻小说近期较容易出现 403，可稍后重试。";
+  }
+  return `${site}：${reason}`;
+}
+
+function temporaryWarningSummary(warnings) {
+  const labels = warnings.slice(0, 3).map((warning) => sourceLabel(warning.site));
+  const rest = warnings.length > labels.length ? `${labels.join("、")} 等 ${warnings.length} 个渠道` : labels.join("、");
+  return `${rest}临时不可用，已显示其它可用渠道结果`;
 }
 
 function renderResults(results) {
@@ -605,12 +680,14 @@ function closeDetail() {
 async function loadDetail(result, variant, cacheKey) {
   const startedAt = performance.now();
   try {
-    const url = new URL(`${window.location.origin}${root}/api/books/detail`);
-    url.searchParams.set("site", variant.site); url.searchParams.set("book_id", variant.book_id);
-    const response = await fetch(url.toString());
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || "detail failed");
-    const book = payload.book || null;
+    let pending = appState.detailPending.get(cacheKey);
+    if (!pending) {
+      pending = fetchBookDetail(variant).finally(() => {
+        appState.detailPending.delete(cacheKey);
+      });
+      appState.detailPending.set(cacheKey, pending);
+    }
+    const book = await pending;
     if (!book) throw new Error("未返回详情数据");
 
     appState.detailCache.set(cacheKey, book);
@@ -623,6 +700,19 @@ async function loadDetail(result, variant, cacheKey) {
       renderDetail(result, variant, null, false, error.message);
     }
   }
+}
+
+async function fetchBookDetail(variant) {
+  const url = new URL(`${window.location.origin}${root}/api/books/detail`);
+  url.searchParams.set("site", variant.site);
+  url.searchParams.set("book_id", variant.book_id);
+  const payload = await fetchJSONWithTimeout(
+    url.toString(),
+    {},
+    detailLoadTimeoutMs(variant.site),
+    `${sourceLabel(variant.site)} 详情/章节目录加载超时，请稍后重试或暂时切换来源`,
+  );
+  return payload.book || null;
 }
 
 async function warmupDetailCache(results) {
@@ -962,10 +1052,65 @@ async function fetchChapterContentText(site, bookID, ch) {
   url.searchParams.set("site", site); url.searchParams.set("book_id", bookID);
   url.searchParams.set("chapter_id", ch.id || ""); url.searchParams.set("title", ch.title || "");
   url.searchParams.set("url", ch.url || "");
-  const resp = await fetch(url.toString());
-  const data = await resp.json();
-  if (!resp.ok) throw new Error(data.error || "fetch failed");
+  const data = await fetchJSONWithTimeout(
+    url.toString(),
+    {},
+    chapterLoadTimeoutMs(site),
+    `${sourceLabel(site)} 章节加载超时，请稍后重试或切换来源`,
+  );
   return (data.chapter && data.chapter.content) || "";
+}
+
+async function fetchJSONWithTimeout(resource, options, timeoutMs, timeoutMessage) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(resource, { ...(options || {}), signal: controller.signal });
+    const text = await response.text();
+    let data = {};
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch (_) {
+        throw new Error("接口返回内容不是 JSON");
+      }
+    }
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    return data;
+  } catch (error) {
+    if (error && error.name === "AbortError") throw new Error(timeoutMessage || "请求超时");
+    throw error;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+function detailLoadTimeoutMs(site) {
+  switch (String(site || "").toLowerCase()) {
+    case "alicesw":
+      return 12000;
+    case "esjzone":
+    case "n8novel":
+    case "tongrenshe":
+      return 30000;
+    case "linovelib":
+    case "tianyabooks":
+      return 60000;
+    default:
+      return 18000;
+  }
+}
+
+function chapterLoadTimeoutMs(site) {
+  switch (String(site || "").toLowerCase()) {
+    case "alicesw":
+      return 12000;
+    case "n8novel":
+    case "esjzone":
+      return 30000;
+    default:
+      return 20000;
+  }
 }
 
 function chapterReaderCacheKey(ch, index) {

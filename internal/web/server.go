@@ -93,6 +93,7 @@ type SiteWarning struct {
 	Level       string `json:"level"`
 	ActionLabel string `json:"action_label,omitempty"`
 	ActionLink  string `json:"action_link,omitempty"`
+	Transient   bool   `json:"transient,omitempty"`
 }
 
 type SiteStat struct {
@@ -251,7 +252,38 @@ func (s *Service) hasESJAuthConfigured() bool {
 }
 
 func collectSiteWarnings(runtime *app.Runtime) []SiteWarning {
-	return nil
+	if runtime == nil || runtime.Registry == nil {
+		return nil
+	}
+	available := descriptorKeySet(searchableDownloadDescriptors(runtime.Registry.AllSiteDescriptors()))
+	warnings := make([]SiteWarning, 0, 3)
+	if _, ok := available["esjzone"]; ok {
+		warnings = append(warnings, SiteWarning{
+			SiteKey:     "esjzone",
+			Message:     "临时提示：ESJ Zone 标签搜索偶发超时；遇到 context deadline exceeded 时可先取消该渠道、稍后重试，或在站点配置里添加可用镜像。",
+			Level:       "info",
+			ActionLabel: "配置站点",
+			ActionLink:  "#site-config",
+			Transient:   true,
+		})
+	}
+	if _, ok := available["n8novel"]; ok {
+		warnings = append(warnings, SiteWarning{
+			SiteKey:   "n8novel",
+			Message:   "临时提示：无限轻小说近期可能返回 403，已在搜索结果里按临时失败提示处理；可稍后重试或暂时取消该渠道。",
+			Level:     "info",
+			Transient: true,
+		})
+	}
+	if _, ok := available["alicesw"]; ok {
+		warnings = append(warnings, SiteWarning{
+			SiteKey:   "alicesw",
+			Message:   "临时提示：爱丽丝书屋源近期不稳定，搜索/详情失败时建议暂时取消该渠道或直接粘贴书籍链接。",
+			Level:     "info",
+			Transient: true,
+		})
+	}
+	return warnings
 }
 
 func collectSiteStats(runtime *app.Runtime) []SiteStat {
@@ -582,10 +614,7 @@ func newRouter(service *Service) *gin.Engine {
 			return
 		}
 
-		timeout := detailTimeoutForSite(siteKey)
-		if timeout < 30*time.Second {
-			timeout = 30 * time.Second
-		}
+		timeout := chapterContentTimeoutForSite(siteKey)
 		ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
 		defer cancel()
 
@@ -1099,6 +1128,19 @@ func searchTimeoutForSites(sites []string) time.Duration {
 
 func detailTimeoutForSite(siteKey string) time.Duration {
 	return searchTimeoutForSites([]string{siteKey})
+}
+
+func chapterContentTimeoutForSite(siteKey string) time.Duration {
+	timeout := detailTimeoutForSite(siteKey)
+	switch strings.ToLower(strings.TrimSpace(siteKey)) {
+	case "alicesw":
+		return 15 * time.Second
+	default:
+		if timeout < 30*time.Second {
+			timeout = 30 * time.Second
+		}
+		return timeout
+	}
 }
 
 func hideWebSource(siteKey string) bool {
