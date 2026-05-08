@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	goRuntime "runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -34,6 +35,11 @@ const RoutePrefix = "/novel"
 
 const defaultWebPageSize = 50
 
+const (
+	webBookDetailCacheTTL     = 10 * time.Minute
+	webChapterContentCacheTTL = 30 * time.Minute
+)
+
 type Service struct {
 	Config         *config.Config
 	ConfigPath     string
@@ -47,6 +53,38 @@ type Service struct {
 	SiteStats      []SiteStat
 	SiteConfigs    []config.SiteCatalogRecord
 	ParamSupports  []config.SiteParameterSupport
+	ContentCache   *webContentCache
+	cacheMu        sync.Mutex
+}
+
+type webContentCache struct {
+	mu           sync.Mutex
+	books        map[string]cachedBookDetail
+	chapters     map[string]cachedChapterContent
+	bookCalls    map[string]*bookDetailCall
+	chapterCalls map[string]*chapterContentCall
+}
+
+type cachedBookDetail struct {
+	book      *model.Book
+	expiresAt time.Time
+}
+
+type cachedChapterContent struct {
+	chapter   model.Chapter
+	expiresAt time.Time
+}
+
+type bookDetailCall struct {
+	done chan struct{}
+	book *model.Book
+	err  error
+}
+
+type chapterContentCall struct {
+	done    chan struct{}
+	chapter model.Chapter
+	err     error
 }
 
 type SiteWarning struct {
@@ -152,6 +190,7 @@ func newService(configPath string) (*Service, error) {
 		SiteStats:      stats,
 		SiteConfigs:    siteConfigs,
 		ParamSupports:  paramSupports,
+		ContentCache:   newWebContentCache(),
 	}, nil
 }
 
@@ -173,7 +212,32 @@ func (s *Service) reloadRuntime() error {
 	s.SiteStats = collectSiteStats(runtime)
 	s.SiteConfigs, _ = config.ListSiteCatalog()
 	s.ParamSupports = config.SiteParameterSupports()
+	s.resetContentCache()
 	return nil
+}
+
+func newWebContentCache() *webContentCache {
+	return &webContentCache{
+		books:        make(map[string]cachedBookDetail),
+		chapters:     make(map[string]cachedChapterContent),
+		bookCalls:    make(map[string]*bookDetailCall),
+		chapterCalls: make(map[string]*chapterContentCall),
+	}
+}
+
+func (s *Service) contentCache() *webContentCache {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	if s.ContentCache == nil {
+		s.ContentCache = newWebContentCache()
+	}
+	return s.ContentCache
+}
+
+func (s *Service) resetContentCache() {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	s.ContentCache = newWebContentCache()
 }
 
 func (s *Service) hasESJAuthConfigured() bool {
@@ -511,8 +575,10 @@ func newRouter(service *Service) *gin.Engine {
 		siteKey := strings.TrimSpace(c.Query("site"))
 		bookID := strings.TrimSpace(c.Query("book_id"))
 		chapterID := strings.TrimSpace(c.Query("chapter_id"))
-		if siteKey == "" || bookID == "" || chapterID == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "site, book_id, and chapter_id are required"})
+		chapterTitle := strings.TrimSpace(c.Query("title"))
+		chapterURL := strings.TrimSpace(c.Query("url"))
+		if siteKey == "" || bookID == "" || (chapterID == "" && chapterTitle == "" && chapterURL == "") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "site, book_id, and chapter identity are required"})
 			return
 		}
 
@@ -523,18 +589,9 @@ func newRouter(service *Service) *gin.Engine {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
 		defer cancel()
 
-		resolved := service.Config.ResolveSiteConfig(siteKey)
-		client, err := service.Runtime.Registry.Build(siteKey, resolved)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-
-		chapterTitle := strings.TrimSpace(c.Query("title"))
-		chapterURL := strings.TrimSpace(c.Query("url"))
 		ch := model.Chapter{ID: chapterID, Title: chapterTitle, URL: chapterURL}
 
-		result, err := client.FetchChapter(ctx, bookID, ch)
+		result, err := service.chapterContent(ctx, siteKey, bookID, ch)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -659,6 +716,19 @@ func (s *Service) newTaskRuntime(taskID string) *app.Runtime {
 }
 
 func (s *Service) bookDetail(ctx context.Context, siteKey, bookID string) (*model.Book, error) {
+	cacheKey := detailCacheKey(siteKey, bookID)
+	if cached, ok := s.contentCache().getBook(cacheKey); ok {
+		return cached, nil
+	}
+	if book, err, shared := s.contentCache().joinBook(cacheKey); shared {
+		return book, err
+	}
+	book, err := s.fetchBookDetail(ctx, siteKey, bookID)
+	s.contentCache().finishBook(cacheKey, book, err, webBookDetailCacheTTL)
+	return book, err
+}
+
+func (s *Service) fetchBookDetail(ctx context.Context, siteKey, bookID string) (*model.Book, error) {
 	resolved := s.Config.ResolveSiteConfig(siteKey)
 	client, err := s.Runtime.Registry.Build(siteKey, resolved)
 	if err != nil {
@@ -680,6 +750,158 @@ func (s *Service) bookDetail(ctx context.Context, siteKey, bookID string) (*mode
 	}
 	book = textconv.NormalizeBookLocale(book, resolved.General.LocaleStyle)
 	return book, nil
+}
+
+func (s *Service) chapterContent(ctx context.Context, siteKey, bookID string, chapter model.Chapter) (model.Chapter, error) {
+	cacheKey := chapterCacheKey(siteKey, bookID, chapter)
+	if cached, ok := s.contentCache().getChapter(cacheKey); ok {
+		return cached, nil
+	}
+	if loaded, err, shared := s.contentCache().joinChapter(cacheKey); shared {
+		return loaded, err
+	}
+	loaded, err := s.fetchChapterContent(ctx, siteKey, bookID, chapter)
+	s.contentCache().finishChapter(cacheKey, loaded, err, webChapterContentCacheTTL)
+	return loaded, err
+}
+
+func (s *Service) fetchChapterContent(ctx context.Context, siteKey, bookID string, chapter model.Chapter) (model.Chapter, error) {
+	resolved := s.Config.ResolveSiteConfig(siteKey)
+	client, err := s.Runtime.Registry.Build(siteKey, resolved)
+	if err != nil {
+		return chapter, err
+	}
+	loaded, err := client.FetchChapter(ctx, bookID, chapter)
+	if err != nil {
+		return loaded, err
+	}
+	return normalizeChapterForWeb(loaded, resolved.General.LocaleStyle), nil
+}
+
+func normalizeChapterForWeb(chapter model.Chapter, localeStyle string) model.Chapter {
+	style := strings.ToLower(strings.TrimSpace(localeStyle))
+	if style == "" || style == "original" || style == "traditional" {
+		return chapter
+	}
+	if style != "simplified" && style != "zh_cn" && style != "zh-cn" && style != "zh-hans" {
+		return chapter
+	}
+	chapter.Title = textconv.ToSimplified(chapter.Title)
+	chapter.Content = textconv.ToSimplified(chapter.Content)
+	chapter.Volume = textconv.ToSimplified(chapter.Volume)
+	return chapter
+}
+
+func (c *webContentCache) getBook(key string) (*model.Book, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	cached, ok := c.books[key]
+	if !ok {
+		return nil, false
+	}
+	if time.Now().After(cached.expiresAt) {
+		delete(c.books, key)
+		return nil, false
+	}
+	return cached.book.Clone(), true
+}
+
+func (c *webContentCache) joinBook(key string) (*model.Book, error, bool) {
+	c.mu.Lock()
+	if call, ok := c.bookCalls[key]; ok {
+		c.mu.Unlock()
+		<-call.done
+		if call.book == nil {
+			return nil, call.err, true
+		}
+		return call.book.Clone(), call.err, true
+	}
+	c.bookCalls[key] = &bookDetailCall{done: make(chan struct{})}
+	c.mu.Unlock()
+	return nil, nil, false
+}
+
+func (c *webContentCache) finishBook(key string, book *model.Book, err error, ttl time.Duration) {
+	c.mu.Lock()
+	call := c.bookCalls[key]
+	if call != nil {
+		if book != nil {
+			call.book = book.Clone()
+		}
+		call.err = err
+		delete(c.bookCalls, key)
+	}
+	if err == nil && book != nil && ttl > 0 {
+		c.books[key] = cachedBookDetail{
+			book:      book.Clone(),
+			expiresAt: time.Now().Add(ttl),
+		}
+	}
+	c.mu.Unlock()
+	if call != nil {
+		close(call.done)
+	}
+}
+
+func (c *webContentCache) getChapter(key string) (model.Chapter, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	cached, ok := c.chapters[key]
+	if !ok {
+		return model.Chapter{}, false
+	}
+	if time.Now().After(cached.expiresAt) {
+		delete(c.chapters, key)
+		return model.Chapter{}, false
+	}
+	return cached.chapter, true
+}
+
+func (c *webContentCache) joinChapter(key string) (model.Chapter, error, bool) {
+	c.mu.Lock()
+	if call, ok := c.chapterCalls[key]; ok {
+		c.mu.Unlock()
+		<-call.done
+		return call.chapter, call.err, true
+	}
+	c.chapterCalls[key] = &chapterContentCall{done: make(chan struct{})}
+	c.mu.Unlock()
+	return model.Chapter{}, nil, false
+}
+
+func (c *webContentCache) finishChapter(key string, chapter model.Chapter, err error, ttl time.Duration) {
+	c.mu.Lock()
+	call := c.chapterCalls[key]
+	if call != nil {
+		call.chapter = chapter
+		call.err = err
+		delete(c.chapterCalls, key)
+	}
+	if err == nil && strings.TrimSpace(chapter.Content) != "" && ttl > 0 {
+		c.chapters[key] = cachedChapterContent{
+			chapter:   chapter,
+			expiresAt: time.Now().Add(ttl),
+		}
+	}
+	c.mu.Unlock()
+	if call != nil {
+		close(call.done)
+	}
+}
+
+func detailCacheKey(siteKey, bookID string) string {
+	return strings.TrimSpace(siteKey) + "/" + strings.TrimSpace(bookID)
+}
+
+func chapterCacheKey(siteKey, bookID string, chapter model.Chapter) string {
+	chapterID := strings.TrimSpace(chapter.ID)
+	if chapterID == "" {
+		chapterID = strings.TrimSpace(chapter.URL)
+	}
+	if chapterID == "" {
+		chapterID = strings.TrimSpace(chapter.Title)
+	}
+	return detailCacheKey(siteKey, bookID) + "/" + chapterID
 }
 
 type taskReporter struct {

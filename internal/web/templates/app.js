@@ -53,8 +53,12 @@ const appState = {
   tasks: new Map(),
   pollers: new Map(),
   detailCache: new Map(),
+  detailTimings: new Map(),
   detailResult: null,
   activeDetailKey: "",
+  activeDetailVariant: null,
+  detailWarmupToken: 0,
+  chapterPageSize: loadChapterPageSize(),
   siteConfigs: new Map(),
   paramSupports: [],
   generalConfig: initialGeneralConfig,
@@ -356,13 +360,14 @@ async function performSearch() {
     renderPaging();
     renderResultMeta();
 
-    if (!appState.results.length) return setStatus("没有找到结果。");
+    if (!appState.results.length) return setStatus(`没有搜索到“${keyword}”，可以换关键词、减少渠道标签筛选，或直接粘贴小说链接。`, "empty");
     setStatus(`当前显示第 ${appState.page} 页，共 ${totalLabel(appState.total, appState.totalExact)} 条结果。`);
+    warmupDetailCache(appState.results);
   } catch (error) {
     appState.results = []; appState.total = 0; appState.totalExact = true;
     appState.hasPrev = false; appState.hasNext = false;
     renderResults([]); renderWarnings([]); renderPaging(); renderResultMeta();
-    setStatus(`搜索失败：${error.message}`);
+    setStatus(`搜索失败：${error.message}`, "error");
   }
 }
 
@@ -583,6 +588,8 @@ function openDetail(result, variant) {
   appState.activeDetailKey = cacheKey;
   detailOverlay.hidden = false;
   document.body.classList.add("has-overlay");
+  const detailPanel = detailContentNode.closest(".detail-panel");
+  if (detailPanel) detailPanel.scrollTop = 0;
 
   const cached = appState.detailCache.get(cacheKey);
   if (cached) return renderDetail(result, activeVariant, cached, false, "");
@@ -596,6 +603,7 @@ function closeDetail() {
 }
 
 async function loadDetail(result, variant, cacheKey) {
+  const startedAt = performance.now();
   try {
     const url = new URL(`${window.location.origin}${root}/api/books/detail`);
     url.searchParams.set("site", variant.site); url.searchParams.set("book_id", variant.book_id);
@@ -606,6 +614,7 @@ async function loadDetail(result, variant, cacheKey) {
     if (!book) throw new Error("未返回详情数据");
 
     appState.detailCache.set(cacheKey, book);
+    appState.detailTimings.set(cacheKey, Math.max(1, Math.round(performance.now() - startedAt)));
     if (appState.detailResult === result && appState.activeDetailKey === cacheKey) {
       renderDetail(result, variant, book, false, "");
     }
@@ -614,6 +623,25 @@ async function loadDetail(result, variant, cacheKey) {
       renderDetail(result, variant, null, false, error.message);
     }
   }
+}
+
+async function warmupDetailCache(results) {
+  const token = ++appState.detailWarmupToken;
+  const queue = results.slice(0, 6).map((result) => ({
+    result,
+    variant: result.primary,
+  })).filter((item) => item.variant && item.variant.site && item.variant.book_id && !appState.detailCache.has(detailKey(item.variant)));
+  const workers = Math.min(2, queue.length);
+  let cursor = 0;
+
+  async function worker() {
+    while (token === appState.detailWarmupToken && cursor < queue.length) {
+      const item = queue[cursor++];
+      await loadDetail(item.result, item.variant, detailKey(item.variant));
+    }
+  }
+
+  await Promise.all(Array.from({ length: workers }, worker));
 }
 
 function renderDetail(result, variant, book, loading, errorMessage) {
@@ -654,6 +682,8 @@ function renderDetail(result, variant, book, loading, errorMessage) {
   meta.className = "detail-meta";
   meta.appendChild(resultBadge(sourceLabel(activeVariant.site)));
   meta.appendChild(resultBadge(chapters.length ? `${chapters.length} 章` : loading ? "加载章节中" : "暂无章节"));
+  const timing = appState.detailTimings.get(detailKey(activeVariant));
+  if (timing) meta.appendChild(resultBadge(`目录 ${timing}ms`));
   if (result.latest_chapter) meta.appendChild(resultBadge(result.latest_chapter));
   if (result.source_count > 1) meta.appendChild(resultBadge(`${result.source_count} 个来源`));
   summary.appendChild(meta);
@@ -699,7 +729,11 @@ function renderDetail(result, variant, book, loading, errorMessage) {
   chapterSection.className = "detail-section";
   const chapterHead = document.createElement("div"); chapterHead.className = "detail-section-head";
   const chapterTitle = document.createElement("h3"); chapterTitle.textContent = "章节";
-  chapterHead.appendChild(chapterTitle); chapterSection.appendChild(chapterHead);
+  chapterHead.appendChild(chapterTitle);
+  if (chapters.length) chapterHead.appendChild(createChapterPageSizeControl(() => {
+    renderDetail(result, activeVariant, book, false, "");
+  }));
+  chapterSection.appendChild(chapterHead);
 
   if (loading) chapterSection.appendChild(createEmptyInline("正在加载章节列表..."));
   else if (errorMessage) chapterSection.appendChild(createEmptyInline(`详情加载失败：${errorMessage}`));
@@ -710,36 +744,20 @@ function renderDetail(result, variant, book, loading, errorMessage) {
 }
 
 function renderChapterList(chapters) {
-  const CHAPTER_PAGE_SIZE = 100;
   const container = document.createElement("div");
-  let currentPage = 1;
-  const totalPages = Math.ceil(chapters.length / CHAPTER_PAGE_SIZE);
+  container.className = "chapter-list-shell";
+  const list = document.createElement("div");
+  list.className = "chapter-list";
+  const sentinel = document.createElement("div");
+  sentinel.className = "chapter-sentinel";
+  const pageSize = normalizedChapterPageSize();
+  let rendered = 0;
+  let lastVolume = "";
+  let observer = null;
 
-  function renderPage() {
-    container.innerHTML = "";
-    if (totalPages > 1) {
-      const paging = document.createElement("div");
-      paging.className = "chapter-paging";
-      const prevBtn = document.createElement("button");
-      prevBtn.type = "button"; prevBtn.className = "page-button"; prevBtn.textContent = "上一页";
-      prevBtn.disabled = currentPage <= 1;
-      prevBtn.addEventListener("click", () => { currentPage--; renderPage(); });
-      const indicator = document.createElement("span");
-      indicator.className = "page-indicator"; indicator.textContent = `${currentPage} / ${totalPages}`;
-      const nextBtn = document.createElement("button");
-      nextBtn.type = "button"; nextBtn.className = "page-button"; nextBtn.textContent = "下一页";
-      nextBtn.disabled = currentPage >= totalPages;
-      nextBtn.addEventListener("click", () => { currentPage++; renderPage(); });
-      paging.append(prevBtn, indicator, nextBtn);
-      container.appendChild(paging);
-    }
-
-    const list = document.createElement("div");
-    list.className = "chapter-list";
-    const start = (currentPage - 1) * CHAPTER_PAGE_SIZE;
-    const end = Math.min(start + CHAPTER_PAGE_SIZE, chapters.length);
-    let lastVolume = "";
-    for (let i = start; i < end; i++) {
+  function appendBatch() {
+    const nextEnd = Math.min(rendered + pageSize, chapters.length);
+    for (let i = rendered; i < nextEnd; i++) {
       const chapter = chapters[i];
       if (chapter.volume && chapter.volume !== lastVolume) {
         lastVolume = chapter.volume;
@@ -759,27 +777,56 @@ function renderChapterList(chapters) {
       item.addEventListener("click", () => openReader(chapters, i));
       list.appendChild(item);
     }
-    container.appendChild(list);
-
-    if (totalPages > 1) {
-      const pagingBottom = document.createElement("div");
-      pagingBottom.className = "chapter-paging";
-      const prevBtn2 = document.createElement("button");
-      prevBtn2.type = "button"; prevBtn2.className = "page-button"; prevBtn2.textContent = "上一页";
-      prevBtn2.disabled = currentPage <= 1;
-      prevBtn2.addEventListener("click", () => { currentPage--; renderPage(); });
-      const indicator2 = document.createElement("span");
-      indicator2.className = "page-indicator"; indicator2.textContent = `${currentPage} / ${totalPages}`;
-      const nextBtn2 = document.createElement("button");
-      nextBtn2.type = "button"; nextBtn2.className = "page-button"; nextBtn2.textContent = "下一页";
-      nextBtn2.disabled = currentPage >= totalPages;
-      nextBtn2.addEventListener("click", () => { currentPage++; renderPage(); });
-      pagingBottom.append(prevBtn2, indicator2, nextBtn2);
-      container.appendChild(pagingBottom);
-    }
+    rendered = nextEnd;
+    sentinel.textContent = rendered >= chapters.length ? `已加载全部 ${chapters.length} 章` : `已加载 ${rendered}/${chapters.length}，继续向下滚动自动加载`;
+    if (rendered >= chapters.length && observer) observer.disconnect();
   }
-  renderPage();
+
+  appendBatch();
+  container.appendChild(list);
+  container.appendChild(sentinel);
+  if ("IntersectionObserver" in window && rendered < chapters.length) {
+    const scrollRoot = detailContentNode.closest(".detail-panel") || null;
+    observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) appendBatch();
+    }, { root: scrollRoot, rootMargin: "600px 0px" });
+    observer.observe(sentinel);
+  } else {
+    while (rendered < chapters.length) appendBatch();
+  }
   return container;
+}
+
+function createChapterPageSizeControl(onChange) {
+  const wrap = document.createElement("label");
+  wrap.className = "chapter-page-size";
+  const text = document.createElement("span");
+  text.textContent = "每批";
+  const select = document.createElement("select");
+  select.className = "chapter-page-size-select";
+  [50, 100, 200, 500].forEach((size) => {
+    const option = document.createElement("option");
+    option.value = String(size);
+    option.textContent = `${size} 章`;
+    if (size === appState.chapterPageSize) option.selected = true;
+    select.appendChild(option);
+  });
+  select.addEventListener("change", () => {
+    appState.chapterPageSize = Number.parseInt(select.value, 10) || 100;
+    localStorage.setItem("chapter-page-size", String(appState.chapterPageSize));
+    onChange();
+  });
+  wrap.append(text, select);
+  return wrap;
+}
+
+function loadChapterPageSize() {
+  const value = Number.parseInt(localStorage.getItem("chapter-page-size") || "", 10);
+  return [50, 100, 200, 500].includes(value) ? value : 100;
+}
+
+function normalizedChapterPageSize() {
+  return [50, 100, 200, 500].includes(appState.chapterPageSize) ? appState.chapterPageSize : 100;
 }
 
 // ===== Chapter Reader =====
@@ -790,18 +837,20 @@ const readerContent = document.getElementById("readerContent");
 const readerBody = document.getElementById("readerBody");
 const readerProgress = document.getElementById("readerProgress");
 
-const readerState = { chapters: [], loadedMin: 0, loadedMax: -1, loadingUp: false, loadingDown: false, cache: new Map() };
+const readerState = { chapters: [], loadedMin: 0, loadedMax: -1, currentIndex: 0, loadingUp: false, loadingDown: false, cache: new Map(), pending: new Map() };
 
 function openReader(chapters, index) {
   readerState.chapters = chapters;
   readerState.loadedMin = index;
   readerState.loadedMax = index - 1;
+  readerState.currentIndex = index;
   readerState.loadingUp = false;
   readerState.loadingDown = false;
   readerOverlay.hidden = false;
   document.body.classList.add("has-overlay");
   readerContent.innerHTML = "";
   readerBody.scrollTop = 0;
+  applyReaderSettings(loadReaderSettings());
   updateReaderTitle(index);
   // Load 5 chapters: current + 2 after, then prepend 2 before
   const loadDown = Math.min(index + 2, chapters.length - 1);
@@ -834,6 +883,7 @@ function closeReader() {
 
 function updateReaderTitle(index) {
   const ch = readerState.chapters[index];
+  readerState.currentIndex = index;
   readerTitle.textContent = ch ? (ch.title || `第 ${index + 1} 章`) : "";
   readerProgress.textContent = `${index + 1} / ${readerState.chapters.length}`;
 }
@@ -870,22 +920,11 @@ async function prependChapter(idx) {
 }
 
 async function loadChapterContent(ch, index, block) {
-  const cached = readerState.cache.get(ch.id || index);
+  const cached = readerState.cache.get(chapterReaderCacheKey(ch, index));
   if (cached) { renderChapterBlock(block, cached); return; }
   block.innerHTML = '<div class="reader-loading">正在加载...</div>';
-  const variant = appState.activeDetailVariant || (appState.detailResult && appState.detailResult.primary) || {};
-  const site = variant.site || ""; const bookID = variant.book_id || "";
-  if (!site || !bookID) { block.innerHTML = '<div class="reader-error">缺少站点信息</div>'; return; }
   try {
-    const url = new URL(`${window.location.origin}${root}/api/chapter-content`);
-    url.searchParams.set("site", site); url.searchParams.set("book_id", bookID);
-    url.searchParams.set("chapter_id", ch.id || ""); url.searchParams.set("title", ch.title || "");
-    url.searchParams.set("url", ch.url || "");
-    const resp = await fetch(url.toString());
-    const data = await resp.json();
-    if (!resp.ok) throw new Error(data.error || "fetch failed");
-    const content = (data.chapter && data.chapter.content) || "";
-    readerState.cache.set(ch.id || index, content);
+    const content = await fetchChapterContentForReader(ch, index);
     renderChapterBlock(block, content);
   } catch (e) { block.innerHTML = `<div class="reader-error">加载失败：${e.message}</div>`; }
 }
@@ -899,22 +938,51 @@ function renderChapterBlock(block, text) {
   });
 }
 
+async function fetchChapterContentForReader(ch, index) {
+  const key = chapterReaderCacheKey(ch, index);
+  const cached = readerState.cache.get(key);
+  if (cached) return cached;
+  const pending = readerState.pending.get(key);
+  if (pending) return pending;
+  const variant = appState.activeDetailVariant || (appState.detailResult && appState.detailResult.primary) || {};
+  const site = variant.site || ""; const bookID = variant.book_id || "";
+  if (!site || !bookID) throw new Error("缺少站点信息");
+  const task = fetchChapterContentText(site, bookID, ch).then((content) => {
+    readerState.cache.set(key, content);
+    return content;
+  }).finally(() => {
+    readerState.pending.delete(key);
+  });
+  readerState.pending.set(key, task);
+  return task;
+}
+
+async function fetchChapterContentText(site, bookID, ch) {
+  const url = new URL(`${window.location.origin}${root}/api/chapter-content`);
+  url.searchParams.set("site", site); url.searchParams.set("book_id", bookID);
+  url.searchParams.set("chapter_id", ch.id || ""); url.searchParams.set("title", ch.title || "");
+  url.searchParams.set("url", ch.url || "");
+  const resp = await fetch(url.toString());
+  const data = await resp.json();
+  if (!resp.ok) throw new Error(data.error || "fetch failed");
+  return (data.chapter && data.chapter.content) || "";
+}
+
+function chapterReaderCacheKey(ch, index) {
+  return ch.id || ch.url || `${index}:${ch.title || ""}`;
+}
+
 function preloadCache(centerIndex) {
   const variant = appState.activeDetailVariant || (appState.detailResult && appState.detailResult.primary) || {};
   const site = variant.site || ""; const bookID = variant.book_id || "";
   if (!site || !bookID) return;
-  for (let offset = -2; offset <= 2; offset++) {
+  for (let offset = -3; offset <= 5; offset++) {
     const i = centerIndex + offset;
     if (i < 0 || i >= readerState.chapters.length) continue;
     const ch = readerState.chapters[i];
-    if (readerState.cache.has(ch.id || i)) continue;
-    const url = new URL(`${window.location.origin}${root}/api/chapter-content`);
-    url.searchParams.set("site", site); url.searchParams.set("book_id", bookID);
-    url.searchParams.set("chapter_id", ch.id || ""); url.searchParams.set("title", ch.title || "");
-    url.searchParams.set("url", ch.url || "");
-    fetch(url.toString()).then(r => r.json()).then(data => {
-      if (data.chapter && data.chapter.content) readerState.cache.set(ch.id || i, data.chapter.content);
-    }).catch(() => {});
+    const key = chapterReaderCacheKey(ch, i);
+    if (readerState.cache.has(key) || readerState.pending.has(key)) continue;
+    void fetchChapterContentForReader(ch, i).catch(() => {});
   }
 }
 
@@ -936,56 +1004,125 @@ readerBody.addEventListener("scroll", () => {
     }
   }
   // Scroll near bottom → append next
-  if (scrollTop + clientHeight >= scrollHeight - 300 && !readerState.loadingDown) {
+  if (scrollTop + clientHeight >= scrollHeight - 900 && !readerState.loadingDown) {
     const next = readerState.loadedMax + 1;
     if (next < readerState.chapters.length) {
       readerState.loadingDown = true;
-      appendChapter(next).then(() => { readerState.loadingDown = false; });
+      loadChaptersSequential([next, next + 1, next + 2].filter((idx) => idx < readerState.chapters.length), "down").then(() => { readerState.loadingDown = false; });
     }
   }
   // Scroll near top → prepend previous
-  if (scrollTop < 200 && !readerState.loadingUp) {
+  if (scrollTop < 600 && !readerState.loadingUp) {
     const prev = readerState.loadedMin - 1;
     if (prev >= 0) {
       readerState.loadingUp = true;
-      prependChapter(prev).then(() => { readerState.loadingUp = false; });
+      loadChaptersSequential([prev, prev - 1].filter((idx) => idx >= 0), "up").then(() => { readerState.loadingUp = false; });
     }
   }
 });
 
 // Reader background color picker
-(function() {
-  const colors = [
-    { bg: "#f9f5ef", label: "护眼黄" },
-    { bg: "#ffffff", label: "白色" },
-    { bg: "#e8f5e9", label: "浅绿" },
-    { bg: "#e3f2fd", label: "浅蓝" },
-    { bg: "#1a1a1a", label: "夜间", text: "#ccc" },
-    { bg: "#f3e5f5", label: "浅紫" },
-    { bg: "#2d2d2d", label: "深灰", text: "#ddd" },
-  ];
-  const picker = document.getElementById("readerBgPicker");
-  let activeColor = localStorage.getItem("reader-bg") || colors[0].bg;
-  readerOverlay.style.setProperty("--reader-bg", activeColor);
-  const matchingColor = colors.find(c => c.bg === activeColor);
-  if (matchingColor && matchingColor.text) readerContent.style.color = matchingColor.text;
+const readerThemes = [
+  { key: "paper", label: "米纸", bg: "#f8f2e6", text: "#4b3f35" },
+  { key: "white", label: "白色", bg: "#ffffff", text: "#243044" },
+  { key: "mint", label: "浅青", bg: "#eefaf5", text: "#243b3f" },
+  { key: "blue", label: "浅蓝", bg: "#eef6ff", text: "#27364a" },
+  { key: "rose", label: "浅粉", bg: "#fff1f2", text: "#4a2d35" },
+  { key: "night", label: "夜间", bg: "#111827", text: "#d1d5db", night: true },
+];
 
-  colors.forEach(c => {
-    const dot = document.createElement("span");
-    dot.className = "reader-bg-dot" + (c.bg === activeColor ? " is-active" : "");
-    dot.style.background = c.bg;
-    dot.title = c.label;
+function initReaderSettings() {
+  const picker = document.getElementById("readerBgPicker");
+  if (!picker) return;
+  picker.innerHTML = "";
+  const settings = loadReaderSettings();
+
+  readerThemes.forEach((theme) => {
+    const dot = document.createElement("button");
+    dot.type = "button";
+    dot.className = "reader-bg-dot" + (theme.key === settings.theme ? " is-active" : "");
+    dot.style.background = theme.bg;
+    dot.title = theme.label;
+    dot.setAttribute("aria-label", `阅读背景：${theme.label}`);
     dot.addEventListener("click", () => {
-      activeColor = c.bg;
-      localStorage.setItem("reader-bg", c.bg);
-      readerOverlay.style.setProperty("--reader-bg", c.bg);
-      readerContent.style.color = c.text || "#334155";
-      picker.querySelectorAll(".reader-bg-dot").forEach(d => d.classList.remove("is-active"));
-      dot.classList.add("is-active");
+      const next = { ...loadReaderSettings(), theme: theme.key };
+      saveReaderSettings(next);
+      applyReaderSettings(next);
+      renderReaderThemeActive();
     });
     picker.appendChild(dot);
   });
-})();
+
+  const fontWrap = document.createElement("label");
+  fontWrap.className = "reader-font-control";
+  const fontText = document.createElement("span");
+  fontText.textContent = "字号";
+  const fontSelect = document.createElement("select");
+  fontSelect.className = "reader-setting-select";
+  [14, 16, 18, 20, 22, 24].forEach((size) => {
+    const option = document.createElement("option");
+    option.value = String(size);
+    option.textContent = `${size}px`;
+    if (size === settings.fontSize) option.selected = true;
+    fontSelect.appendChild(option);
+  });
+  fontSelect.addEventListener("change", () => {
+    const next = { ...loadReaderSettings(), fontSize: Number.parseInt(fontSelect.value, 10) || 18 };
+    saveReaderSettings(next);
+    applyReaderSettings(next);
+  });
+  fontWrap.append(fontText, fontSelect);
+  picker.appendChild(fontWrap);
+
+  const nightButton = document.createElement("button");
+  nightButton.type = "button";
+  nightButton.className = "reader-night-toggle";
+  nightButton.textContent = "夜间";
+  nightButton.addEventListener("click", () => {
+    const current = loadReaderSettings();
+    const next = { ...current, theme: current.theme === "night" ? "paper" : "night" };
+    saveReaderSettings(next);
+    applyReaderSettings(next);
+    renderReaderThemeActive();
+  });
+  picker.appendChild(nightButton);
+  applyReaderSettings(settings);
+}
+
+function renderReaderThemeActive() {
+  const settings = loadReaderSettings();
+  const picker = document.getElementById("readerBgPicker");
+  if (!picker) return;
+  picker.querySelectorAll(".reader-bg-dot").forEach((dot, index) => {
+    dot.classList.toggle("is-active", readerThemes[index] && readerThemes[index].key === settings.theme);
+  });
+}
+
+function loadReaderSettings() {
+  const fallback = { theme: "paper", fontSize: 18 };
+  try {
+    const parsed = JSON.parse(localStorage.getItem("reader-settings") || "{}");
+    const theme = readerThemes.some((item) => item.key === parsed.theme) ? parsed.theme : fallback.theme;
+    const fontSize = [14, 16, 18, 20, 22, 24].includes(Number(parsed.fontSize)) ? Number(parsed.fontSize) : fallback.fontSize;
+    return { theme, fontSize };
+  } catch {
+    return fallback;
+  }
+}
+
+function saveReaderSettings(settings) {
+  localStorage.setItem("reader-settings", JSON.stringify(settings));
+}
+
+function applyReaderSettings(settings) {
+  const theme = readerThemes.find((item) => item.key === settings.theme) || readerThemes[0];
+  readerOverlay.style.setProperty("--reader-bg", theme.bg);
+  readerOverlay.style.setProperty("--reader-text", theme.text);
+  readerContent.style.fontSize = `${settings.fontSize || 18}px`;
+  readerOverlay.classList.toggle("is-night", Boolean(theme.night));
+}
+
+initReaderSettings();
 
 function resultBadge(text) {
   const node = document.createElement("span"); node.className = "result-badge"; node.textContent = text; return node;
@@ -1305,4 +1442,7 @@ async function saveSiteConfig() {
   setStatus(`已保存 ${sourceLabel(siteKey)} 配置。`);
 }
 
-function setStatus(text) { statusNode.textContent = text; }
+function setStatus(text, tone) {
+  statusNode.textContent = text;
+  statusNode.dataset.tone = tone || "info";
+}
