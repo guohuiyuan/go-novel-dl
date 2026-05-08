@@ -790,20 +790,41 @@ const readerContent = document.getElementById("readerContent");
 const readerBody = document.getElementById("readerBody");
 const readerProgress = document.getElementById("readerProgress");
 
-const readerState = { chapters: [], startIndex: 0, loadedMax: -1, loading: false, cache: new Map() };
+const readerState = { chapters: [], loadedMin: 0, loadedMax: -1, loadingUp: false, loadingDown: false, cache: new Map() };
 
 function openReader(chapters, index) {
   readerState.chapters = chapters;
-  readerState.startIndex = index;
+  readerState.loadedMin = index;
   readerState.loadedMax = index - 1;
-  readerState.loading = false;
+  readerState.loadingUp = false;
+  readerState.loadingDown = false;
   readerOverlay.hidden = false;
   document.body.classList.add("has-overlay");
   readerContent.innerHTML = "";
   readerBody.scrollTop = 0;
   updateReaderTitle(index);
-  appendNextChapter();
-  preloadAdjacent(index);
+  // Load 5 chapters: current + 2 after, then prepend 2 before
+  const loadDown = Math.min(index + 2, chapters.length - 1);
+  const chain = [];
+  for (let i = index; i <= loadDown; i++) chain.push(i);
+  loadChaptersSequential(chain, "down").then(() => {
+    const loadUp = Math.max(index - 2, 0);
+    const upChain = [];
+    for (let i = index - 1; i >= loadUp; i--) upChain.push(i);
+    return loadChaptersSequential(upChain, "up");
+  }).then(() => {
+    // Scroll to the clicked chapter
+    const target = readerContent.querySelector(`[data-chapter-index="${index}"]`);
+    if (target) target.scrollIntoView({ block: "start" });
+    preloadCache(index);
+  });
+}
+
+async function loadChaptersSequential(indices, direction) {
+  for (const i of indices) {
+    if (direction === "down") await appendChapter(i);
+    else await prependChapter(i);
+  }
 }
 
 function closeReader() {
@@ -817,48 +838,44 @@ function updateReaderTitle(index) {
   readerProgress.textContent = `${index + 1} / ${readerState.chapters.length}`;
 }
 
-function appendNextChapter() {
-  const nextIdx = readerState.loadedMax + 1;
-  if (nextIdx >= readerState.chapters.length) {
-    const end = document.createElement("div");
-    end.className = "reader-end-hint"; end.textContent = "— 已到最后一章 —";
-    readerContent.appendChild(end);
-    return;
-  }
-  if (readerState.loading) return;
-  readerState.loading = true;
-  readerState.loadedMax = nextIdx;
-
-  const ch = readerState.chapters[nextIdx];
-  // Add chapter divider if not the first loaded chapter
-  if (nextIdx > readerState.startIndex) {
-    const divider = document.createElement("div");
-    divider.className = "reader-chapter-divider";
-    divider.textContent = ch.title || `第 ${nextIdx + 1} 章`;
-    divider.dataset.chapterIndex = nextIdx;
-    readerContent.appendChild(divider);
-  }
-
-  const chapterBlock = document.createElement("div");
-  chapterBlock.className = "reader-chapter-block";
-  chapterBlock.dataset.chapterIndex = nextIdx;
-  readerContent.appendChild(chapterBlock);
-
-  const cached = readerState.cache.get(ch.id || nextIdx);
-  if (cached) {
-    renderChapterBlock(chapterBlock, cached);
-    readerState.loading = false;
-  } else {
-    chapterBlock.innerHTML = '<div class="reader-loading">正在加载...</div>';
-    fetchAndRenderChapter(ch, nextIdx, chapterBlock);
-  }
+async function appendChapter(idx) {
+  if (idx >= readerState.chapters.length || idx <= readerState.loadedMax) return;
+  readerState.loadedMax = idx;
+  const ch = readerState.chapters[idx];
+  const divider = document.createElement("div");
+  divider.className = "reader-chapter-divider"; divider.dataset.chapterIndex = idx;
+  divider.textContent = ch.title || `第 ${idx + 1} 章`;
+  readerContent.appendChild(divider);
+  const block = document.createElement("div");
+  block.className = "reader-chapter-block"; block.dataset.chapterIndex = idx;
+  readerContent.appendChild(block);
+  await loadChapterContent(ch, idx, block);
 }
 
-async function fetchAndRenderChapter(ch, index, block) {
+async function prependChapter(idx) {
+  if (idx < 0 || idx >= readerState.loadedMin) return;
+  readerState.loadedMin = idx;
+  const ch = readerState.chapters[idx];
+  const block = document.createElement("div");
+  block.className = "reader-chapter-block"; block.dataset.chapterIndex = idx;
+  const divider = document.createElement("div");
+  divider.className = "reader-chapter-divider"; divider.dataset.chapterIndex = idx;
+  divider.textContent = ch.title || `第 ${idx + 1} 章`;
+  const prevScrollHeight = readerBody.scrollHeight;
+  readerContent.prepend(block);
+  readerContent.prepend(divider);
+  await loadChapterContent(ch, idx, block);
+  // Maintain scroll position
+  readerBody.scrollTop += readerBody.scrollHeight - prevScrollHeight;
+}
+
+async function loadChapterContent(ch, index, block) {
+  const cached = readerState.cache.get(ch.id || index);
+  if (cached) { renderChapterBlock(block, cached); return; }
+  block.innerHTML = '<div class="reader-loading">正在加载...</div>';
   const variant = appState.activeDetailVariant || (appState.detailResult && appState.detailResult.primary) || {};
-  const site = variant.site || "";
-  const bookID = variant.book_id || "";
-  if (!site || !bookID) { block.innerHTML = '<div class="reader-error">缺少站点信息</div>'; readerState.loading = false; return; }
+  const site = variant.site || ""; const bookID = variant.book_id || "";
+  if (!site || !bookID) { block.innerHTML = '<div class="reader-error">缺少站点信息</div>'; return; }
   try {
     const url = new URL(`${window.location.origin}${root}/api/chapter-content`);
     url.searchParams.set("site", site); url.searchParams.set("book_id", bookID);
@@ -870,10 +887,7 @@ async function fetchAndRenderChapter(ch, index, block) {
     const content = (data.chapter && data.chapter.content) || "";
     readerState.cache.set(ch.id || index, content);
     renderChapterBlock(block, content);
-  } catch (e) {
-    block.innerHTML = `<div class="reader-error">加载失败：${e.message}</div>`;
-  }
-  readerState.loading = false;
+  } catch (e) { block.innerHTML = `<div class="reader-error">加载失败：${e.message}</div>`; }
 }
 
 function renderChapterBlock(block, text) {
@@ -881,20 +895,17 @@ function renderChapterBlock(block, text) {
   if (!text.trim()) { block.innerHTML = '<div class="reader-error">章节内容为空</div>'; return; }
   text.split(/\n/).forEach(line => {
     if (!line.trim()) return;
-    const p = document.createElement("p");
-    p.textContent = line;
-    block.appendChild(p);
+    const p = document.createElement("p"); p.textContent = line; block.appendChild(p);
   });
 }
 
-function preloadAdjacent(index) {
+function preloadCache(centerIndex) {
   const variant = appState.activeDetailVariant || (appState.detailResult && appState.detailResult.primary) || {};
-  const site = variant.site || "";
-  const bookID = variant.book_id || "";
+  const site = variant.site || ""; const bookID = variant.book_id || "";
   if (!site || !bookID) return;
-  for (let offset = 1; offset <= 3; offset++) {
-    const i = index + offset;
-    if (i >= readerState.chapters.length) break;
+  for (let offset = -2; offset <= 2; offset++) {
+    const i = centerIndex + offset;
+    if (i < 0 || i >= readerState.chapters.length) continue;
     const ch = readerState.chapters[i];
     if (readerState.cache.has(ch.id || i)) continue;
     const url = new URL(`${window.location.origin}${root}/api/chapter-content`);
@@ -909,7 +920,7 @@ function preloadAdjacent(index) {
 
 readerCloseButton.addEventListener("click", closeReader);
 
-// Scroll-based auto-load next chapter
+// Scroll-based auto-load: up prepends, down appends
 readerBody.addEventListener("scroll", () => {
   const { scrollTop, scrollHeight, clientHeight } = readerBody;
   // Update title based on visible chapter
@@ -918,16 +929,63 @@ readerBody.addEventListener("scroll", () => {
     const rect = blocks[i].getBoundingClientRect();
     const bodyRect = readerBody.getBoundingClientRect();
     if (rect.top <= bodyRect.top + 60) {
-      updateReaderTitle(parseInt(blocks[i].dataset.chapterIndex, 10));
+      const visIdx = parseInt(blocks[i].dataset.chapterIndex, 10);
+      updateReaderTitle(visIdx);
+      preloadCache(visIdx);
       break;
     }
   }
-  // Auto-load next when near bottom
-  if (scrollTop + clientHeight >= scrollHeight - 200 && !readerState.loading) {
-    appendNextChapter();
-    preloadAdjacent(readerState.loadedMax);
+  // Scroll near bottom → append next
+  if (scrollTop + clientHeight >= scrollHeight - 300 && !readerState.loadingDown) {
+    const next = readerState.loadedMax + 1;
+    if (next < readerState.chapters.length) {
+      readerState.loadingDown = true;
+      appendChapter(next).then(() => { readerState.loadingDown = false; });
+    }
+  }
+  // Scroll near top → prepend previous
+  if (scrollTop < 200 && !readerState.loadingUp) {
+    const prev = readerState.loadedMin - 1;
+    if (prev >= 0) {
+      readerState.loadingUp = true;
+      prependChapter(prev).then(() => { readerState.loadingUp = false; });
+    }
   }
 });
+
+// Reader background color picker
+(function() {
+  const colors = [
+    { bg: "#f9f5ef", label: "护眼黄" },
+    { bg: "#ffffff", label: "白色" },
+    { bg: "#e8f5e9", label: "浅绿" },
+    { bg: "#e3f2fd", label: "浅蓝" },
+    { bg: "#1a1a1a", label: "夜间", text: "#ccc" },
+    { bg: "#f3e5f5", label: "浅紫" },
+    { bg: "#2d2d2d", label: "深灰", text: "#ddd" },
+  ];
+  const picker = document.getElementById("readerBgPicker");
+  let activeColor = localStorage.getItem("reader-bg") || colors[0].bg;
+  readerOverlay.style.setProperty("--reader-bg", activeColor);
+  const matchingColor = colors.find(c => c.bg === activeColor);
+  if (matchingColor && matchingColor.text) readerContent.style.color = matchingColor.text;
+
+  colors.forEach(c => {
+    const dot = document.createElement("span");
+    dot.className = "reader-bg-dot" + (c.bg === activeColor ? " is-active" : "");
+    dot.style.background = c.bg;
+    dot.title = c.label;
+    dot.addEventListener("click", () => {
+      activeColor = c.bg;
+      localStorage.setItem("reader-bg", c.bg);
+      readerOverlay.style.setProperty("--reader-bg", c.bg);
+      readerContent.style.color = c.text || "#334155";
+      picker.querySelectorAll(".reader-bg-dot").forEach(d => d.classList.remove("is-active"));
+      dot.classList.add("is-active");
+    });
+    picker.appendChild(dot);
+  });
+})();
 
 function resultBadge(text) {
   const node = document.createElement("span"); node.className = "result-badge"; node.textContent = text; return node;
