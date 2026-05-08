@@ -292,6 +292,22 @@ h3 { font-size: 14px; font-weight: 700; color: #334155; }
   border-radius: 6px; border: 1px solid var(--accent-soft);
   color: var(--accent); text-decoration: none; font-weight: 600;
 }
+.temporary-warning-dialog[hidden] { display: none; }
+.temporary-warning-dialog {
+  position: fixed; inset: 0; z-index: 100; display: grid; place-items: center;
+  padding: 16px; background: rgba(15, 23, 42, 0.32); backdrop-filter: blur(4px);
+}
+.temporary-warning-modal {
+  width: min(560px, calc(100vw - 24px)); max-height: calc(100vh - 24px);
+  overflow: auto; display: grid; gap: 12px; padding: 16px; border-radius: 16px;
+  background: #fff; box-shadow: 0 18px 48px rgba(15, 23, 42, 0.22);
+}
+.temporary-warning-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.temporary-warning-list { display: grid; gap: 8px; }
+.temporary-warning-close {
+  min-height: 30px; padding: 0 12px; border-radius: 999px; cursor: pointer;
+  color: #fff; background: var(--accent); font-size: 12px; font-weight: 700;
+}
 
 .site-config-overlay[hidden] { display: none; }
 .site-config-overlay { position: fixed; inset: 0; z-index: 70; }

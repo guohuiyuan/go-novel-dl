@@ -10,6 +10,7 @@ let siteWarnings = window.__NOVEL_DL__.siteWarnings || [];
 let siteStats = window.__NOVEL_DL__.siteStats || [];
 const siteWarningPanel = document.getElementById("siteWarningPanel");
 let siteWarningHideTimer = 0;
+let temporaryWarningDialogTimer = 0;
 
 const warningLevelIcons = {
   danger: "⚠️",
@@ -70,80 +71,141 @@ const appState = {
 function renderSiteWarnings() {
   if (!siteWarningPanel) return;
   if (siteWarningHideTimer) window.clearTimeout(siteWarningHideTimer);
-  const visibleWarnings = siteWarnings.filter((warning) => {
-    if (!isTransientSiteWarning(warning)) return true;
+  const visibleWarnings = [];
+  const transientWarnings = [];
+  siteWarnings.forEach((warning) => {
+    if (!isTransientSiteWarning(warning)) {
+      visibleWarnings.push(warning);
+      return;
+    }
     if (hasSeenTransientSiteWarning(warning)) return false;
     markTransientSiteWarningSeen(warning);
-    return true;
+    transientWarnings.push(warning);
   });
   if (visibleWarnings.length === 0) {
     siteWarningPanel.hidden = true;
     siteWarningPanel.innerHTML = "";
+    if (transientWarnings.length) showTemporaryWarningDialog(transientWarnings);
     return;
   }
   siteWarningPanel.hidden = false;
   siteWarningPanel.innerHTML = "";
-  let hasTransientWarning = false;
   visibleWarnings.forEach((warning) => {
-    const card = document.createElement("article");
-    card.className = `site-warning-card site-warning-${warning.level || "info"}`;
-    if (isTransientSiteWarning(warning)) {
-      card.dataset.transient = "true";
-      hasTransientWarning = true;
-    }
-
-    const icon = document.createElement("span");
-    icon.className = "site-warning-icon";
-    icon.textContent = warningLevelIcons[warning.level] || "ℹ️";
-
-    const message = document.createElement("p");
-    message.className = "site-warning-message";
-    message.textContent = warning.message;
-
-    const header = document.createElement("div");
-    header.className = "site-warning-head";
-    header.append(icon, message);
-    card.appendChild(header);
-
-    const stat = siteStats.find((stat) => stat.site_key === warning.site_key);
-    if (stat && stat.enabled.length) {
-      const detail = document.createElement("p");
-      detail.className = "site-warning-detail";
-      detail.textContent = `已自动配置字段：${stat.enabled.join("、")}`;
-      card.appendChild(detail);
-    }
-
-    if (warning.action_label && warning.action_link) {
-      const action = document.createElement("a");
-      action.className = "site-warning-action";
-      action.href = warning.action_link;
-      if (warning.action_link === "#site-config") {
-        action.addEventListener("click", (event) => {
-          event.preventDefault();
-          void openSiteConfig();
-          if (siteConfigKeyNode) {
-            siteConfigKeyNode.value = warning.site_key || "esjzone";
-            populateSiteConfigForm(siteConfigKeyNode.value);
-          }
-        });
-      } else {
-        action.target = "_blank";
-        action.rel = "noopener noreferrer";
-      }
-      action.textContent = warning.action_label;
-      card.appendChild(action);
-    }
-    siteWarningPanel.appendChild(card);
+    siteWarningPanel.appendChild(createSiteWarningCard(warning));
   });
-  if (hasTransientWarning) {
-    siteWarningHideTimer = window.setTimeout(() => {
-      siteWarningPanel.querySelectorAll('[data-transient="true"]').forEach((node) => node.remove());
-      if (!siteWarningPanel.children.length) {
-        siteWarningPanel.hidden = true;
-        siteWarningPanel.innerHTML = "";
-      }
-    }, 7000);
+  if (transientWarnings.length) showTemporaryWarningDialog(transientWarnings);
+}
+
+function createSiteWarningCard(warning) {
+  const card = document.createElement("article");
+  card.className = `site-warning-card site-warning-${warning.level || "info"}`;
+
+  const icon = document.createElement("span");
+  icon.className = "site-warning-icon";
+  icon.textContent = warningLevelIcons[warning.level] || "ℹ️";
+
+  const message = document.createElement("p");
+  message.className = "site-warning-message";
+  message.textContent = warning.message;
+
+  const header = document.createElement("div");
+  header.className = "site-warning-head";
+  header.append(icon, message);
+  card.appendChild(header);
+
+  const stat = siteStats.find((stat) => stat.site_key === warning.site_key);
+  if (stat && stat.enabled.length) {
+    const detail = document.createElement("p");
+    detail.className = "site-warning-detail";
+    detail.textContent = `已自动配置字段：${stat.enabled.join("、")}`;
+    card.appendChild(detail);
   }
+
+  if (warning.action_label && warning.action_link) {
+    const action = document.createElement("a");
+    action.className = "site-warning-action";
+    action.href = warning.action_link;
+    if (warning.action_link === "#site-config") {
+      action.addEventListener("click", (event) => {
+        event.preventDefault();
+        hideTemporaryWarningDialog();
+        void openSiteConfig();
+        if (siteConfigKeyNode) {
+          siteConfigKeyNode.value = warning.site_key || "esjzone";
+          populateSiteConfigForm(siteConfigKeyNode.value);
+        }
+      });
+    } else {
+      action.target = "_blank";
+      action.rel = "noopener noreferrer";
+    }
+    action.textContent = warning.action_label;
+    card.appendChild(action);
+  }
+  return card;
+}
+
+function showTemporaryWarningDialog(warnings) {
+  const items = warnings.filter(Boolean);
+  if (!items.length) return;
+  const dialog = ensureTemporaryWarningDialog();
+  const list = dialog.querySelector(".temporary-warning-list");
+  list.innerHTML = "";
+  items.forEach((warning) => {
+    const item = typeof warning === "string" ? { message: warning, level: "info" } : warning;
+    list.appendChild(createSiteWarningCard(item));
+  });
+  dialog.hidden = false;
+  if (temporaryWarningDialogTimer) window.clearTimeout(temporaryWarningDialogTimer);
+  temporaryWarningDialogTimer = window.setTimeout(hideTemporaryWarningDialog, 9000);
+}
+
+function hideTemporaryWarningDialog() {
+  const dialog = document.getElementById("temporaryWarningDialog");
+  if (!dialog) return;
+  dialog.hidden = true;
+  if (temporaryWarningDialogTimer) {
+    window.clearTimeout(temporaryWarningDialogTimer);
+    temporaryWarningDialogTimer = 0;
+  }
+}
+
+function ensureTemporaryWarningDialog() {
+  const existing = document.getElementById("temporaryWarningDialog");
+  if (existing) return existing;
+  const dialog = document.createElement("div");
+  dialog.id = "temporaryWarningDialog";
+  dialog.className = "temporary-warning-dialog";
+  dialog.hidden = true;
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog) hideTemporaryWarningDialog();
+  });
+
+  const modal = document.createElement("section");
+  modal.className = "temporary-warning-modal";
+  modal.setAttribute("role", "dialog");
+  modal.setAttribute("aria-modal", "true");
+  modal.setAttribute("aria-labelledby", "temporaryWarningHeading");
+
+  const head = document.createElement("div");
+  head.className = "temporary-warning-head";
+  const title = document.createElement("h2");
+  title.id = "temporaryWarningHeading";
+  title.textContent = "临时提示";
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "temporary-warning-close";
+  close.textContent = "知道了";
+  close.addEventListener("click", hideTemporaryWarningDialog);
+  head.append(title, close);
+
+  const list = document.createElement("div");
+  list.className = "temporary-warning-list";
+
+  modal.append(head, list);
+  dialog.appendChild(modal);
+  document.body.appendChild(dialog);
+  return dialog;
 }
 
 function isTransientSiteWarning(warning) {
@@ -564,13 +626,24 @@ function sourceSummaryText(visibleCount) {
 
 function renderWarnings(warnings) {
   warningsNode.innerHTML = "";
-  warningsNode.classList.toggle("is-empty", warnings.length === 0);
+  const temporaryWarnings = [];
   warnings.forEach((warning) => {
+    const message = formatSearchWarning(warning);
+    if (isTemporaryWarningText(message)) {
+      temporaryWarnings.push(message);
+      return;
+    }
     const node = document.createElement("div");
     node.className = "warning-item";
-    node.textContent = formatSearchWarning(warning);
+    node.textContent = message;
     warningsNode.appendChild(node);
   });
+  warningsNode.classList.toggle("is-empty", warningsNode.children.length === 0);
+  if (temporaryWarnings.length) showTemporaryWarningDialog(temporaryWarnings);
+}
+
+function isTemporaryWarningText(text) {
+  return String(text || "").includes("临时提示");
 }
 
 function formatSearchWarning(warning) {
@@ -986,6 +1059,7 @@ function openReader(chapters, index) {
   readerBody.scrollTop = 0;
   applyReaderSettings(loadReaderSettings());
   updateReaderTitle(index);
+  preloadCache(index);
   // Load 5 chapters: current + 2 after, then prepend 2 before
   const loadDown = Math.min(index + 2, chapters.length - 1);
   const chain = [];
@@ -996,9 +1070,6 @@ function openReader(chapters, index) {
     for (let i = index - 1; i >= loadUp; i--) upChain.push(i);
     return loadChaptersSequential(upChain, "up");
   }).then(() => {
-    // Scroll to the clicked chapter
-    const target = readerContent.querySelector(`[data-chapter-index="${index}"]`);
-    if (target) target.scrollIntoView({ block: "start" });
     preloadCache(index);
   });
 }
@@ -1165,7 +1236,7 @@ function preloadCache(centerIndex) {
   const variant = appState.activeDetailVariant || (appState.detailResult && appState.detailResult.primary) || {};
   const site = variant.site || ""; const bookID = variant.book_id || "";
   if (!site || !bookID) return;
-  for (let offset = -3; offset <= 5; offset++) {
+  for (let offset = -8; offset <= 8; offset++) {
     const i = centerIndex + offset;
     if (i < 0 || i >= readerState.chapters.length) continue;
     const ch = readerState.chapters[i];
@@ -1197,6 +1268,7 @@ readerBody.addEventListener("scroll", () => {
     const next = readerState.loadedMax + 1;
     if (next < readerState.chapters.length) {
       readerState.loadingDown = true;
+      preloadCache(next);
       loadChaptersSequential([next, next + 1, next + 2].filter((idx) => idx < readerState.chapters.length), "down").then(() => { readerState.loadingDown = false; });
     }
   }
@@ -1205,6 +1277,7 @@ readerBody.addEventListener("scroll", () => {
     const prev = readerState.loadedMin - 1;
     if (prev >= 0) {
       readerState.loadingUp = true;
+      preloadCache(prev);
       loadChaptersSequential([prev, prev - 1].filter((idx) => idx >= 0), "up").then(() => { readerState.loadingUp = false; });
     }
   }
