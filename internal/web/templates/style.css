@@ -8,7 +8,7 @@
   --text: #1e293b;
   --muted: #64748b;
 
-  /* 主色：清新浅绿 */
+  /* 主色：科技蓝 */
   --accent: #2563eb;
   --accent-strong: #1d4ed8;
   --accent-deep: #1e40af;
@@ -442,27 +442,53 @@ body.web-images-blurred .result-card:hover .result-cover {
 .detail-link { color: var(--accent); font-weight: 600; }
 
 .detail-section { padding: 16px; margin-top: 16px; background: rgba(255,255,255,0.82); border: 1px solid var(--line); max-width: 1320px; margin-left: auto; margin-right: auto; border-radius: 14px; }
-.detail-section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.detail-section-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .detail-section-head h3 { font-size: 15px; color: var(--text); }
+.detail-controls-group { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.chapter-control-item { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; font-weight: 500; }
+.chapter-control-select {
+  min-height: 30px; padding: 0 28px 0 12px; border-radius: 8px;
+  color: var(--accent-deep); background: #f8fafc; border: 1px solid var(--line-strong);
+  font-weight: 600; outline: none; font-size: 13px; transition: all 0.2s ease;
+  cursor: pointer; appearance: none; -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat; background-position: right 8px center; background-size: 14px;
+}
+.chapter-control-select:hover, .chapter-control-select:focus { border-color: var(--accent); background: #ffffff; box-shadow: 0 0 0 3px var(--accent-soft); }
 .detail-description { white-space: pre-line; font-size: 13px; line-height: 1.6; color: #475569; }
 
-.chapter-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.chapter-list { display: grid; gap: 8px; }
+.chapter-list.cols-auto { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.chapter-list.cols-1 { grid-template-columns: repeat(1, 1fr); }
+.chapter-list.cols-2 { grid-template-columns: repeat(2, 1fr); }
+.chapter-list.cols-3 { grid-template-columns: repeat(3, 1fr); }
+.chapter-list.cols-4 { grid-template-columns: repeat(4, 1fr); }
+.chapter-list.cols-5 { grid-template-columns: repeat(5, 1fr); }
 .chapter-paging { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 12px 0; }
 .chapter-paging .page-button { min-width: 80px; }
 .chapter-paging .page-indicator { font-size: 13px; color: var(--muted); }
 .chapter-list-shell { display: grid; gap: 10px; }
 .chapter-sentinel { grid-column: 1 / -1; padding: 12px; text-align: center; color: var(--muted); font-size: 12px; }
-.chapter-page-size { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
-.chapter-page-size-select {
-  min-height: 30px; padding: 0 28px 0 10px; border-radius: 999px;
-  color: var(--accent-deep); background: #ffffff; border: 1px solid var(--line);
-  font-weight: 700; outline: none;
-}
 .chapter-volume { padding: 10px 14px; color: #0f172a; font-size: 13px; font-weight: 700; background: linear-gradient(135deg, #fef3c7, #dbeafe); border-radius: 8px; margin-top: 8px; grid-column: 1 / -1; }
-.chapter-item { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 10px 14px; background: #ffffff; border-radius: 8px; border: 1px solid var(--line); transition: all 0.2s; }
+/* 保证 chapter-item 本身可以收缩 */
+.chapter-item { 
+  display: flex; align-items: center; gap: 10px; min-width: 0; 
+  padding: 10px 14px; background: #ffffff; border-radius: 8px; 
+  border: 1px solid var(--line); transition: all 0.2s; 
+}
 .chapter-item:hover { border-color: var(--accent); box-shadow: 0 2px 10px var(--accent-soft); transform: translateY(-1px); }
+/* 🌟 核心修复：给内部包裹标题的 div 加上 min-width: 0 和 flex: 1，强制它听从外部网格的宽度限制 */
+.chapter-item > div {
+  flex: 1;
+  min-width: 0; 
+}
 .chapter-index { display: inline-flex; align-items: center; justify-content: center; min-width: 36px; height: 24px; border-radius: 6px; font-size: 11px; font-weight: 700; color: var(--accent-deep); background: var(--accent-soft); flex-shrink: 0; }
-.chapter-title { display: block; min-width: 0; line-height: 1.4; font-size: 13px; color: #334155; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 强制单行并显示省略号 */
+.chapter-title { 
+  display: block; width: 100%; min-width: 0; line-height: 1.4; 
+  font-size: 13px; color: #334155; 
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; 
+}
 .chapter-title-link { color: #0f172a; text-decoration: none; transition: color 0.2s ease; }
 .chapter-title-link:hover { color: var(--accent-strong); text-decoration: underline; }
 
@@ -483,9 +509,18 @@ body.web-images-blurred .result-card:hover .result-cover {
   .detail-actions .download-button { width: 100%; }
 }
 
+@media (max-width: 960px) {
+  .chapter-list.cols-4, .chapter-list.cols-5 { grid-template-columns: repeat(3, 1fr); }
+}
+
+@media (max-width: 768px) {
+  .chapter-list.cols-3, .chapter-list.cols-4, .chapter-list.cols-5 { grid-template-columns: repeat(2, 1fr); }
+}
+
 @media (max-width: 400px) {
   .results-grid { grid-template-columns: 1fr; }
   .result-cover { max-width: 160px; margin: 0 auto; }
+  .chapter-list.cols-2, .chapter-list.cols-3, .chapter-list.cols-4, .chapter-list.cols-5 { grid-template-columns: repeat(1, 1fr); }
 }
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -588,7 +623,7 @@ body.web-images-blurred .result-card:hover .result-cover {
 .reader-end-hint { text-align: center; padding: 24px; color: var(--muted); font-size: 13px; }
 
 @media (min-width: 1200px) {
-  .chapter-list { grid-template-columns: repeat(auto-fill, minmax(135px, 1fr)); }
+  .chapter-list.cols-auto { grid-template-columns: repeat(auto-fill, minmax(135px, 1fr)); }
 }
 
 @media (max-width: 720px) {

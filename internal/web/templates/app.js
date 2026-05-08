@@ -61,6 +61,7 @@ const appState = {
   activeDetailVariant: null,
   detailWarmupToken: 0,
   chapterPageSize: loadChapterPageSize(),
+  chapterColumns: loadChapterColumns(),
   siteConfigs: new Map(),
   paramSupports: [],
   generalConfig: initialGeneralConfig,
@@ -820,9 +821,17 @@ function renderDetail(result, variant, book, loading, errorMessage) {
   const chapterHead = document.createElement("div"); chapterHead.className = "detail-section-head";
   const chapterTitle = document.createElement("h3"); chapterTitle.textContent = "章节";
   chapterHead.appendChild(chapterTitle);
-  if (chapters.length) chapterHead.appendChild(createChapterPageSizeControl(() => {
-    renderDetail(result, activeVariant, book, false, "");
-  }));
+  if (chapters.length) {
+    const controlsGroup = document.createElement("div");
+    controlsGroup.className = "detail-controls-group";
+    controlsGroup.appendChild(createChapterColumnsControl(() => {
+      renderDetail(result, activeVariant, book, false, "");
+    }));
+    controlsGroup.appendChild(createChapterPageSizeControl(() => {
+      renderDetail(result, activeVariant, book, false, "");
+    }));
+    chapterHead.appendChild(controlsGroup);
+  }
   chapterSection.appendChild(chapterHead);
 
   if (loading) chapterSection.appendChild(createEmptyInline("正在加载章节列表..."));
@@ -837,7 +846,7 @@ function renderChapterList(chapters) {
   const container = document.createElement("div");
   container.className = "chapter-list-shell";
   const list = document.createElement("div");
-  list.className = "chapter-list";
+  list.className = `chapter-list cols-${appState.chapterColumns || "auto"}`;
   const sentinel = document.createElement("div");
   sentinel.className = "chapter-sentinel";
   const pageSize = normalizedChapterPageSize();
@@ -889,11 +898,11 @@ function renderChapterList(chapters) {
 
 function createChapterPageSizeControl(onChange) {
   const wrap = document.createElement("label");
-  wrap.className = "chapter-page-size";
+  wrap.className = "chapter-control-item";
   const text = document.createElement("span");
-  text.textContent = "每批";
+  text.textContent = "每批加载";
   const select = document.createElement("select");
-  select.className = "chapter-page-size-select";
+  select.className = "chapter-control-select";
   [50, 100, 200, 500].forEach((size) => {
     const option = document.createElement("option");
     option.value = String(size);
@@ -910,9 +919,44 @@ function createChapterPageSizeControl(onChange) {
   return wrap;
 }
 
+function createChapterColumnsControl(onChange) {
+  const wrap = document.createElement("label");
+  wrap.className = "chapter-control-item";
+  const text = document.createElement("span");
+  text.textContent = "排版格式";
+  const select = document.createElement("select");
+  select.className = "chapter-control-select";
+  [
+    { label: "自动适配", value: "auto" },
+    { label: "1 列 (纯列表)", value: "1" },
+    { label: "2 列", value: "2" },
+    { label: "3 列", value: "3" },
+    { label: "4 列", value: "4" },
+    { label: "5 列", value: "5" },
+  ].forEach((opt) => {
+    const option = document.createElement("option");
+    option.value = opt.value;
+    option.textContent = opt.label;
+    if (opt.value === appState.chapterColumns) option.selected = true;
+    select.appendChild(option);
+  });
+  select.addEventListener("change", () => {
+    appState.chapterColumns = select.value;
+    localStorage.setItem("chapter-columns", select.value);
+    onChange();
+  });
+  wrap.append(text, select);
+  return wrap;
+}
+
 function loadChapterPageSize() {
   const value = Number.parseInt(localStorage.getItem("chapter-page-size") || "", 10);
   return [50, 100, 200, 500].includes(value) ? value : 100;
+}
+
+function loadChapterColumns() {
+  const value = localStorage.getItem("chapter-columns");
+  return ["auto", "1", "2", "3", "4", "5"].includes(value) ? value : "auto";
 }
 
 function normalizedChapterPageSize() {
