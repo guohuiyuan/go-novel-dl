@@ -270,6 +270,9 @@ func (s *N8NovelSite) getWithRetry(ctx context.Context, rawURL string) (string, 
 			return markup, nil
 		}
 		lastErr = err
+		if isN8novel403(err) {
+			return "", err
+		}
 		if !shouldRetrySiteRequest(err) {
 			return "", err
 		}

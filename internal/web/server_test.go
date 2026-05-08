@@ -122,6 +122,27 @@ func TestIndexPageIncludesBlurWebImagesControl(t *testing.T) {
 	}
 }
 
+func TestIndexPageIncludesDisableCacheControl(t *testing.T) {
+	service := newTestService()
+	service.GeneralConfig = config.GeneralConfigRecord{DisableCache: true}
+	router := newRouter(service)
+
+	req := httptest.NewRequest(http.MethodGet, RoutePrefix+"/", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	body := resp.Body.String()
+	for _, needle := range []string{`id="generalDisableCache"`, `"disable_cache":true`} {
+		if !strings.Contains(body, needle) {
+			t.Fatalf("expected index page to contain %s, body=%s", needle, body)
+		}
+	}
+}
+
 func TestSearchEndpointPaginatesMixedSearchableSources(t *testing.T) {
 	service := newTestService()
 	router := newRouter(service)
@@ -333,11 +354,6 @@ func TestBookDetailEndpointAppliesLocaleConversion(t *testing.T) {
 
 func newTestService() *Service {
 	cfg := config.DefaultConfig()
-	if siteCfg, ok := cfg.Sites["esjzone"]; ok {
-		siteCfg.Username = "test-user"
-		siteCfg.Password = "test-password"
-		cfg.Sites["esjzone"] = siteCfg
-	}
 	console := ui.NewConsole(strings.NewReader(""), io.Discard, io.Discard)
 	runtime := app.NewRuntime(&cfg, console)
 	registry := site.NewRegistry()

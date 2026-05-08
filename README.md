@@ -29,7 +29,7 @@
 - 多格式导出：支持 `txt`、`html`、`epub`
 - 图片处理：支持章节图片保留、EPUB 图片抓取与压缩
 - 统一配置：CLI 与 Web 共用 `data/site_catalog.db`
-- 站点级配置：支持登录、Cookie、镜像、并发、抓图、文字转换
+- 站点级配置：支持可选登录/Cookie、镜像、并发、抓图、文字转换；ESJ Zone 搜索和详情无需预先配置账号
 - Web 图片模糊化：全局配置可开启网页图片模糊显示，降低展示风险
 
 ![Web UI](./screenshots/web.png)
@@ -107,6 +107,7 @@ docs/architecture.md 附加架构说明
 | 原始数据目录 | `./data/raw_data` |
 | 导出目录 | `./data/downloads` |
 | 缓存目录 | `./data/novel_cache` |
+| 禁用缓存 | `false` |
 | 全局并发 | `4` |
 | 最大连接数 | `10` |
 | 超时 | `10s` |
@@ -244,8 +245,8 @@ novel-dl clean book              清理书籍原始数据
 示例：
 
 ```bash
+# ESJ Zone 搜索无需配置；只有需要账号章节或希望复用登录态时再配置 Cookie/账号
 go run ./cmd/novel-dl config site-set esjzone ^
-  --login-required ^
   --cookie "your_cookie" ^
   --workers 8 ^
   --fetch-images=true ^

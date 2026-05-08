@@ -57,6 +57,7 @@ type GeneralConfigRecord struct {
 	RetryTimes      int      `json:"retry_times"`
 	BackoffFactor   float64  `json:"backoff_factor"`
 	Timeout         float64  `json:"timeout"`
+	DisableCache    bool     `json:"disable_cache"`
 	WebPageSize     int      `json:"web_page_size"`
 	CLIPageSize     int      `json:"cli_page_size"`
 	BlurWebImages   bool     `json:"blur_web_images"`
@@ -111,7 +112,7 @@ type defaultSiteCatalogRow struct {
 
 var defaultSiteCatalog = []defaultSiteCatalogRow{
 	{Key: "alicesw", DisplayName: "爱丽丝书屋", WorkerLimit: 0, FetchImages: true},
-	{Key: "esjzone", DisplayName: "ESJ Zone", LoginRequired: true, WorkerLimit: 0, FetchImages: true, MirrorHosts: []string{"https://www.esjzone.one"}},
+	{Key: "esjzone", DisplayName: "ESJ Zone", LoginRequired: false, WorkerLimit: 0, FetchImages: true, MirrorHosts: []string{"https://www.esjzone.one"}},
 	{Key: "faloo", DisplayName: "飞卢小说网", WorkerLimit: 0, FetchImages: true},
 	{Key: "fsshu", DisplayName: "笔趣阁", WorkerLimit: 0, FetchImages: true},
 	{Key: "ixdzs8", DisplayName: "爱下电子书", WorkerLimit: 0, FetchImages: true},
@@ -199,10 +200,26 @@ func ensureSiteCatalogDB() error {
 			return
 		}
 		if firstInit {
-			siteCatalogErr = seedFromDefaults(db)
+			if err := seedFromDefaults(db); err != nil {
+				siteCatalogErr = err
+				return
+			}
+		}
+		if err := relaxLegacyESJLoginRequirement(db); err != nil {
+			siteCatalogErr = err
+			return
 		}
 	})
 	return siteCatalogErr
+}
+
+func relaxLegacyESJLoginRequirement(db *gorm.DB) error {
+	if db == nil {
+		return nil
+	}
+	return db.Model(&siteCatalogEntry{}).
+		Where("key = ? AND login_required = ? AND username = ? AND password = ? AND cookie = ?", "esjzone", true, "", "", "").
+		Update("login_required", false).Error
 }
 
 func seedFromDefaults(db *gorm.DB) error {
@@ -226,9 +243,6 @@ func seedFromDefaults(db *gorm.DB) error {
 		}
 		if siteCfg.LoginRequired != nil {
 			current.LoginRequired = *siteCfg.LoginRequired
-		}
-		if siteKey == "esjzone" {
-			current.LoginRequired = true
 		}
 		if siteCfg.Workers != nil {
 			workers := *siteCfg.Workers
@@ -342,9 +356,6 @@ func UpsertSiteCatalog(siteKey string, patch SiteCatalogUpdate) (SiteCatalogReco
 	if patch.LoginRequired != nil {
 		current.LoginRequired = *patch.LoginRequired
 	}
-	if siteKey == "esjzone" {
-		current.LoginRequired = true
-	}
 	if patch.WorkerLimit != nil {
 		if *patch.WorkerLimit < 0 {
 			current.WorkerLimit = 0
@@ -401,10 +412,6 @@ func SyncSiteCatalogFromConfig(sites map[string]SiteConfig) error {
 				current.LoginRequired = *siteCfg.LoginRequired
 				changed = true
 			}
-		}
-		if siteKey == "esjzone" && !current.LoginRequired {
-			current.LoginRequired = true
-			changed = true
 		}
 
 		if siteCfg.Workers != nil {
@@ -468,14 +475,10 @@ func SyncSiteCatalogFromConfig(sites map[string]SiteConfig) error {
 }
 
 func toSiteCatalogRecord(entry siteCatalogEntry) SiteCatalogRecord {
-	loginRequired := entry.LoginRequired
-	if entry.Key == "esjzone" {
-		loginRequired = true
-	}
 	return SiteCatalogRecord{
 		Key:           entry.Key,
 		DisplayName:   entry.DisplayName,
-		LoginRequired: loginRequired,
+		LoginRequired: entry.LoginRequired,
 		WorkerLimit:   entry.WorkerLimit,
 		FetchImages:   entry.FetchImages,
 		LocaleStyle:   strings.TrimSpace(entry.LocaleStyle),
@@ -525,7 +528,7 @@ func mergeSiteCatalog(cfg *Config) error {
 	}
 	for _, entry := range entries {
 		siteCfg := cfg.Sites[entry.Key]
-		if entry.Key == "esjzone" || entry.LoginRequired {
+		if entry.LoginRequired {
 			siteCfg.LoginRequired = boolPtr(true)
 		}
 		if entry.WorkerLimit > 0 {
@@ -612,6 +615,7 @@ func mergeGeneralConfig(cfg *Config) error {
 	cfg.General.RetryTimes = record.RetryTimes
 	cfg.General.BackoffFactor = record.BackoffFactor
 	cfg.General.Timeout = record.Timeout
+	cfg.General.DisableCache = record.DisableCache
 	cfg.General.WebPageSize = record.WebPageSize
 	cfg.General.CLIPageSize = record.CLIPageSize
 	cfg.General.BlurWebImages = record.BlurWebImages
@@ -634,6 +638,7 @@ func defaultGeneralRecord(general GeneralConfig) GeneralConfigRecord {
 		RetryTimes:      general.RetryTimes,
 		BackoffFactor:   general.BackoffFactor,
 		Timeout:         general.Timeout,
+		DisableCache:    general.DisableCache,
 		WebPageSize:     general.WebPageSize,
 		CLIPageSize:     general.CLIPageSize,
 		BlurWebImages:   general.BlurWebImages,

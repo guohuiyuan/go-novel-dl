@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 
 	"github.com/guohuiyuan/go-novel-dl/internal/model"
@@ -14,9 +15,10 @@ import (
 )
 
 type HybridSearchOptions struct {
-	Sites        []string `json:"sites,omitempty"`
-	OverallLimit int      `json:"overall_limit,omitempty"`
-	PerSiteLimit int      `json:"per_site_limit,omitempty"`
+	Sites          []string      `json:"sites,omitempty"`
+	OverallLimit   int           `json:"overall_limit,omitempty"`
+	PerSiteLimit   int           `json:"per_site_limit,omitempty"`
+	PerSiteTimeout time.Duration `json:"-"`
 }
 
 type SearchWarning struct {
@@ -114,6 +116,10 @@ func (r *Runtime) HybridSearch(ctx context.Context, keyword string, opts HybridS
 	if perSiteLimit <= 0 {
 		perSiteLimit = 8
 	}
+	perSiteTimeout := opts.PerSiteTimeout
+	if perSiteTimeout <= 0 && len(sites) > 1 {
+		perSiteTimeout = 20 * time.Second
+	}
 
 	siteResults := make(chan siteSearchResponse, len(sites))
 	var wg sync.WaitGroup
@@ -136,7 +142,14 @@ func (r *Runtime) HybridSearch(ctx context.Context, keyword string, opts HybridS
 				return
 			}
 
-			items, err := client.Search(ctx, keyword, perSiteLimit)
+			searchCtx := ctx
+			cancel := func() {}
+			if perSiteTimeout > 0 {
+				searchCtx, cancel = context.WithTimeout(ctx, perSiteTimeout)
+			}
+			defer cancel()
+
+			items, err := client.Search(searchCtx, keyword, perSiteLimit)
 			if err != nil {
 				siteResults <- siteSearchResponse{siteKey: siteKey, err: err}
 				return

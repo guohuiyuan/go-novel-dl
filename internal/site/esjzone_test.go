@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/cookiejar"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -92,6 +93,45 @@ func TestExtractSearchAuthor(t *testing.T) {
 	author := extractSearchAuthor(findFirst(node, byClass("card-body")))
 	if author != "23r41" {
 		t.Fatalf("unexpected search author: %s", author)
+	}
+}
+
+func TestESJZoneSearchDoesNotRequireAuth(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/tags/"):
+			_, _ = w.Write([]byte(`<html><body>
+				<div class="card">
+					<div class="lazyload" data-src="/cover.jpg"></div>
+					<div class="card-body">
+						<h4 class="card-title"><a href="/detail/1.html">Test Book</a></h4>
+						<div class="card-author">作者： Test Author</div>
+						<div class="card-ep">Latest</div>
+					</div>
+				</div>
+			</body></html>`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	cfg := config.DefaultConfig().ResolveSiteConfig("esjzone")
+	cfg.General.LoginRequired = true
+	cfg.Cookie = ""
+	cfg.Username = ""
+	cfg.Password = ""
+	site := NewESJZoneSite(cfg)
+	site.searchAliases = []string{server.URL}
+	site.bookAliases = []string{server.URL}
+	site.primaryHost = server.URL
+
+	results, err := site.Search(context.Background(), "测试", 5)
+	if err != nil {
+		t.Fatalf("search without auth: %v", err)
+	}
+	if len(results) != 1 || results[0].BookID != "1" || results[0].Title != "Test Book" {
+		t.Fatalf("unexpected search results: %+v", results)
 	}
 }
 

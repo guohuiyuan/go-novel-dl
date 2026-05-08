@@ -1,9 +1,14 @@
 package site
 
 import (
+	"context"
+	"encoding/json"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/guohuiyuan/go-novel-dl/internal/config"
 	"github.com/guohuiyuan/go-novel-dl/internal/model"
 )
 
@@ -81,4 +86,50 @@ func TestParseCiyuanjiSearchJSONPage(t *testing.T) {
 	if results[0].BookID != "24508" || results[0].Title != "Example JSON Book" || results[0].Description != "JSON description" {
 		t.Fatalf("unexpected ciyuanji json result: %+v", results[0])
 	}
+}
+
+func TestCiyuanjiMobileAPIValuesEncryptPayload(t *testing.T) {
+	values, err := ciyuanjiMobileAPIValues(map[string]any{
+		"keyword":  "重生",
+		"pageNo":   1,
+		"pageSize": 10,
+	})
+	if err != nil {
+		t.Fatalf("build mobile api values: %v", err)
+	}
+	if values.Get("requestId") == "" || values.Get("timestamp") == "" || values.Get("sign") == "" || values.Get("param") == "" {
+		t.Fatalf("missing signed mobile api values: %v", values)
+	}
+	plain, err := decryptCiyuanji(values.Get("param"))
+	if err != nil {
+		t.Fatalf("decrypt mobile param: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(plain), &payload); err != nil {
+		t.Fatalf("decode mobile param: %v", err)
+	}
+	if payload["keyword"] != "重生" || int(int64Value(payload["pageNo"])) != 1 || int(int64Value(payload["pageSize"])) != 10 {
+		t.Fatalf("unexpected encrypted mobile payload: %+v", payload)
+	}
+}
+
+func TestCiyuanjiLiveSearch(t *testing.T) {
+	if os.Getenv("GO_NOVEL_DL_INTEGRATION_SEARCH") == "" {
+		t.Skip("set GO_NOVEL_DL_INTEGRATION_SEARCH=1 to run live ciyuanji search")
+	}
+
+	cfg := config.DefaultConfig().ResolveSiteConfig("ciyuanji")
+	cfg.General.Timeout = 20
+	client := NewCiyuanjiSite(cfg)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	results, err := client.Search(ctx, "重生", 5)
+	if err != nil {
+		t.Fatalf("live ciyuanji search: %v", err)
+	}
+	if len(results) == 0 {
+		t.Fatalf("expected live ciyuanji search to return results")
+	}
+	t.Logf("live ciyuanji first result: %+v", results[0])
 }

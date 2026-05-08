@@ -26,6 +26,7 @@ type GeneralConfig struct {
 	StorageBatchSize  int
 	CacheBookInfo     bool
 	CacheChapter      bool
+	DisableCache      bool
 	FetchInaccessible bool
 	Backend           string
 	LocaleStyle       string
@@ -111,6 +112,7 @@ type SiteConfig struct {
 	StorageBatchSize  *int
 	CacheBookInfo     *bool
 	CacheChapter      *bool
+	DisableCache      *bool
 	FetchInaccessible *bool
 	Backend           string
 	LocaleStyle       string
@@ -191,6 +193,9 @@ func (c Config) ResolveSiteConfig(site string) ResolvedSiteConfig {
 	}
 	if siteCfg.CacheChapter != nil {
 		resolved.General.CacheChapter = *siteCfg.CacheChapter
+	}
+	if siteCfg.DisableCache != nil {
+		resolved.General.DisableCache = *siteCfg.DisableCache
 	}
 	if siteCfg.FetchInaccessible != nil {
 		resolved.General.FetchInaccessible = *siteCfg.FetchInaccessible

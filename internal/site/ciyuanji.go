@@ -3,7 +3,10 @@ package site
 import (
 	"context"
 	"crypto/des"
+	"crypto/md5"
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -28,7 +31,20 @@ var (
 	ciyuanjiKey            = []byte("ZUreQN0E")
 )
 
-const minCiyuanjiRequestInterval = time.Second
+const (
+	ciyuanjiDesktopBase           = "https://www.ciyuanji.com"
+	ciyuanjiMobileBase            = "https://m.ciyuanji.com"
+	ciyuanjiMobileAPISignKey      = "NpkTYvpvhJjEog8Y051gQDHmReY54z5t3F0zSd9QEFuxWGqfC8g8Y4GPuabq0KPdxArlji4dSnnHCARHnkqYBLu7iIw55ibTo18"
+	minCiyuanjiRequestInterval    = time.Second
+	defaultCiyuanjiMobilePageSize = 10
+)
+
+type ciyuanjiMobileAPIResponse struct {
+	Code string          `json:"code"`
+	Msg  string          `json:"msg"`
+	OK   bool            `json:"ok"`
+	Data json.RawMessage `json:"data"`
+}
 
 type CiyuanjiSite struct {
 	cfg    config.ResolvedSiteConfig
@@ -41,7 +57,10 @@ func NewCiyuanjiSite(cfg config.ResolvedSiteConfig) *CiyuanjiSite {
 	if cfg.General.Timeout > 0 {
 		timeout = time.Duration(cfg.General.Timeout * float64(time.Second))
 	}
-	client := &http.Client{Timeout: timeout}
+	client := newSiteHTTPClient(timeout, siteHTTPClientOptions{
+		Direct:       true,
+		DisableHTTP2: true,
+	})
 	return &CiyuanjiSite{cfg: cfg, html: NewHTMLSite(client), client: client}
 }
 
@@ -61,10 +80,23 @@ func (s *CiyuanjiSite) ResolveURL(rawURL string) (*ResolvedURL, bool) {
 		return nil, false
 	}
 	if m := ciyuanjiChapterRe.FindStringSubmatch(parsed.Path); len(m) == 3 {
-		return &ResolvedURL{SiteKey: s.Key(), BookID: m[1], ChapterID: m[2], Canonical: "https://www.ciyuanji.com" + parsed.Path}, true
+		return &ResolvedURL{SiteKey: s.Key(), BookID: m[1], ChapterID: m[2], Canonical: ciyuanjiDesktopBase + parsed.Path}, true
 	}
 	if m := ciyuanjiBookRe.FindStringSubmatch(parsed.Path); len(m) == 2 {
-		return &ResolvedURL{SiteKey: s.Key(), BookID: m[1], Canonical: "https://www.ciyuanji.com" + parsed.Path}, true
+		return &ResolvedURL{SiteKey: s.Key(), BookID: m[1], Canonical: ciyuanjiDesktopBase + parsed.Path}, true
+	}
+	if parsed.Path == "/bookDetails" {
+		bookID := strings.TrimSpace(parsed.Query().Get("bookId"))
+		if bookID != "" {
+			return &ResolvedURL{SiteKey: s.Key(), BookID: bookID, Canonical: ciyuanjiMobileBookURL(bookID)}, true
+		}
+	}
+	if parsed.Path == "/chapter" {
+		bookID := strings.TrimSpace(parsed.Query().Get("bookId"))
+		chapterID := strings.TrimSpace(parsed.Query().Get("chapterId"))
+		if bookID != "" && chapterID != "" {
+			return &ResolvedURL{SiteKey: s.Key(), BookID: bookID, ChapterID: chapterID, Canonical: ciyuanjiMobileChapterURL(bookID, chapterID)}, true
+		}
 	}
 	return nil, false
 }
@@ -86,8 +118,8 @@ func (s *CiyuanjiSite) Download(ctx context.Context, ref model.BookRef) (*model.
 }
 
 func (s *CiyuanjiSite) DownloadPlan(ctx context.Context, ref model.BookRef) (*model.Book, error) {
-	bookURL := fmt.Sprintf("https://www.ciyuanji.com/b_d_%s.html", ref.BookID)
-	markup, err := s.getPage(ctx, bookURL, "")
+	bookURL := ciyuanjiMobileBookURL(ref.BookID)
+	markup, err := s.getPage(ctx, bookURL, ciyuanjiMobileBase+"/")
 	if err != nil {
 		return nil, err
 	}
@@ -118,6 +150,16 @@ func (s *CiyuanjiSite) DownloadPlan(ctx context.Context, ref model.BookRef) (*mo
 		book.Title = extractHTMLTitle(markup)
 	}
 
+	catalogMarkup, err := s.getPage(ctx, ciyuanjiMobileCatalogURL(ref.BookID), bookURL)
+	if err == nil {
+		if catalogData, extractErr := extractJSONScript(catalogMarkup, ciyuanjiNextRe); extractErr == nil {
+			if catalogProps := mapPath(catalogData, "props", "pageProps"); catalogProps != nil {
+				pageProps = catalogProps
+				markup = catalogMarkup
+			}
+		}
+	}
+
 	chapters := s.buildCiyuanjiChapters(pageProps, markup, ref.BookID)
 	book.Chapters = applyChapterRange(chapters, ref)
 	return book, nil
@@ -127,8 +169,8 @@ func (s *CiyuanjiSite) FetchChapter(ctx context.Context, bookID string, chapter 
 	if err := s.waitRequestInterval(ctx); err != nil {
 		return chapter, err
 	}
-	bookURL := fmt.Sprintf("https://www.ciyuanji.com/b_d_%s.html", bookID)
-	chapterURL := fmt.Sprintf("https://www.ciyuanji.com/chapter/%s_%s.html", bookID, chapter.ID)
+	bookURL := ciyuanjiMobileBookURL(bookID)
+	chapterURL := ciyuanjiMobileChapterURL(bookID, chapter.ID)
 	markup, err := s.getChapterPage(ctx, chapterURL, bookURL)
 	if err != nil {
 		return chapter, err
@@ -179,7 +221,12 @@ func (s *CiyuanjiSite) Search(ctx context.Context, keyword string, limit int) ([
 		limit = 30
 	}
 
-	markup, err := s.getPage(ctx, ciyuanjiSearchPageURL(keyword), "https://www.ciyuanji.com/")
+	mobileResults, err := s.searchMobile(ctx, keyword, limit)
+	if err == nil {
+		return mobileResults, nil
+	}
+
+	markup, err := s.getPage(ctx, ciyuanjiSearchPageURL(keyword), ciyuanjiMobileBase+"/")
 	if err != nil {
 		return nil, err
 	}
@@ -327,7 +374,7 @@ func (s *CiyuanjiSite) buildCiyuanjiChapters(pageProps map[string]any, markup, b
 		chapters = append(chapters, model.Chapter{
 			ID:     item.chapterID,
 			Title:  item.title,
-			URL:    fmt.Sprintf("https://www.ciyuanji.com/chapter/%s_%s.html", bookID, item.chapterID),
+			URL:    ciyuanjiMobileChapterURL(bookID, item.chapterID),
 			Volume: item.volume,
 			Order:  len(chapters) + 1,
 		})
@@ -366,7 +413,7 @@ func (s *CiyuanjiSite) buildRenderedCiyuanjiChapters(markup, bookID string) []mo
 			chapters = append(chapters, model.Chapter{
 				ID:     match[2],
 				Title:  cleanText(nodeText(a)),
-				URL:    absolutizeURL("https://www.ciyuanji.com", href),
+				URL:    ciyuanjiMobileChapterURL(bookID, match[2]),
 				Volume: currentVolume,
 				Order:  len(chapters) + 1,
 			})
@@ -426,6 +473,35 @@ func decryptCiyuanji(content string) (string, error) {
 		return "", err
 	}
 	return string(out), nil
+}
+
+func encryptCiyuanji(content string) (string, error) {
+	block, err := des.NewCipher(ciyuanjiKey)
+	if err != nil {
+		return "", err
+	}
+	raw := pkcs5Pad([]byte(content), block.BlockSize())
+	out := make([]byte, len(raw))
+	for i := 0; i < len(raw); i += block.BlockSize() {
+		block.Encrypt(out[i:i+block.BlockSize()], raw[i:i+block.BlockSize()])
+	}
+	return base64.StdEncoding.EncodeToString(out), nil
+}
+
+func pkcs5Pad(data []byte, size int) []byte {
+	if size <= 0 {
+		return append([]byte(nil), data...)
+	}
+	pad := size - len(data)%size
+	if pad == 0 {
+		pad = size
+	}
+	out := make([]byte, 0, len(data)+pad)
+	out = append(out, data...)
+	for idx := 0; idx < pad; idx++ {
+		out = append(out, byte(pad))
+	}
+	return out
 }
 
 func pkcs5Unpad(data []byte, size int) ([]byte, error) {
@@ -542,7 +618,7 @@ func sleepContext(ctx context.Context, delay time.Duration) error {
 
 func (s *CiyuanjiSite) searchJSONPage(ctx context.Context, buildID, keyword string, page int) ([]model.SearchResult, int, error) {
 	rawURL := fmt.Sprintf(
-		"https://www.ciyuanji.com/_next/data/%s/library/card/0_0_0_0_1_%d_10.json?search=%s",
+		ciyuanjiDesktopBase+"/_next/data/%s/library/card/0_0_0_0_1_%d_10.json?search=%s",
 		url.PathEscape(strings.TrimSpace(buildID)),
 		page,
 		url.QueryEscape(keyword),
@@ -568,7 +644,155 @@ func (s *CiyuanjiSite) searchJSONPage(ctx context.Context, buildID, keyword stri
 }
 
 func ciyuanjiSearchPageURL(keyword string) string {
-	return "https://www.ciyuanji.com/l_c_0_0_0_0_1?search=" + url.QueryEscape(keyword)
+	return ciyuanjiMobileBase + "/search/list?keyword=" + url.QueryEscape(keyword)
+}
+
+func ciyuanjiMobileBookURL(bookID string) string {
+	return ciyuanjiMobileBase + "/bookDetails?bookId=" + url.QueryEscape(strings.TrimSpace(bookID))
+}
+
+func ciyuanjiMobileCatalogURL(bookID string) string {
+	return ciyuanjiMobileBase + "/bookDetails/catalog?bookId=" + url.QueryEscape(strings.TrimSpace(bookID))
+}
+
+func ciyuanjiMobileChapterURL(bookID, chapterID string) string {
+	values := url.Values{}
+	values.Set("chapterId", strings.TrimSpace(chapterID))
+	values.Set("bookId", strings.TrimSpace(bookID))
+	return ciyuanjiMobileBase + "/chapter?" + values.Encode()
+}
+
+func (s *CiyuanjiSite) searchMobile(ctx context.Context, keyword string, limit int) ([]model.SearchResult, error) {
+	pageSize := limit
+	if pageSize <= 0 {
+		pageSize = defaultCiyuanjiMobilePageSize
+	}
+	if pageSize > 30 {
+		pageSize = 30
+	}
+
+	var payload struct {
+		ESBookList []map[string]any `json:"esBookList"`
+	}
+	if err := s.mobileAPIGet(ctx, "/mciyuanji/m/book/searchBookList", map[string]any{
+		"keyword":  keyword,
+		"pageNo":   1,
+		"pageSize": pageSize,
+	}, &payload); err != nil {
+		return nil, err
+	}
+
+	results := make([]model.SearchResult, 0, len(payload.ESBookList))
+	seen := make(map[string]struct{}, len(payload.ESBookList))
+	for _, book := range payload.ESBookList {
+		bookID := stringValue(book["bookId"])
+		if bookID == "" {
+			continue
+		}
+		if _, ok := seen[bookID]; ok {
+			continue
+		}
+		seen[bookID] = struct{}{}
+		results = append(results, model.SearchResult{
+			Site:          "ciyuanji",
+			BookID:        bookID,
+			Title:         cleanText(stringValue(book["bookName"])),
+			Author:        cleanText(stringValue(book["authorName"])),
+			Description:   cleanText(stringValue(book["notes"])),
+			URL:           ciyuanjiMobileBookURL(bookID),
+			LatestChapter: cleanText(stringValue(book["latestChapterName"])),
+			CoverURL:      absolutizeURL(ciyuanjiMobileBase, stringValue(book["imgUrl"])),
+		})
+		if limit > 0 && len(results) >= limit {
+			break
+		}
+	}
+	return results, nil
+}
+
+func (s *CiyuanjiSite) mobileAPIGet(ctx context.Context, endpoint string, payload map[string]any, target any) error {
+	values, err := ciyuanjiMobileAPIValues(payload)
+	if err != nil {
+		return err
+	}
+	rawURL := ciyuanjiMobileBase + "/api" + endpoint + "?" + values.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("User-Agent", defaultBrowserUserAgent)
+	req.Header.Set("Accept", "application/json, text/plain, */*")
+	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+	req.Header.Set("Referer", ciyuanjiMobileBase+"/")
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("ciyuanji mobile api http %d", resp.StatusCode)
+	}
+
+	var wrapper ciyuanjiMobileAPIResponse
+	if err := json.NewDecoder(resp.Body).Decode(&wrapper); err != nil {
+		return err
+	}
+	if wrapper.Code != "" && wrapper.Code != "200" {
+		return fmt.Errorf("ciyuanji mobile api %s: %s", wrapper.Code, wrapper.Msg)
+	}
+	if target == nil {
+		return nil
+	}
+	if len(wrapper.Data) == 0 || string(wrapper.Data) == "null" {
+		return nil
+	}
+	return json.Unmarshal(wrapper.Data, target)
+}
+
+func ciyuanjiMobileAPIValues(payload map[string]any) (url.Values, error) {
+	requestID := ciyuanjiRequestID()
+	timestamp := time.Now().UnixMilli()
+	signedPayload := make(map[string]any, len(payload)+1)
+	for key, value := range payload {
+		signedPayload[key] = value
+	}
+	signedPayload["timestamp"] = timestamp
+
+	rawPayload, err := json.Marshal(signedPayload)
+	if err != nil {
+		return nil, err
+	}
+	param, err := encryptCiyuanji(string(rawPayload))
+	if err != nil {
+		return nil, err
+	}
+
+	signSource := fmt.Sprintf("param=%s&requestId=%s&timestamp=%d&key=%s", param, requestID, timestamp, ciyuanjiMobileAPISignKey)
+	signInput := base64.StdEncoding.EncodeToString([]byte(signSource))
+	sum := md5.Sum([]byte(signInput))
+	values := url.Values{}
+	values.Set("requestId", requestID)
+	values.Set("timestamp", fmt.Sprintf("%d", timestamp))
+	values.Set("param", param)
+	values.Set("sign", strings.ToUpper(hex.EncodeToString(sum[:])))
+	return values, nil
+}
+
+func ciyuanjiRequestID() string {
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err == nil {
+		raw[6] = (raw[6] & 0x0f) | 0x40
+		raw[8] = (raw[8] & 0x3f) | 0x80
+		return fmt.Sprintf("%s-%s-%s-%s-%s",
+			hex.EncodeToString(raw[0:4]),
+			hex.EncodeToString(raw[4:6]),
+			hex.EncodeToString(raw[6:8]),
+			hex.EncodeToString(raw[8:10]),
+			hex.EncodeToString(raw[10:16]),
+		)
+	}
+	return fmt.Sprintf("%d", time.Now().UnixNano())
 }
 
 func parseCiyuanjiSearchFirstPage(markup string) ([]model.SearchResult, bool, string, error) {
@@ -624,9 +848,9 @@ func parseCiyuanjiSearchFirstPage(markup string) ([]model.SearchResult, bool, st
 			Description: cleanText(nodeTextPreserveLineBreaks(findFirst(item, func(n *html.Node) bool {
 				return n.Type == html.ElementNode && n.Data == "p" && hasClassContains(n, "BookCard_desc__")
 			}))),
-			URL:           absolutizeURL("https://www.ciyuanji.com", attrValue(titleLink, "href")),
+			URL:           absolutizeURL(ciyuanjiDesktopBase, attrValue(titleLink, "href")),
 			LatestChapter: latest,
-			CoverURL:      absolutizeURL("https://www.ciyuanji.com", fallback(attrValue(cover, "data-src"), attrValue(cover, "src"))),
+			CoverURL:      absolutizeURL(ciyuanjiDesktopBase, fallback(attrValue(cover, "data-src"), attrValue(cover, "src"))),
 		})
 	}
 
@@ -675,9 +899,9 @@ func parseCiyuanjiSearchJSONPage(r io.Reader) ([]model.SearchResult, int, error)
 			Title:         cleanText(stringValue(book["bookName"])),
 			Author:        cleanText(stringValue(book["authorName"])),
 			Description:   cleanText(stringValue(book["notes"])),
-			URL:           fmt.Sprintf("https://www.ciyuanji.com/b_d_%s.html", bookID),
+			URL:           ciyuanjiMobileBookURL(bookID),
 			LatestChapter: cleanText(stringValue(book["latestChapterName"])),
-			CoverURL:      absolutizeURL("https://www.ciyuanji.com", stringValue(book["imgUrl"])),
+			CoverURL:      absolutizeURL(ciyuanjiMobileBase, stringValue(book["imgUrl"])),
 		})
 	}
 	return results, totalCount, nil

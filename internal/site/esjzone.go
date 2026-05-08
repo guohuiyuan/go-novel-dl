@@ -167,9 +167,6 @@ func (s *ESJZoneSite) DownloadPlan(ctx context.Context, ref model.BookRef) (*mod
 	if ref.BookID == "" {
 		return nil, fmt.Errorf("book id is required")
 	}
-	if err := s.ensureLogin(ctx); err != nil {
-		return nil, err
-	}
 
 	bookPage, bookURL, err := s.fetchBookPage(ctx, ref.BookID)
 	if err != nil {
@@ -206,9 +203,6 @@ func (s *ESJZoneSite) Search(ctx context.Context, keyword string, limit int) ([]
 	keyword = strings.TrimSpace(keyword)
 	if keyword == "" {
 		return nil, nil
-	}
-	if err := s.ensureLogin(ctx); err != nil {
-		return nil, err
 	}
 
 	encoded := url.PathEscape(keyword)
@@ -294,15 +288,26 @@ func shouldEnrichESJSearch(ctx context.Context, limit, size int) bool {
 }
 
 func (s *ESJZoneSite) fetchBookPage(ctx context.Context, bookID string) (string, string, error) {
-	if err := s.ensureLogin(ctx); err != nil {
-		return "", "", err
-	}
 	return s.fetchBookPageFromAnyHost(ctx, bookID)
 }
 
 func (s *ESJZoneSite) fetchChapterContent(ctx context.Context, bookID, chapterID string) (string, error) {
-	if err := s.ensureLogin(ctx); err != nil {
+	if s.shouldPreAuthenticate() {
+		if err := s.ensureLogin(ctx); err != nil {
+			return "", err
+		}
+		return s.fetchChapterFromAnyHost(ctx, bookID, chapterID)
+	}
+
+	content, err := s.fetchChapterFromAnyHost(ctx, bookID, chapterID)
+	if err == nil {
+		return content, nil
+	}
+	if !isESJLoginRequiredError(err) {
 		return "", err
+	}
+	if loginErr := s.ensureLogin(ctx); loginErr != nil {
+		return "", loginErr
 	}
 	return s.fetchChapterFromAnyHost(ctx, bookID, chapterID)
 }
@@ -324,7 +329,7 @@ func (s *ESJZoneSite) fetchSearchFromAnyHost(ctx context.Context, encodedKeyword
 		host := host
 		go func() {
 			started := time.Now().UTC()
-			hostCtx, hostCancel := context.WithTimeout(ctx, s.perHostTimeout(8*time.Second))
+			hostCtx, hostCancel := context.WithTimeout(ctx, s.perHostTimeout(5*time.Second))
 			defer hostCancel()
 			pageURL := host + "/tags/" + encodedKeyword + "/"
 			markup, err := s.html.Get(hostCtx, pageURL)
@@ -584,6 +589,22 @@ func (s *ESJZoneSite) ensureLogin(ctx context.Context) error {
 	s.markSessionValidAt(true, time.Now().UTC())
 	_ = s.saveCookiesToConfigStore()
 	return nil
+}
+
+func (s *ESJZoneSite) shouldPreAuthenticate() bool {
+	if !s.cfg.General.LoginRequired {
+		return false
+	}
+	return strings.TrimSpace(s.cfg.Cookie) != "" ||
+		(strings.TrimSpace(s.cfg.Username) != "" && strings.TrimSpace(s.cfg.Password) != "") ||
+		s.hasAuthCookies()
+}
+
+func isESJLoginRequiredError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "login required")
 }
 
 func (s *ESJZoneSite) isSessionValid() bool {

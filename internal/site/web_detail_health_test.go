@@ -30,7 +30,7 @@ func TestManualWebSourceDetailHealth(t *testing.T) {
 
 	testCases := []webDetailHealthCase{
 		{siteKey: "ciweimao", keyword: "Gal姝﹀湥", timeout: 90 * time.Second},
-		{siteKey: "ciyuanji", keyword: "鏂楃綏", timeout: 90 * time.Second},
+		{siteKey: "ciyuanji", keyword: "重生", timeout: 90 * time.Second},
 		{siteKey: "faloo", keyword: "鍘熺锛氬姞鎶ゅ湪韬?", timeout: 2 * time.Minute},
 		{siteKey: "fsshu", keyword: "浠栦滑瓒婂弽瀵癸紝瓒婃槸璇存槑鎴戝仛瀵逛簡", timeout: 90 * time.Second},
 		{siteKey: "ixdzs8", keyword: "斗罗", timeout: 90 * time.Second},

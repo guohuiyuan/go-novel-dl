@@ -2,6 +2,7 @@ package site
 
 import (
 	"context"
+	"encoding/xml"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -197,6 +198,9 @@ func (s *N23QBSite) Search(ctx context.Context, keyword string, limit int) ([]mo
 
 	markup, err := s.html.Get(ctx, "https://www.23qb.com/search.html?searchkey="+url.QueryEscape(keyword))
 	if err != nil {
+		if isN23QBSearchBlocked(err) {
+			return s.searchSitemap(ctx, keyword, limit)
+		}
 		return nil, err
 	}
 	results, err := parseN23QBSearchResults(markup)
@@ -208,6 +212,81 @@ func (s *N23QBSite) Search(ctx context.Context, keyword string, limit int) ([]mo
 	}
 	enrichSearchResultsParallel(ctx, results, 6, s.populateSearchDetail)
 	return results, nil
+}
+
+func (s *N23QBSite) searchSitemap(ctx context.Context, keyword string, limit int) ([]model.SearchResult, error) {
+	items, err := cachedSearchResults(ctx, s.cfg.General.CacheDir, s.Key(), defaultSearchIndexTTL, s.cfg.General.DisableCache, s.buildSearchIndex)
+	if err != nil {
+		return nil, err
+	}
+	return searchCachedResults(items, keyword, limit), nil
+}
+
+func (s *N23QBSite) buildSearchIndex(ctx context.Context) ([]model.SearchResult, error) {
+	markup, err := s.html.Get(ctx, "https://www.23qb.com/sitemap.xml")
+	if err != nil {
+		return nil, err
+	}
+	return parseN23QBSitemap(markup)
+}
+
+type n23QBSitemapRSS struct {
+	Items []n23QBSitemapItem `xml:"channel>item"`
+}
+
+type n23QBSitemapItem struct {
+	Title  string `xml:"title"`
+	Link   string `xml:"link"`
+	Image  string `xml:"image"`
+	Author string `xml:"author"`
+	Date   string `xml:"pubDate"`
+}
+
+func parseN23QBSitemap(markup string) ([]model.SearchResult, error) {
+	var payload n23QBSitemapRSS
+	if err := xml.Unmarshal([]byte(markup), &payload); err != nil {
+		return nil, err
+	}
+	results := make([]model.SearchResult, 0, len(payload.Items))
+	seen := make(map[string]struct{}, len(payload.Items))
+	for _, entry := range payload.Items {
+		rawURL := strings.TrimSpace(entry.Link)
+		parsed, err := normalizeURL(rawURL)
+		if err != nil {
+			continue
+		}
+		match := n23qbBookRe.FindStringSubmatch(parsed.Path)
+		if len(match) != 2 {
+			continue
+		}
+		bookID := match[1]
+		if _, exists := seen[bookID]; exists {
+			continue
+		}
+		title := cleanText(entry.Title)
+		if title == "" {
+			continue
+		}
+		seen[bookID] = struct{}{}
+		results = append(results, model.SearchResult{
+			Site:          "n23qb",
+			BookID:        bookID,
+			Title:         title,
+			Author:        cleanText(entry.Author),
+			Description:   cleanText(entry.Date),
+			URL:           fmt.Sprintf("https://www.23qb.com/book/%s/", bookID),
+			CoverURL:      strings.TrimSpace(entry.Image),
+			LatestChapter: cleanText(entry.Date),
+		})
+	}
+	return dedupeSearchResults(results), nil
+}
+
+func isN23QBSearchBlocked(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "http 403")
 }
 
 func parseN23QBSearchResults(markup string) ([]model.SearchResult, error) {

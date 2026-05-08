@@ -350,7 +350,7 @@ func (s *TongrensheSite) searchNative(ctx context.Context, keyword string, limit
 }
 
 func (s *TongrensheSite) searchCatalogFallback(ctx context.Context, keyword string, limit int) ([]model.SearchResult, error) {
-	items, err := cachedSearchResults(ctx, s.cfg.General.CacheDir, s.Key(), defaultSearchIndexTTL, s.buildSearchIndex)
+	items, err := cachedSearchResults(ctx, s.cfg.General.CacheDir, s.Key(), defaultSearchIndexTTL, s.cfg.General.DisableCache, s.buildSearchIndex)
 	if err != nil {
 		return nil, err
 	}

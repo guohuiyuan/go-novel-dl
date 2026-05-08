@@ -9,6 +9,7 @@ import (
 	"github.com/guohuiyuan/go-novel-dl/internal/config"
 	"github.com/guohuiyuan/go-novel-dl/internal/model"
 	"github.com/guohuiyuan/go-novel-dl/internal/site"
+	"github.com/guohuiyuan/go-novel-dl/internal/store"
 	"github.com/guohuiyuan/go-novel-dl/internal/ui"
 )
 
@@ -124,6 +125,49 @@ func TestDownloadAppliesLocaleConversionAfterFetch(t *testing.T) {
 	}
 }
 
+func TestDownloadDisableCacheSkipsExistingRawChapters(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := config.DefaultConfig()
+	cfg.General.RawDataDir = tmp
+	cfg.General.OutputDir = tmp
+	cfg.General.CacheDir = tmp
+	cfg.General.DisableCache = true
+
+	cached := &model.Book{
+		Site:  "fake",
+		ID:    "b1",
+		Title: "cached",
+		Chapters: []model.Chapter{{
+			ID:         "1",
+			Title:      "chapter",
+			Content:    "bad cached content",
+			Downloaded: true,
+		}},
+	}
+	if err := store.NewLibrary(tmp).SaveBookStage("fake", "raw", cached); err != nil {
+		t.Fatalf("seed cached book: %v", err)
+	}
+
+	console := ui.NewConsole(strings.NewReader(""), io.Discard, io.Discard)
+	runtime := NewRuntime(&cfg, console)
+	registry := site.NewRegistry()
+	registry.Register("fake", func(cfg config.ResolvedSiteConfig) site.Site {
+		return cacheTestSite{}
+	})
+	runtime.Registry = registry
+
+	results, err := runtime.Download(context.Background(), "fake", []model.BookRef{{BookID: "b1"}}, nil, true)
+	if err != nil {
+		t.Fatalf("download failed: %v", err)
+	}
+	if len(results) != 1 || len(results[0].Book.Chapters) != 1 {
+		t.Fatalf("unexpected download result: %+v", results)
+	}
+	if got := results[0].Book.Chapters[0].Content; got != "fresh content" {
+		t.Fatalf("expected fresh content when cache disabled, got %q", got)
+	}
+}
+
 type fakeDownloadSite struct {
 	locale string
 }
@@ -163,5 +207,45 @@ func (s fakeDownloadSite) Search(ctx context.Context, keyword string, limit int)
 }
 
 func (s fakeDownloadSite) ResolveURL(rawURL string) (*site.ResolvedURL, bool) {
+	return nil, false
+}
+
+type cacheTestSite struct{}
+
+func (s cacheTestSite) Key() string { return "fake" }
+
+func (s cacheTestSite) DisplayName() string { return "fake" }
+
+func (s cacheTestSite) Capabilities() site.Capabilities {
+	return site.Capabilities{Download: true, Search: true}
+}
+
+func (s cacheTestSite) DownloadPlan(ctx context.Context, ref model.BookRef) (*model.Book, error) {
+	return &model.Book{
+		Site:  "fake",
+		ID:    ref.BookID,
+		Title: "fresh",
+		Chapters: []model.Chapter{{
+			ID:    "1",
+			Title: "chapter",
+		}},
+	}, nil
+}
+
+func (s cacheTestSite) FetchChapter(ctx context.Context, bookID string, chapter model.Chapter) (model.Chapter, error) {
+	chapter.Content = "fresh content"
+	chapter.Downloaded = true
+	return chapter, nil
+}
+
+func (s cacheTestSite) Download(ctx context.Context, ref model.BookRef) (*model.Book, error) {
+	return nil, nil
+}
+
+func (s cacheTestSite) Search(ctx context.Context, keyword string, limit int) ([]model.SearchResult, error) {
+	return nil, nil
+}
+
+func (s cacheTestSite) ResolveURL(rawURL string) (*site.ResolvedURL, bool) {
 	return nil, false
 }

@@ -315,7 +315,7 @@ func (s *TianyabooksSite) Search(ctx context.Context, keyword string, limit int)
 		limit = 30
 	}
 
-	items, err := cachedSearchResults(ctx, s.cfg.General.CacheDir, s.Key(), defaultSearchIndexTTL, s.buildSearchIndex)
+	items, err := cachedSearchResults(ctx, s.cfg.General.CacheDir, s.Key(), defaultSearchIndexTTL, s.cfg.General.DisableCache, s.buildSearchIndex)
 	if err != nil {
 		return nil, err
 	}
@@ -336,7 +336,7 @@ func (s *TianyabooksSite) buildSearchIndex(ctx context.Context) ([]model.SearchR
 	}
 
 	pages := make([][]model.SearchResult, len(authorPaths))
-	workerCount := 4
+	workerCount := 8
 	if len(authorPaths) < workerCount {
 		workerCount = len(authorPaths)
 	}
@@ -345,7 +345,6 @@ func (s *TianyabooksSite) buildSearchIndex(ctx context.Context) ([]model.SearchR
 	defer cancel()
 
 	jobs := make(chan int)
-	errCh := make(chan error, 1)
 	var wg sync.WaitGroup
 	for worker := 0; worker < workerCount; worker++ {
 		wg.Add(1)
@@ -357,24 +356,11 @@ func (s *TianyabooksSite) buildSearchIndex(ctx context.Context) ([]model.SearchR
 				}
 				markup, err := s.getWithRetry(buildCtx, strings.TrimRight(s.base, "/")+authorPaths[idx])
 				if err != nil {
-					if strings.Contains(strings.ToLower(err.Error()), "http 404") {
-						continue
-					}
-					select {
-					case errCh <- fmt.Errorf("tianyabooks author page %s: %w", authorPaths[idx], err):
-					default:
-					}
-					cancel()
-					return
+					continue
 				}
 				items, err := parseTianyabooksAuthorPage(markup, s.base)
 				if err != nil {
-					select {
-					case errCh <- fmt.Errorf("tianyabooks parse author page %s: %w", authorPaths[idx], err):
-					default:
-					}
-					cancel()
-					return
+					continue
 				}
 				pages[idx] = items
 			}
@@ -391,12 +377,6 @@ enqueue:
 	}
 	close(jobs)
 	wg.Wait()
-
-	select {
-	case err := <-errCh:
-		return nil, err
-	default:
-	}
 
 	all := make([]model.SearchResult, 0, len(authorPaths)*3)
 	for _, items := range pages {
@@ -423,11 +403,11 @@ func (s *TianyabooksSite) loadAuthorPaths(ctx context.Context, writerPaths []str
 	for _, writerPath := range writerPaths {
 		markup, err := s.getWithRetry(ctx, strings.TrimRight(s.base, "/")+writerPath)
 		if err != nil {
-			return nil, err
+			continue
 		}
 		items, err := parseTianyabooksAuthorPaths(markup, s.base)
 		if err != nil {
-			return nil, err
+			continue
 		}
 		for _, item := range items {
 			if _, ok := seen[item]; ok {
@@ -741,6 +721,8 @@ func shouldUseTianyabooksNativeFallback(err error) bool {
 	message := strings.ToLower(err.Error())
 	return strings.Contains(message, "forcibly closed") ||
 		strings.Contains(message, "connection reset") ||
+		strings.Contains(message, "wsarecv") ||
+		strings.Contains(message, "tls handshake timeout") ||
 		strings.Contains(message, "ssl_connect") ||
 		strings.Contains(message, "unexpected eof")
 }

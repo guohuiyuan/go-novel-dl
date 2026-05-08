@@ -41,6 +41,7 @@ func DefaultConfig() Config {
 			StorageBatchSize:  1,
 			CacheBookInfo:     true,
 			CacheChapter:      true,
+			DisableCache:      false,
 			FetchInaccessible: false,
 			Backend:           "nethttp",
 			LocaleStyle:       "simplified",
@@ -78,7 +79,7 @@ func DefaultConfig() Config {
 			},
 			"esjzone": {
 				BookIDs:       []model.BookRef{{BookID: "1660702902"}},
-				LoginRequired: boolPtr(true),
+				LoginRequired: boolPtr(false),
 				MirrorHosts:   []string{"https://www.esjzone.one"},
 			},
 			"westnovel": {

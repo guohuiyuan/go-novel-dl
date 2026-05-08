@@ -174,6 +174,7 @@ const generalLocaleStyleNode = document.getElementById("generalLocaleStyle");
 const generalFormatsNode = document.getElementById("generalFormats");
 const generalAppendTimestampNode = document.getElementById("generalAppendTimestamp");
 const generalIncludePictureNode = document.getElementById("generalIncludePicture");
+const generalDisableCacheNode = document.getElementById("generalDisableCache");
 const generalBlurWebImagesNode = document.getElementById("generalBlurWebImages");
 const generalBlurWebImagesLabelNode = generalBlurWebImagesNode ? generalBlurWebImagesNode.nextElementSibling : null;
 const generalWebPageSizeNode = document.getElementById("generalWebPageSize");
@@ -319,10 +320,6 @@ async function performSearch() {
   const keyword = keywordInput.value.trim();
   if (!keyword) return setStatus("请输入关键词。");
   if (appState.selectedSites.size === 0) return setStatus("请至少选择一个渠道。");
-  if (appState.selectedSites.has("esjzone") && !isESJConfigured()) {
-    showESJConfigPrompt();
-    return setStatus("ESJ Zone 需要先配置 Cookie 或密码。已为你打开配置入口提示。");
-  }
 
   closeDetail();
   appState.lastKeyword = keyword;
@@ -361,9 +358,6 @@ async function performSearch() {
     if (!appState.results.length) return setStatus("没有找到结果。");
     setStatus(`当前显示第 ${appState.page} 页，共 ${totalLabel(appState.total, appState.totalExact)} 条结果。`);
   } catch (error) {
-    if (error && error.payload && error.payload.error_code === "esjzone_config_required") {
-      showESJConfigPrompt();
-    }
     appState.results = []; appState.total = 0; appState.totalExact = true;
     appState.hasPrev = false; appState.hasNext = false;
     renderResults([]); renderWarnings([]); renderPaging(); renderResultMeta();
@@ -906,19 +900,6 @@ function sourceLabel(siteKey) { return sourceLabelMap.get(siteKey) || siteKey ||
 function detailKey(variant) { return `${variant.site}/${variant.book_id}`; }
 function totalLabel(total, exact) { return exact ? `${total}` : `${total}+`; }
 
-function isESJConfigured() {
-  const item = appState.siteConfigs.get("esjzone");
-  if (!item) return false;
-  const hasCookie = Boolean((item.cookie || "").trim());
-  const hasCredentials = Boolean((item.username || "").trim() && (item.password || "").trim());
-  return hasCookie || hasCredentials;
-}
-
-function showESJConfigPrompt() {
-  siteWarnings = [{ site_key: "esjzone", level: "config", message: "ESJ Zone 尚未配置 Cookie 或密码，搜索前请先完成站点配置。", action_label: "打开站点配置", action_link: "#site-config" }];
-  renderSiteWarnings();
-}
-
 async function loadSiteConfigs() {
   try {
     const response = await fetch(`${root}/api/site-configs`);
@@ -990,6 +971,7 @@ function renderGeneralConfigForm(item) {
   generalFormatsNode.value = Array.isArray(item.formats) ? item.formats.join(",") : "txt,epub";
   generalAppendTimestampNode.checked = item.append_timestamp !== false;
   generalIncludePictureNode.checked = item.include_picture !== false;
+  generalDisableCacheNode.checked = item.disable_cache === true;
   generalBlurWebImagesNode.checked = item.blur_web_images === true;
   setRangeVal("generalWebPageSize", item.web_page_size || 50);
   setRangeVal("generalCLIPageSize", item.cli_page_size || 30);
@@ -1020,6 +1002,7 @@ async function saveGeneralConfig() {
     formats: (generalFormatsNode.value || "txt,epub").split(",").map((item) => item.trim()).filter(Boolean),
     append_timestamp: generalAppendTimestampNode.checked,
     include_picture: generalIncludePictureNode.checked,
+    disable_cache: generalDisableCacheNode.checked,
     blur_web_images: generalBlurWebImagesNode.checked,
     web_page_size: Math.max(1, Number.parseInt(generalWebPageSizeNode.value || "50", 10) || 50),
     cli_page_size: Math.max(1, Number.parseInt(generalCLIPageSizeNode.value || "30", 10) || 30),

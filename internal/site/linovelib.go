@@ -213,6 +213,9 @@ func (s *LinovelibSite) getWithRetry(ctx context.Context, rawURL string) (string
 			return markup, nil
 		}
 		lastErr = err
+		if strings.Contains(err.Error(), "http 403") {
+			return "", err
+		}
 		if !strings.Contains(err.Error(), "http 429") && !shouldRetrySiteRequest(err) {
 			return "", err
 		}
@@ -481,7 +484,7 @@ func (s *LinovelibSite) Search(ctx context.Context, keyword string, limit int) (
 		limit = 30
 	}
 
-	items, err := cachedSearchResults(ctx, s.cfg.General.CacheDir, s.Key(), defaultSearchIndexTTL, s.buildSearchIndex)
+	items, err := cachedSearchResults(ctx, s.cfg.General.CacheDir, s.Key(), defaultSearchIndexTTL, s.cfg.General.DisableCache, s.buildSearchIndex)
 	if err != nil {
 		return nil, err
 	}
@@ -560,7 +563,7 @@ func (s *LinovelibSite) buildSearchIndex(ctx context.Context) ([]model.SearchRes
 
 	jobs := make(chan int)
 	collected := make(chan pageResult, totalPages-1)
-	workers := 4
+	workers := 8
 	if workers > totalPages-1 {
 		workers = totalPages - 1
 	}

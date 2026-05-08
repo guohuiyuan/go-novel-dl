@@ -187,22 +187,7 @@ func (s *Service) hasESJAuthConfigured() bool {
 }
 
 func collectSiteWarnings(runtime *app.Runtime) []SiteWarning {
-	if runtime == nil || runtime.Config == nil {
-		return nil
-	}
-	resolved := runtime.Config.ResolveSiteConfig("esjzone")
-	hasCookie := strings.TrimSpace(resolved.Cookie) != ""
-	hasCredentials := strings.TrimSpace(resolved.Username) != "" && strings.TrimSpace(resolved.Password) != ""
-	if hasCookie || hasCredentials {
-		return nil
-	}
-	return []SiteWarning{{
-		SiteKey:     "esjzone",
-		Message:     "ESJ Zone 需要 Cookie 或 用户名+密码 才能访问，请在数据库配置中完成设置。",
-		Level:       "danger",
-		ActionLabel: "打开站点配置",
-		ActionLink:  "#site-config",
-	}}
+	return nil
 }
 
 func collectSiteStats(runtime *app.Runtime) []SiteStat {
@@ -422,13 +407,6 @@ func newRouter(service *Service) *gin.Engine {
 		if looksLikeWebURL(req.Keyword) {
 			response, err := service.resolveURLSearch(c.Request.Context(), req.Keyword)
 			if err != nil {
-				if strings.Contains(err.Error(), "esjzone auth required") {
-					c.JSON(http.StatusBadRequest, gin.H{
-						"error":      "ESJ Zone 未配置 Cookie 或密码，请先在设置中心补全登录信息",
-						"error_code": "esjzone_config_required",
-					})
-					return
-				}
 				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 				return
 			}
@@ -454,13 +432,6 @@ func newRouter(service *Service) *gin.Engine {
 		}
 		if len(sites) == 0 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "no searchable download sources available"})
-			return
-		}
-		if len(sites) == 1 && containsSite(sites, "esjzone") && !service.hasESJAuthConfigured() {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error":      "ESJ Zone 未配置 Cookie 或密码，请先在设置中心补全登录信息",
-				"error_code": "esjzone_config_required",
-			})
 			return
 		}
 		page := clampPositive(req.Page, 1)
@@ -559,10 +530,6 @@ func (s *Service) resolveURLSearch(ctx context.Context, rawURL string) (paginate
 	if _, ok := descriptorKeySet(s.AllSources)[resolved.SiteKey]; !ok {
 		return paginatedSearchResponse{}, fmt.Errorf("该链接所属站点当前不支持 Web 搜索下载")
 	}
-	if resolved.SiteKey == "esjzone" && !s.hasESJAuthConfigured() {
-		return paginatedSearchResponse{}, fmt.Errorf("esjzone auth required")
-	}
-
 	detailCtx, cancel := context.WithTimeout(ctx, detailTimeoutForSite(resolved.SiteKey))
 	defer cancel()
 	book, err := s.bookDetail(detailCtx, resolved.SiteKey, resolved.BookID)

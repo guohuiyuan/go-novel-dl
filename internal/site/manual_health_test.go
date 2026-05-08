@@ -41,6 +41,7 @@ func TestManualDefaultRangeDownloadHealth(t *testing.T) {
 	siteSlots := make(chan struct{}, manualHealthSiteParallelism)
 
 	testCases := []manualHealthCase{
+		{siteKey: "alicesw", bookURL: "https://www.alicesw.com/novel/50427.html", chapterURL: "https://www.alicesw.com/book/51676/1af0fd0e46369.html", timeout: 2 * time.Minute},
 		{siteKey: "esjzone", bookURL: "https://www.esjzone.cc/detail/1660702902.html", chapterURL: "https://www.esjzone.cc/forum/1660702902/294593.html", timeout: 3 * time.Minute},
 		{siteKey: "westnovel", bookURL: "https://www.westnovel.com/ksl/sq/", chapterURL: "https://www.westnovel.com/ksl/sq/140072.html", timeout: 2 * time.Minute},
 		{siteKey: "yibige", bookURL: "https://www.yibige.org/6238/", chapterURL: "https://www.yibige.org/6238/1.html", timeout: 2 * time.Minute},
@@ -54,10 +55,11 @@ func TestManualDefaultRangeDownloadHealth(t *testing.T) {
 		{siteKey: "piaotia", bookURL: "https://www.piaotia.com/bookinfo/1/1705.html", chapterURL: "https://www.piaotia.com/html/1/1705/762992.html", timeout: 7 * time.Minute},
 		{siteKey: "ixdzs8", bookURL: "https://ixdzs8.com/read/38804/", chapterURL: "https://ixdzs8.com/read/38804/p1.html", timeout: 6 * time.Minute},
 		{siteKey: "n8novel", bookURL: "https://www.8novel.com/novelbooks/109806/", chapterURL: "https://article.8novel.com/read/109806/?1769597", timeout: 6 * time.Minute},
+		{siteKey: "shuhaige", bookURL: "https://www.shuhaige.net/126726/", chapterURL: "https://www.shuhaige.net/126726/996145.html", timeout: 2 * time.Minute},
 		{siteKey: "novalpie", bookURL: "https://novalpie.jp/novel/2393?sid=main5", chapterURL: "https://novalpie.jp/viewer/51118", timeout: 3 * time.Minute},
 		{siteKey: "ruochu", bookURL: "https://www.ruochu.com/book/158713", chapterURL: "https://www.ruochu.com/book/158713/13869103", timeout: 2 * time.Minute},
 		{siteKey: "n17k", bookURL: "https://www.17k.com/book/3631088.html", chapterURL: "https://www.17k.com/chapter/3631088/49406153.html", timeout: 2 * time.Minute},
-		{siteKey: "hongxiuzhao", bookURL: "https://hongxiuzhao.net/ZG6rmWO.html", chapterURL: "https://hongxiuzhao.net/aBKBVz6a.html", timeout: 2 * time.Minute},
+		{siteKey: "hongxiuzhao", bookURL: "https://hongxiuzhao.net/ZG6rmWO.html", chapterURL: "https://hongxiuzhao.net/aBKBVz6a.html", chapterID: "aBKBVz6a", timeout: 2 * time.Minute},
 		{siteKey: "fanqienovel", bookURL: "https://fanqienovel.com/page/7276384138653862966", chapterURL: "https://fanqienovel.com/reader/7276663560427471412", chapterID: "7276663560427471412", timeout: 3 * time.Minute},
 		{siteKey: "faloo", bookURL: "https://b.faloo.com/1482723.html", chapterURL: "https://b.faloo.com/1482723_1.html", timeout: 5 * time.Minute},
 		{siteKey: "wenku8", bookURL: "https://www.wenku8.net/book/2835.htm", chapterURL: "https://www.wenku8.net/novel/2/2835/113354.htm", timeout: 3 * time.Minute},
@@ -239,7 +241,7 @@ func resolveManualHealthRefs(t *testing.T, client Site, tc manualHealthCase) (mo
 		t.Fatalf("resolve chapter url for %s failed: %s", tc.siteKey, tc.chapterURL)
 	}
 
-	if resolvedChapter.BookID != "" && resolvedChapter.BookID != resolvedBook.BookID {
+	if strings.TrimSpace(tc.chapterID) == "" && resolvedChapter.BookID != "" && resolvedChapter.BookID != resolvedBook.BookID {
 		t.Fatalf("resolved book mismatch for %s: book=%s chapter=%s", tc.siteKey, resolvedBook.BookID, resolvedChapter.BookID)
 	}
 

@@ -104,12 +104,14 @@ func (r *Runtime) Download(ctx context.Context, siteKey string, books []model.Bo
 	results := make([]DownloadResult, 0, len(books))
 	for _, ref := range books {
 		var existing *store.BookState
-		existing, err = r.Library.LoadBookState(siteKey, ref.BookID, "raw")
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return results, err
-		}
-		if err != nil && errors.Is(err, os.ErrNotExist) {
-			existing = nil
+		if shouldReuseChapterCache(resolved.General) {
+			existing, err = r.Library.LoadBookState(siteKey, ref.BookID, "raw")
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return results, err
+			}
+			if err != nil && errors.Is(err, os.ErrNotExist) {
+				existing = nil
+			}
 		}
 
 		book, err := client.DownloadPlan(ctx, ref)
@@ -256,6 +258,10 @@ func normalizeChapterLocale(chapter model.Chapter, localeStyle string) model.Cha
 	chapter.Content = textconv.ToSimplified(chapter.Content)
 	chapter.Volume = textconv.ToSimplified(chapter.Volume)
 	return chapter
+}
+
+func shouldReuseChapterCache(general config.GeneralConfig) bool {
+	return !general.DisableCache && general.CacheChapter
 }
 
 func mergeExistingChapters(siteKey string, target *model.Book, existing *model.Book) {

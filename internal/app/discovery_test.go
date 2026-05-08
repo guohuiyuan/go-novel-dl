@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/guohuiyuan/go-novel-dl/internal/config"
 	"github.com/guohuiyuan/go-novel-dl/internal/model"
@@ -176,6 +177,48 @@ func TestHybridSearchWarnsForUnsupportedSearchSites(t *testing.T) {
 	}
 }
 
+func TestHybridSearchPerSiteTimeoutKeepsFastSites(t *testing.T) {
+	registry := site.NewRegistry()
+	registry.Register("slow", func(cfg config.ResolvedSiteConfig) site.Site {
+		return fakeSearchSite{
+			key:         "slow",
+			displayName: "Slow",
+			delay:       200 * time.Millisecond,
+			results: []model.SearchResult{
+				{Site: "slow", BookID: "slow", Title: "Slow Result", Author: "A"},
+			},
+		}
+	})
+	registry.Register("fast", func(cfg config.ResolvedSiteConfig) site.Site {
+		return fakeSearchSite{
+			key:         "fast",
+			displayName: "Fast",
+			results: []model.SearchResult{
+				{Site: "fast", BookID: "fast", Title: "Fast Result", Author: "A"},
+			},
+		}
+	})
+
+	runtime := newFakeRuntime(registry)
+	started := time.Now()
+	response, err := runtime.HybridSearch(context.Background(), "Result", HybridSearchOptions{
+		Sites:          []string{"slow", "fast"},
+		PerSiteTimeout: 20 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("HybridSearch returned error: %v", err)
+	}
+	if time.Since(started) > 150*time.Millisecond {
+		t.Fatalf("expected slow site to time out quickly")
+	}
+	if len(response.Results) != 1 || response.Results[0].PreferredSite != "fast" {
+		t.Fatalf("expected fast result to survive, got %+v", response.Results)
+	}
+	if len(response.Warnings) != 1 || response.Warnings[0].Site != "slow" {
+		t.Fatalf("expected slow warning, got %+v", response.Warnings)
+	}
+}
+
 func TestRuntimeExposesDownloadSourcesSeparatelyFromSearchSources(t *testing.T) {
 	registry := site.NewRegistry()
 	registry.Register("ruochu", func(cfg config.ResolvedSiteConfig) site.Site {
@@ -260,6 +303,7 @@ type fakeSearchSite struct {
 	displayName  string
 	results      []model.SearchResult
 	err          error
+	delay        time.Duration
 	capabilities site.Capabilities
 }
 
@@ -294,6 +338,15 @@ func (s fakeSearchSite) Download(ctx context.Context, ref model.BookRef) (*model
 }
 
 func (s fakeSearchSite) Search(ctx context.Context, keyword string, limit int) ([]model.SearchResult, error) {
+	if s.delay > 0 {
+		timer := time.NewTimer(s.delay)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
 	if s.err != nil {
 		return nil, s.err
 	}

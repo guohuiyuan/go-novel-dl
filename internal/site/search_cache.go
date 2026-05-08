@@ -28,7 +28,10 @@ var cachedSearchVariantReplacer = strings.NewReplacer(
 	"祢", "你",
 )
 
-func cachedSearchResults(ctx context.Context, cacheDir, siteKey string, ttl time.Duration, build func(context.Context) ([]model.SearchResult, error)) ([]model.SearchResult, error) {
+func cachedSearchResults(ctx context.Context, cacheDir, siteKey string, ttl time.Duration, disabled bool, build func(context.Context) ([]model.SearchResult, error)) ([]model.SearchResult, error) {
+	if disabled {
+		return build(ctx)
+	}
 	if ttl <= 0 {
 		ttl = defaultSearchIndexTTL
 	}
@@ -36,6 +39,7 @@ func cachedSearchResults(ctx context.Context, cacheDir, siteKey string, ttl time
 	if items, ok := readCachedSearchIndex(cachePath, ttl); ok {
 		return items, nil
 	}
+	staleItems, hasStale := readCachedSearchIndexAny(cachePath)
 
 	lockAny, _ := searchIndexLocks.LoadOrStore(cachePath, &sync.Mutex{})
 	lock := lockAny.(*sync.Mutex)
@@ -45,12 +49,21 @@ func cachedSearchResults(ctx context.Context, cacheDir, siteKey string, ttl time
 	if items, ok := readCachedSearchIndex(cachePath, ttl); ok {
 		return items, nil
 	}
+	if !hasStale {
+		staleItems, hasStale = readCachedSearchIndexAny(cachePath)
+	}
 	if ctx.Err() != nil {
+		if hasStale {
+			return staleItems, nil
+		}
 		return nil, ctx.Err()
 	}
 
 	items, err := build(ctx)
 	if err != nil {
+		if hasStale {
+			return staleItems, nil
+		}
 		return nil, err
 	}
 	if err := writeCachedSearchIndex(cachePath, items); err != nil {
@@ -73,6 +86,22 @@ func readCachedSearchIndex(path string, ttl time.Duration) ([]model.SearchResult
 		return nil, false
 	}
 	if !payload.GeneratedAt.IsZero() && time.Since(payload.GeneratedAt) > ttl {
+		return nil, false
+	}
+	return payload.Items, true
+}
+
+func readCachedSearchIndexAny(path string) ([]model.SearchResult, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, false
+	}
+
+	var payload cachedSearchIndex
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return nil, false
+	}
+	if len(payload.Items) == 0 {
 		return nil, false
 	}
 	return payload.Items, true
