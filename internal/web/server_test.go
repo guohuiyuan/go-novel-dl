@@ -42,8 +42,8 @@ func TestMetaIncludesSearchableDownloadSources(t *testing.T) {
 		t.Fatalf("decode meta payload: %v", err)
 	}
 
-	if len(payload.DefaultSources) != 2 {
-		t.Fatalf("expected 2 default searchable download sources, got %d", len(payload.DefaultSources))
+	if len(payload.DefaultSources) != 3 {
+		t.Fatalf("expected 3 default searchable download sources, got %d", len(payload.DefaultSources))
 	}
 	if len(payload.AllSources) != 3 {
 		t.Fatalf("expected 3 all searchable download sources, got %d", len(payload.AllSources))
@@ -59,8 +59,8 @@ func TestMetaIncludesSearchableDownloadSources(t *testing.T) {
 	if findDescriptor(payload.DefaultSources, "biquge345") == nil {
 		t.Fatalf("expected biquge345 in default web sources")
 	}
-	if findDescriptor(payload.DefaultSources, "yodu") != nil {
-		t.Fatalf("did not expect yodu in default web sources")
+	if findDescriptor(payload.DefaultSources, "yodu") == nil {
+		t.Fatalf("expected yodu in default web sources")
 	}
 	if findDescriptor(payload.AllSources, "biquge345") == nil {
 		t.Fatalf("expected biquge345 in searchable web sources")
@@ -674,11 +674,12 @@ func newTestServiceWithOptions(opts testServiceOptions) *Service {
 	})
 	runtime.Registry = registry
 
+	allSources := searchableDownloadDescriptors(runtime.Registry.SiteDescriptors(runtime.AllSearchSites()))
 	return &Service{
 		Config:         &cfg,
 		Runtime:        runtime,
-		DefaultSources: searchableDownloadDescriptors(runtime.Registry.SiteDescriptors(runtime.DefaultSearchSites())),
-		AllSources:     searchableDownloadDescriptors(runtime.Registry.SiteDescriptors(runtime.AllSearchSites())),
+		DefaultSources: allSources,
+		AllSources:     allSources,
 		Tasks:          NewDownloadTaskStore(),
 		ContentCache:   newWebContentCache(),
 	}

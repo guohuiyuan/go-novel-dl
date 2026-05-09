@@ -165,7 +165,7 @@ func newService(configPath string) (*Service, error) {
 	runtime.Progress = progress.NullReporter{}
 
 	allSources := searchableDownloadDescriptors(runtime.Registry.SiteDescriptors(runtime.AllSearchSites()))
-	defaultSources := searchableDownloadDescriptors(runtime.Registry.SiteDescriptors(runtime.DefaultSearchSites()))
+	defaultSources := allSources
 
 	pageSize := cfg.General.WebPageSize
 	if pageSize <= 0 {

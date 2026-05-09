@@ -12,6 +12,10 @@ var siteMetadata = map[string]SiteMetadata{
 		Title: "爱丽丝书屋",
 		Tags:  []string{"简体中文", "转载站", "成人向", "NSFW"},
 	},
+	"biquge345": {
+		Title: "笔趣阁",
+		Tags:  []string{"简体中文", "转载站", "笔趣阁"},
+	},
 	"ciweimao": {
 		Title: "刺猬猫",
 		Tags:  []string{"简体中文", "二次元", "同人二创", "原创"},
