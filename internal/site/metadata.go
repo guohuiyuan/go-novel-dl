@@ -65,12 +65,8 @@ var siteMetadata = map[string]SiteMetadata{
 		Tags:  []string{"繁体中文", "轻小说", "转载站"},
 	},
 	"novalpie": {
-		Title: "ノベルピア",
-		Tags:  []string{"日文", "原创", "免费", "轻小说", "成人向", "NSFW"},
-	},
-	"novelpia": {
-		Title: "ノベルピア",
-		Tags:  []string{"日文", "原创", "免费", "轻小说", "成人向", "NSFW"},
+		Title: "노벨피아",
+		Tags:  []string{"韩文", "日文", "原创", "免费", "轻小说", "成人向", "NSFW"},
 	},
 	"ruochu": {
 		Title: "若初文学网",
