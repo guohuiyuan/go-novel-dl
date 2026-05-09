@@ -58,6 +58,8 @@ const appState = {
   detailCache: new Map(),
   detailPending: new Map(),
   detailTimings: new Map(),
+  readerCatalogCache: new Map(),
+  readerCatalogPending: new Map(),
   detailResult: null,
   activeDetailKey: "",
   activeDetailVariant: null,
@@ -924,14 +926,14 @@ function renderDetail(result, variant, detail, loading, errorMessage) {
   else if (!chapters.length) chapterSection.appendChild(createEmptyInline("当前源没有返回章节列表。"));
   else {
     if (chapterPage.total > chapterPage.page_size) chapterSection.appendChild(createChapterPaging(result, activeVariant, chapterPage));
-    chapterSection.appendChild(renderChapterList(chapters, chapterOffset));
+    chapterSection.appendChild(renderChapterList(result, activeVariant, chapters, chapterOffset, chapterPage));
     if (chapterPage.total > chapterPage.page_size) chapterSection.appendChild(createChapterPaging(result, activeVariant, chapterPage));
   }
 
   detailContentNode.appendChild(chapterSection);
 }
 
-function renderChapterList(chapters, chapterOffset = 0) {
+function renderChapterList(result, variant, chapters, chapterOffset = 0, chapterPage = null) {
   const container = document.createElement("div");
   container.className = "chapter-list-shell";
   const list = document.createElement("div");
@@ -962,7 +964,9 @@ function renderChapterList(chapters, chapterOffset = 0) {
       title.className = "chapter-title"; title.textContent = chapter.title || `第 ${chapterOffset + i + 1} 章`;
       content.appendChild(title);
       item.appendChild(number); item.appendChild(content);
-      item.addEventListener("click", () => openReader(chapters, i));
+      item.addEventListener("click", () => {
+        void openReaderFromDetail(result, variant, chapter, chapterOffset + i, chapterPage, chapters);
+      });
       list.appendChild(item);
     }
     rendered = nextEnd;
@@ -1013,6 +1017,121 @@ function createChapterPaging(result, variant, chapterPage) {
 
   wrap.append(prev, indicator, next);
   return wrap;
+}
+
+async function openReaderFromDetail(result, variant, clickedChapter, chapterIndex, chapterPage, pageChapters) {
+  const activeVariant = variant || (result && result.primary) || appState.activeDetailVariant;
+  const fallbackChapters = Array.isArray(pageChapters) ? pageChapters : [];
+  const localIndex = Math.max(0, fallbackChapters.indexOf(clickedChapter));
+  if (!activeVariant || !activeVariant.site || !activeVariant.book_id) {
+    if (fallbackChapters.length) openReader(fallbackChapters, localIndex);
+    return;
+  }
+
+  try {
+    const expectedTotal = Number(chapterPage && chapterPage.total) || fallbackChapters.length;
+    if (expectedTotal > fallbackChapters.length) setStatus("正在加载完整章节目录，用于阅读器显示全书章节...");
+    const chapters = await loadReaderCatalog(activeVariant, chapterPage, fallbackChapters);
+    const readerIndex = resolveReaderChapterIndex(chapters, clickedChapter, chapterIndex);
+    openReader(chapters, readerIndex);
+  } catch (error) {
+    setStatus(`完整章节目录加载失败：${error.message}，先打开当前分页。`, "warning");
+    if (fallbackChapters.length) openReader(fallbackChapters, localIndex);
+  }
+}
+
+async function loadReaderCatalog(variant, chapterPage, currentChapters) {
+  const key = readerCatalogKey(variant);
+  const cached = appState.readerCatalogCache.get(key);
+  if (cached && cached.length) return cached;
+
+  let pending = appState.readerCatalogPending.get(key);
+  if (!pending) {
+    pending = fetchCompleteReaderCatalog(variant, chapterPage, currentChapters).then((chapters) => {
+      if (chapters.length) appState.readerCatalogCache.set(key, chapters);
+      return chapters;
+    }).finally(() => {
+      appState.readerCatalogPending.delete(key);
+    });
+    appState.readerCatalogPending.set(key, pending);
+  }
+  return pending;
+}
+
+async function fetchCompleteReaderCatalog(variant, chapterPage, currentChapters) {
+  const fallback = Array.isArray(currentChapters) ? currentChapters.slice() : [];
+  const currentTotal = Number(chapterPage && chapterPage.total) || fallback.length;
+  if (fallback.length && currentTotal <= fallback.length && !(chapterPage && (chapterPage.has_prev || chapterPage.has_next))) return fallback;
+
+  const pageSize = 500;
+  const firstDetail = await fetchDetailPageForCatalog(variant, 1, pageSize);
+  if (!firstDetail || !firstDetail.book) return fallback;
+  const firstPage = normalizeChapterPage(firstDetail.book, firstDetail.chapterPage);
+  const total = Math.max(firstPage.total || 0, currentTotal, fallback.length);
+  if (total <= 0) return fallback;
+
+  const chapters = new Array(total);
+  mergeCatalogPage(chapters, firstDetail.book && firstDetail.book.chapters, 0);
+  if (chapterPage && fallback.length) {
+    mergeCatalogPage(chapters, fallback, Math.max(0, ((chapterPage.page || 1) - 1) * (chapterPage.page_size || fallback.length)));
+  }
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const pages = [];
+  for (let page = 2; page <= totalPages; page++) pages.push(page);
+  let cursor = 0;
+  async function worker() {
+    while (cursor < pages.length) {
+      const page = pages[cursor++];
+      const detail = await fetchDetailPageForCatalog(variant, page, pageSize);
+      if (!detail || !detail.book) continue;
+      const pageInfo = normalizeChapterPage(detail.book, detail.chapterPage);
+      mergeCatalogPage(chapters, detail.book && detail.book.chapters, Math.max(0, (pageInfo.page - 1) * pageInfo.page_size));
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(4, pages.length) }, worker));
+
+  const compact = chapters.filter(Boolean);
+  return compact.length === total ? chapters : compact.length > fallback.length ? compact : fallback;
+}
+
+async function fetchDetailPageForCatalog(variant, chapterPage, chapterPageSize) {
+  const cacheKey = detailRequestKey(variant, chapterPage, chapterPageSize);
+  const cached = appState.detailCache.get(cacheKey);
+  if (cached) return cached;
+  let pending = appState.detailPending.get(cacheKey);
+  if (!pending) {
+    pending = fetchBookDetail(variant, chapterPage, chapterPageSize).then((detail) => {
+      if (detail && detail.book) appState.detailCache.set(cacheKey, detail);
+      return detail;
+    }).finally(() => {
+      appState.detailPending.delete(cacheKey);
+    });
+    appState.detailPending.set(cacheKey, pending);
+  }
+  return pending;
+}
+
+function mergeCatalogPage(target, chapters, offset) {
+  if (!Array.isArray(target) || !Array.isArray(chapters)) return;
+  chapters.forEach((chapter, index) => {
+    if (chapter) target[offset + index] = chapter;
+  });
+}
+
+function resolveReaderChapterIndex(chapters, clickedChapter, fallbackIndex) {
+  if (!Array.isArray(chapters) || !chapters.length) return 0;
+  const safeFallback = Math.min(Math.max(0, Number(fallbackIndex) || 0), chapters.length - 1);
+  if (sameChapterIdentity(chapters[safeFallback], clickedChapter)) return safeFallback;
+  const matched = chapters.findIndex((chapter) => sameChapterIdentity(chapter, clickedChapter));
+  return matched >= 0 ? matched : safeFallback;
+}
+
+function sameChapterIdentity(left, right) {
+  if (!left || !right) return false;
+  if (left.id && right.id && left.id === right.id) return true;
+  if (left.url && right.url && left.url === right.url) return true;
+  return Boolean(left.title && right.title && left.title === right.title && left.order && right.order && left.order === right.order);
 }
 
 function createChapterPageSizeControl(onChange) {
@@ -1673,6 +1792,7 @@ function displayDetailDescription(result, book) { return (book && book.descripti
 function sourceLabel(siteKey) { return sourceLabelMap.get(siteKey) || siteKey || "未知来源"; }
 function detailKey(variant) { return `${variant.site}/${variant.book_id}`; }
 function detailRequestKey(variant, chapterPage = 1, chapterPageSize = normalizedChapterPageSize()) { return `${detailKey(variant)}?chapter_page=${chapterPage}&chapter_page_size=${chapterPageSize}`; }
+function readerCatalogKey(variant) { return `${detailKey(variant)}?reader_catalog=all`; }
 function totalLabel(total, exact) { return exact ? `${total}` : `${total}+`; }
 
 async function loadSiteConfigs() {
@@ -1787,7 +1907,6 @@ async function loadGeneralConfig() {
 }
 
 async function saveGeneralConfig() {
-  const current = appState.generalConfig || {};
   const payload = {
     workers: Math.max(1, Number.parseInt(generalWorkersNode.value || "4", 10) || 4),
     timeout: Math.max(1, Number.parseFloat(generalTimeoutNode.value || "10") || 10),
@@ -1817,6 +1936,10 @@ async function saveGeneralConfig() {
   appState.detailCache.clear();
   appState.detailPending.clear();
   appState.detailTimings.clear();
+  appState.readerCatalogCache.clear();
+  appState.readerCatalogPending.clear();
+  readerState.cache.clear();
+  readerState.pending.clear();
   renderGeneralConfigForm(appState.generalConfig);
   renderPaging();
   renderResultMeta();
@@ -1846,6 +1969,13 @@ async function saveSiteConfig() {
   if (!response.ok) throw new Error(data.error || "save site config failed");
 
   if (data.item) appState.siteConfigs.set(siteKey, data.item);
+  appState.detailCache.clear();
+  appState.detailPending.clear();
+  appState.detailTimings.clear();
+  appState.readerCatalogCache.clear();
+  appState.readerCatalogPending.clear();
+  readerState.cache.clear();
+  readerState.pending.clear();
   siteWarnings = Array.isArray(data.site_warnings) ? data.site_warnings : [];
   siteStats = Array.isArray(data.site_stats) ? data.site_stats : [];
   renderSiteWarnings();
