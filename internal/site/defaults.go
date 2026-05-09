@@ -15,11 +15,15 @@ type SiteDescriptor struct {
 }
 
 var defaultAvailableSiteKeys = []string{
+	"esjzone",
 	"linovelib",
 	"n23qb",
+	"biquge345",
 	"ixdzs8",
 	"ruochu",
 	"fanqienovel",
+	"n17k",
+	"faloo",
 	"sfacg",
 	"ciyuanji",
 	"ciweimao",

@@ -629,6 +629,12 @@ body.web-images-blurred .result-card:hover .result-cover {
 .reader-content p { margin: 0 0 0.8em; text-indent: 2em; }
 .reader-loading { text-align: center; padding: 40px; color: var(--muted); font-size: 14px; }
 .reader-error { text-align: center; padding: 40px; color: var(--error); font-size: 14px; }
+.reader-boundary { text-align: center; padding: 18px 0; color: var(--muted); font-size: 13px; }
+.reader-boundary.is-loading::after {
+  content: ""; display: inline-block; width: 6px; height: 6px; margin-left: 8px; border-radius: 50%;
+  background: currentColor; animation: readerPulse 0.9s ease-in-out infinite;
+}
+@keyframes readerPulse { 0%, 100% { opacity: 0.25; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.15); } }
 
 .reader-chapter-divider {
   text-align: center; padding: 32px 0; margin: 24px 0; border-top: 1px dashed var(--line);

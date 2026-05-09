@@ -45,16 +45,25 @@ func TestMetaIncludesSearchableDownloadSources(t *testing.T) {
 	if len(payload.DefaultSources) != 2 {
 		t.Fatalf("expected 2 default searchable download sources, got %d", len(payload.DefaultSources))
 	}
-	if len(payload.AllSources) != 2 {
-		t.Fatalf("expected 2 all searchable download sources, got %d", len(payload.AllSources))
+	if len(payload.AllSources) != 3 {
+		t.Fatalf("expected 3 all searchable download sources, got %d", len(payload.AllSources))
 	}
 
 	westnovel := findDescriptor(payload.AllSources, "westnovel")
 	if westnovel != nil {
 		t.Fatalf("did not expect westnovel in searchable web sources")
 	}
-	if findDescriptor(payload.AllSources, "biquge345") != nil {
-		t.Fatalf("did not expect biquge345 in searchable web sources")
+	if findDescriptor(payload.DefaultSources, "esjzone") == nil {
+		t.Fatalf("expected esjzone in default web sources")
+	}
+	if findDescriptor(payload.DefaultSources, "biquge345") == nil {
+		t.Fatalf("expected biquge345 in default web sources")
+	}
+	if findDescriptor(payload.DefaultSources, "yodu") != nil {
+		t.Fatalf("did not expect yodu in default web sources")
+	}
+	if findDescriptor(payload.AllSources, "biquge345") == nil {
+		t.Fatalf("expected biquge345 in searchable web sources")
 	}
 	if findDescriptor(payload.AllSources, "tongrenshe") != nil {
 		t.Fatalf("did not expect tongrenshe in searchable web sources")

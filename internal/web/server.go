@@ -165,7 +165,7 @@ func newService(configPath string) (*Service, error) {
 	runtime.Progress = progress.NullReporter{}
 
 	allSources := searchableDownloadDescriptors(runtime.Registry.SiteDescriptors(runtime.AllSearchSites()))
-	defaultSources := allSources
+	defaultSources := searchableDownloadDescriptors(runtime.Registry.SiteDescriptors(runtime.DefaultSearchSites()))
 
 	pageSize := cfg.General.WebPageSize
 	if pageSize <= 0 {
@@ -1145,7 +1145,7 @@ func chapterContentTimeoutForSite(siteKey string) time.Duration {
 
 func hideWebSource(siteKey string) bool {
 	switch strings.ToLower(strings.TrimSpace(siteKey)) {
-	case "biquge345", "tongrenshe":
+	case "tongrenshe":
 		return true
 	default:
 		return false

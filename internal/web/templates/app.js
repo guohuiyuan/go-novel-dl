@@ -1042,7 +1042,7 @@ const readerContent = document.getElementById("readerContent");
 const readerBody = document.getElementById("readerBody");
 const readerProgress = document.getElementById("readerProgress");
 
-const readerState = { chapters: [], loadedMin: 0, loadedMax: -1, currentIndex: 0, loadingUp: false, loadingDown: false, cache: new Map(), pending: new Map() };
+const readerState = { chapters: [], loadedMin: 0, loadedMax: -1, currentIndex: 0, loadingUp: false, loadingDown: false, canAutoLoad: false, token: 0, cache: new Map(), pending: new Map() };
 
 function openReader(chapters, index) {
   readerState.chapters = chapters;
@@ -1051,25 +1051,85 @@ function openReader(chapters, index) {
   readerState.currentIndex = index;
   readerState.loadingUp = false;
   readerState.loadingDown = false;
+  readerState.canAutoLoad = false;
+  const token = ++readerState.token;
   readerOverlay.hidden = false;
+
   document.body.classList.add("has-overlay");
   readerContent.innerHTML = "";
-  readerBody.scrollTop = 0;
+  setReaderScrollLocked(true);
+  setReaderScrollTop(0);
   applyReaderSettings(loadReaderSettings());
   updateReaderTitle(index);
-  preloadCache(index);
-  // Load 5 chapters: current + 2 after, then prepend 2 before
-  const loadDown = Math.min(index + 2, chapters.length - 1);
-  const chain = [];
-  for (let i = index; i <= loadDown; i++) chain.push(i);
-  loadChaptersSequential(chain, "down").then(() => {
-    const loadUp = Math.max(index - 2, 0);
-    const upChain = [];
-    for (let i = index - 1; i >= loadUp; i--) upChain.push(i);
-    return loadChaptersSequential(upChain, "up");
-  }).then(() => {
-    preloadCache(index);
+  renderReaderWindow(index).then(() => {
+    if (token !== readerState.token || readerOverlay.hidden) return;
+    setReaderScrollTop(readerChapterTop(index));
+    requestAnimationFrame(() => {
+      if (token !== readerState.token || readerOverlay.hidden) return;
+      setReaderScrollLocked(false);
+      readerState.canAutoLoad = true;
+    });
   });
+}
+
+async function renderReaderWindow(centerIndex) {
+  const min = Math.max(centerIndex - 3, 0);
+  const max = Math.min(centerIndex + 3, readerState.chapters.length - 1);
+  const indices = [];
+  for (let i = min; i <= max; i++) indices.push(i);
+
+  readerContent.innerHTML = "";
+  readerContent.appendChild(createReaderBoundaryHint(min > 0 ? "正在预加载上方章节" : "已经是第一章", min > 0));
+  const loading = document.createElement("div");
+  loading.className = "reader-loading";
+  loading.textContent = "正在加载当前章节和前后 3 章...";
+  readerContent.appendChild(loading);
+  readerContent.appendChild(createReaderBoundaryHint(max < readerState.chapters.length - 1 ? "正在预加载下方章节" : "已经是最后一章", max < readerState.chapters.length - 1));
+
+  await Promise.allSettled(indices.map((i) => fetchChapterContentForReader(readerState.chapters[i], i)));
+
+  readerState.loadedMin = min;
+  readerState.loadedMax = min - 1;
+  readerContent.innerHTML = "";
+
+  const topHint = createReaderBoundaryHint(min > 0 ? "正在预加载上方章节" : "已经是第一章", min > 0);
+  readerContent.appendChild(topHint);
+
+  const tasks = [];
+  indices.forEach((i) => tasks.push(appendChapter(i)));
+
+  const bottomHint = createReaderBoundaryHint(max < readerState.chapters.length - 1 ? "正在预加载下方章节" : "已经是最后一章", max < readerState.chapters.length - 1);
+  readerContent.appendChild(bottomHint);
+
+  await Promise.allSettled(tasks);
+  topHint.textContent = min > 0 ? `已预加载上方 ${centerIndex - min} 章` : "已经是第一章";
+  bottomHint.textContent = max < readerState.chapters.length - 1 ? `已预加载下方 ${max - centerIndex} 章` : "已经是最后一章";
+  topHint.classList.remove("is-loading");
+  bottomHint.classList.remove("is-loading");
+  preloadCache(centerIndex, 3);
+}
+
+function createReaderBoundaryHint(text, loading) {
+  const node = document.createElement("div");
+  node.className = `reader-boundary${loading ? " is-loading" : ""}`;
+  node.textContent = text;
+  return node;
+}
+
+function readerChapterTop(index) {
+  const node = readerContent.querySelector(`[data-chapter-index="${index}"]`);
+  return node ? Math.max(0, node.offsetTop - 16) : 0;
+}
+
+function setReaderScrollTop(top) {
+  const previous = readerBody.style.scrollBehavior;
+  readerBody.style.scrollBehavior = "auto";
+  readerBody.scrollTop = top;
+  requestAnimationFrame(() => { readerBody.style.scrollBehavior = previous; });
+}
+
+function setReaderScrollLocked(locked) {
+  readerBody.style.overflowY = locked ? "hidden" : "";
 }
 
 async function loadChaptersSequential(indices, direction) {
@@ -1082,6 +1142,9 @@ async function loadChaptersSequential(indices, direction) {
 function closeReader() {
   readerOverlay.hidden = true;
   document.body.classList.remove("has-overlay");
+  setReaderScrollLocked(false);
+  readerState.canAutoLoad = false;
+  readerState.token += 1;
 }
 
 function updateReaderTitle(index) {
@@ -1230,11 +1293,11 @@ function chapterReaderCacheKey(ch, index) {
   return ch.id || ch.url || `${index}:${ch.title || ""}`;
 }
 
-function preloadCache(centerIndex) {
+function preloadCache(centerIndex, radius = 2) {
   const variant = appState.activeDetailVariant || (appState.detailResult && appState.detailResult.primary) || {};
   const site = variant.site || ""; const bookID = variant.book_id || "";
   if (!site || !bookID) return;
-  for (let offset = -8; offset <= 8; offset++) {
+  for (let offset = -radius; offset <= radius; offset++) {
     const i = centerIndex + offset;
     if (i < 0 || i >= readerState.chapters.length) continue;
     const ch = readerState.chapters[i];
@@ -1246,10 +1309,8 @@ function preloadCache(centerIndex) {
 
 readerCloseButton.addEventListener("click", closeReader);
 
-// Scroll-based auto-load: up prepends, down appends
 readerBody.addEventListener("scroll", () => {
-  const { scrollTop, scrollHeight, clientHeight } = readerBody;
-  // Update title based on visible chapter
+  if (!readerState.canAutoLoad) return;
   const blocks = readerContent.querySelectorAll("[data-chapter-index]");
   for (let i = blocks.length - 1; i >= 0; i--) {
     const rect = blocks[i].getBoundingClientRect();
@@ -1257,26 +1318,8 @@ readerBody.addEventListener("scroll", () => {
     if (rect.top <= bodyRect.top + 60) {
       const visIdx = parseInt(blocks[i].dataset.chapterIndex, 10);
       updateReaderTitle(visIdx);
-      preloadCache(visIdx);
+      preloadCache(visIdx, 3);
       break;
-    }
-  }
-  // Scroll near bottom → append next
-  if (scrollTop + clientHeight >= scrollHeight - 900 && !readerState.loadingDown) {
-    const next = readerState.loadedMax + 1;
-    if (next < readerState.chapters.length) {
-      readerState.loadingDown = true;
-      preloadCache(next);
-      loadChaptersSequential([next, next + 1, next + 2].filter((idx) => idx < readerState.chapters.length), "down").then(() => { readerState.loadingDown = false; });
-    }
-  }
-  // Scroll near top → prepend previous
-  if (scrollTop < 600 && !readerState.loadingUp) {
-    const prev = readerState.loadedMin - 1;
-    if (prev >= 0) {
-      readerState.loadingUp = true;
-      preloadCache(prev);
-      loadChaptersSequential([prev, prev - 1].filter((idx) => idx >= 0), "up").then(() => { readerState.loadingUp = false; });
     }
   }
 });

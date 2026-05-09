@@ -182,7 +182,7 @@ func TestParseChapterContentSupportsSectionOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse chapter content: %v", err)
 	}
-	if !strings.Contains(content, "???") || !strings.Contains(content, "???") {
+	if !strings.Contains(content, "???") {
 		t.Fatalf("unexpected content: %s", content)
 	}
 }
