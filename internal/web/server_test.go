@@ -100,11 +100,12 @@ func TestMetaIncludesSearchableDownloadSources(t *testing.T) {
 	if yodu == nil {
 		t.Fatalf("expected yodu descriptor to be present")
 	}
-	if yodu.DisplayName != "Yodu" {
-		t.Fatalf("expected fallback display name for yodu, got %q", yodu.DisplayName)
+	if yodu.DisplayName != "有度中文网" {
+		t.Fatalf("expected metadata title for yodu, got %q", yodu.DisplayName)
 	}
-	if len(yodu.Tags) != 0 {
-		t.Fatalf("expected no metadata tags for yodu, got %v", yodu.Tags)
+	wantYoduTags := []string{"简体中文", "转载站", "网络小说"}
+	if !reflect.DeepEqual(yodu.Tags, wantYoduTags) {
+		t.Fatalf("expected yodu tags %v, got %v", wantYoduTags, yodu.Tags)
 	}
 }
 
@@ -879,6 +880,9 @@ func TestSearchTimeoutForSites(t *testing.T) {
 	}
 	if got := searchTimeoutForSites([]string{"n8novel"}); got != 45*time.Second {
 		t.Fatalf("expected n8novel timeout, got %s", got)
+	}
+	if got := searchTimeoutForSites([]string{"yodu"}); got != 45*time.Second {
+		t.Fatalf("expected yodu timeout, got %s", got)
 	}
 	if got := searchTimeoutForSites([]string{"tongrenshe"}); got != 45*time.Second {
 		t.Fatalf("expected tongrenshe timeout, got %s", got)

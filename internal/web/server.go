@@ -266,7 +266,7 @@ func collectSiteWarnings(runtime *app.Runtime) []SiteWarning {
 		return nil
 	}
 	available := descriptorKeySet(searchableDownloadDescriptors(runtime.Registry.AllSiteDescriptors()))
-	warnings := make([]SiteWarning, 0, 3)
+	warnings := make([]SiteWarning, 0, 2)
 	if _, ok := available["esjzone"]; ok {
 		warnings = append(warnings, SiteWarning{
 			SiteKey:     "esjzone",
@@ -281,14 +281,6 @@ func collectSiteWarnings(runtime *app.Runtime) []SiteWarning {
 		warnings = append(warnings, SiteWarning{
 			SiteKey:   "n8novel",
 			Message:   "临时提示：无限轻小说近期可能返回 403，已在搜索结果里按临时失败提示处理；可稍后重试或暂时取消该渠道。",
-			Level:     "info",
-			Transient: true,
-		})
-	}
-	if _, ok := available["alicesw"]; ok {
-		warnings = append(warnings, SiteWarning{
-			SiteKey:   "alicesw",
-			Message:   "临时提示：爱丽丝书屋源近期不稳定，搜索/详情失败时建议暂时取消该渠道或直接粘贴书籍链接。",
 			Level:     "info",
 			Transient: true,
 		})
@@ -1186,7 +1178,7 @@ func searchTimeoutForSites(sites []string) time.Duration {
 		switch strings.ToLower(strings.TrimSpace(site)) {
 		case "esjzone":
 			timeout = maxDuration(timeout, 50*time.Second)
-		case "n8novel":
+		case "n8novel", "yodu":
 			timeout = maxDuration(timeout, 45*time.Second)
 		case "tongrenshe":
 			timeout = maxDuration(timeout, 45*time.Second)

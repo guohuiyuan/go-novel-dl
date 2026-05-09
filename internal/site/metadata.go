@@ -64,6 +64,10 @@ var siteMetadata = map[string]SiteMetadata{
 		Title: "铅笔小说",
 		Tags:  []string{"简体中文", "转载站", "轻小说", "网络小说"},
 	},
+	"yodu": {
+		Title: "有度中文网",
+		Tags:  []string{"简体中文", "转载站", "网络小说"},
+	},
 	"n69shuba": {
 		Title: "69书吧",
 		Tags:  []string{"简体中文", "转载站"},

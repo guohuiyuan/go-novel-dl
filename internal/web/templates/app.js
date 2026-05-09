@@ -652,8 +652,6 @@ function formatSearchWarning(warning) {
     reason = "临时提示：站点响应超时，已跳过该渠道，不影响其它渠道结果。";
   } else if (lower.includes("http 403")) {
     reason = "临时提示：站点返回 403，可能触发访问限制/反爬，已跳过该渠道。";
-  } else if (warning.site === "alicesw") {
-    reason = `临时提示：爱丽丝书屋源近期不稳定，建议暂时取消该渠道或使用书籍直链。${error ? ` 原因：${error}` : ""}`;
   }
   if (warning.site === "n8novel" && !reason.includes("无限轻小说")) {
     reason += " 无限轻小说近期较容易出现 403，可稍后重试。";

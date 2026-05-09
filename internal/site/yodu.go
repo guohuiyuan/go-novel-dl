@@ -1,8 +1,10 @@
 package site
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -10,6 +12,7 @@ import (
 	"time"
 
 	"golang.org/x/net/html"
+	charsetpkg "golang.org/x/net/html/charset"
 
 	"github.com/guohuiyuan/go-novel-dl/internal/config"
 	"github.com/guohuiyuan/go-novel-dl/internal/model"
@@ -21,22 +24,33 @@ var (
 	yoduChapterRe = regexp.MustCompile(`^/book/(\d+)/(\d+)(?:_\d+)?\.html$`)
 )
 
+const yoduMaxSearchPages = 2
+
 type YoduSite struct {
-	cfg    config.ResolvedSiteConfig
-	html   HTMLSite
-	client *http.Client
+	cfg     config.ResolvedSiteConfig
+	html    HTMLSite
+	client  *http.Client
+	baseURL string
 }
 
 func NewYoduSite(cfg config.ResolvedSiteConfig) *YoduSite {
 	timeout := 45 * time.Second
 	if cfg.General.Timeout > 0 {
-		timeout = time.Duration(cfg.General.Timeout * float64(time.Second))
+		if configured := time.Duration(cfg.General.Timeout * float64(time.Second)); configured > timeout {
+			timeout = configured
+		}
+	}
+	baseURL := "https://www.yodu.org"
+	if len(cfg.MirrorHosts) > 0 {
+		if mirror := strings.TrimRight(strings.TrimSpace(cfg.MirrorHosts[0]), "/"); mirror != "" {
+			baseURL = mirror
+		}
 	}
 	client := newSiteHTTPClient(timeout, siteHTTPClientOptions{
 		Direct:       true,
 		DisableHTTP2: true,
 	})
-	return &YoduSite{cfg: cfg, html: NewHTMLSite(client), client: client}
+	return &YoduSite{cfg: cfg, html: NewHTMLSite(client), client: client, baseURL: baseURL}
 }
 
 func (s *YoduSite) Key() string         { return "yodu" }
@@ -51,14 +65,18 @@ func (s *YoduSite) ResolveURL(rawURL string) (*ResolvedURL, bool) {
 		return nil, false
 	}
 	host := strings.ToLower(strings.TrimPrefix(parsed.Host, "www."))
-	if host != "yodu.org" {
+	baseHost := "yodu.org"
+	if parsedBase, err := normalizeURL(s.baseURL); err == nil {
+		baseHost = strings.ToLower(strings.TrimPrefix(parsedBase.Host, "www."))
+	}
+	if host != "yodu.org" && host != baseHost {
 		return nil, false
 	}
 	if m := yoduChapterRe.FindStringSubmatch(parsed.Path); len(m) == 3 {
-		return &ResolvedURL{SiteKey: s.Key(), BookID: m[1], ChapterID: m[2], Canonical: "https://www.yodu.org" + parsed.Path}, true
+		return &ResolvedURL{SiteKey: s.Key(), BookID: m[1], ChapterID: m[2], Canonical: strings.TrimRight(s.baseURL, "/") + parsed.Path}, true
 	}
 	if m := yoduBookRe.FindStringSubmatch(parsed.Path); len(m) == 2 {
-		return &ResolvedURL{SiteKey: s.Key(), BookID: m[1], Canonical: "https://www.yodu.org" + parsed.Path}, true
+		return &ResolvedURL{SiteKey: s.Key(), BookID: m[1], Canonical: strings.TrimRight(s.baseURL, "/") + parsed.Path}, true
 	}
 	return nil, false
 }
@@ -80,7 +98,8 @@ func (s *YoduSite) Download(ctx context.Context, ref model.BookRef) (*model.Book
 }
 
 func (s *YoduSite) DownloadPlan(ctx context.Context, ref model.BookRef) (*model.Book, error) {
-	markup, err := s.html.Get(ctx, fmt.Sprintf("https://www.yodu.org/book/%s/", ref.BookID))
+	bookURL := s.bookURL(ref.BookID)
+	markup, err := s.html.GetWithHeaders(ctx, bookURL, yoduHeaders(s.baseURL+"/"))
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +117,7 @@ func (s *YoduSite) DownloadPlan(ctx context.Context, ref model.BookRef) (*model.
 		Description: fallback(metaProperty(doc, "og:description"), cleanText(nodeText(findFirst(doc, func(n *html.Node) bool {
 			return n.Type == html.ElementNode && n.Data == "div" && hasClass(n, "det-abt")
 		})))),
-		SourceURL: fmt.Sprintf("https://www.yodu.org/book/%s/", ref.BookID),
+		SourceURL: bookURL,
 		CoverURL: fallback(metaProperty(doc, "og:image"), attrValue(findFirst(doc, func(n *html.Node) bool {
 			return n.Type == html.ElementNode && n.Data == "img" && hasAncestorClass(n, "cover")
 		}), "src")),
@@ -129,7 +148,7 @@ func (s *YoduSite) DownloadPlan(ctx context.Context, ref model.BookRef) (*model.
 		if len(match) != 3 {
 			continue
 		}
-		chapters = append(chapters, model.Chapter{ID: match[2], Title: cleanText(nodeText(a)), URL: absolutizeURL("https://www.yodu.org", href), Volume: currentVolume, Order: len(chapters) + 1})
+		chapters = append(chapters, model.Chapter{ID: match[2], Title: cleanText(nodeText(a)), URL: absolutizeURL(s.baseURL, href), Volume: currentVolume, Order: len(chapters) + 1})
 	}
 	book.Chapters = applyChapterRange(chapters, ref)
 	return book, nil
@@ -138,11 +157,8 @@ func (s *YoduSite) DownloadPlan(ctx context.Context, ref model.BookRef) (*model.
 func (s *YoduSite) FetchChapter(ctx context.Context, bookID string, chapter model.Chapter) (model.Chapter, error) {
 	pages := make([]string, 0, 1)
 	for idx := 1; ; idx++ {
-		suffix := fmt.Sprintf("https://www.yodu.org/book/%s/%s.html", bookID, chapter.ID)
-		if idx > 1 {
-			suffix = fmt.Sprintf("https://www.yodu.org/book/%s/%s_%d.html", bookID, chapter.ID, idx)
-		}
-		markup, err := s.html.Get(ctx, suffix)
+		suffix := s.chapterURL(bookID, chapter.ID, idx)
+		markup, err := s.html.GetWithHeaders(ctx, suffix, yoduHeaders(s.bookURL(bookID)))
 		if err != nil {
 			if idx == 1 {
 				return chapter, err
@@ -167,11 +183,14 @@ func (s *YoduSite) FetchChapter(ctx context.Context, bookID string, chapter mode
 		}
 		pageParagraphs := cleanContentParagraphs(findAll(doc, func(n *html.Node) bool {
 			return n.Type == html.ElementNode && n.Data == "p" && hasAncestorByID(n, "TextContent")
-		}), nil)
-		for idx, text := range pageParagraphs {
-			pageParagraphs[idx] = textconv.ToSimplified(text)
+		}), isYoduUnsupportedParagraph)
+		for _, text := range pageParagraphs {
+			text = cleanYoduParagraph(text)
+			if text == "" || isYoduUnsupportedParagraph(text) {
+				continue
+			}
+			paragraphs = append(paragraphs, textconv.ToSimplified(text))
 		}
-		paragraphs = append(paragraphs, pageParagraphs...)
 	}
 	if len(paragraphs) == 0 {
 		return chapter, fmt.Errorf("yodu chapter content not found")
@@ -192,15 +211,15 @@ func (s *YoduSite) Search(ctx context.Context, keyword string, limit int) ([]mod
 
 	results := make([]model.SearchResult, 0, limit)
 	seen := make(map[string]struct{}, limit)
-	headers := map[string]string{"Referer": "https://www.yodu.org/sa"}
-	for page := 1; len(results) < limit; page++ {
-		pageURL := yoduSearchPageURL(keyword, page)
+	headers := yoduHeaders(strings.TrimRight(s.baseURL, "/") + "/sa")
+	for page := 1; len(results) < limit && page <= yoduMaxSearchPages; page++ {
 		var (
-			markup string
-			err    error
+			markup   string
+			redirect *ResolvedURL
+			err      error
 		)
 		for attempt := 0; attempt < 4; attempt++ {
-			markup, err = s.html.GetWithHeaders(ctx, pageURL, headers)
+			markup, redirect, err = s.fetchYoduSearchPage(ctx, keyword, page, headers)
 			if err == nil {
 				break
 			}
@@ -211,10 +230,17 @@ func (s *YoduSite) Search(ctx context.Context, keyword string, limit int) ([]mod
 				return nil, err
 			}
 		}
-		pageResults, hasNext, err := parseYoduSearchResults(markup)
+		if redirect != nil && redirect.BookID != "" {
+			return []model.SearchResult{s.yoduRedirectSearchResult(keyword, redirect)}, nil
+		}
+		pageResults, hasNext, err := parseYoduSearchResultsWithBase(markup, s.baseURL)
 		if err != nil {
 			return nil, err
 		}
+		if len(pageResults) == 0 {
+			break
+		}
+		added := false
 		for _, item := range pageResults {
 			if item.BookID == "" {
 				continue
@@ -224,28 +250,132 @@ func (s *YoduSite) Search(ctx context.Context, keyword string, limit int) ([]mod
 			}
 			seen[item.BookID] = struct{}{}
 			results = append(results, item)
+			added = true
 			if len(results) >= limit {
 				break
 			}
 		}
-		if !hasNext || len(results) >= limit {
+		if !hasNext || len(results) >= limit || !added {
 			break
 		}
 	}
 	return results, nil
 }
 
+func (s *YoduSite) fetchYoduSearchPage(ctx context.Context, keyword string, page int, headers map[string]string) (string, *ResolvedURL, error) {
+	if page <= 1 {
+		return s.postYoduSearchPage(ctx, keyword, headers)
+	}
+	markup, err := s.html.GetWithHeaders(ctx, s.searchPageURL(keyword, page), headers)
+	return markup, nil, err
+}
+
+func (s *YoduSite) postYoduSearchPage(ctx context.Context, keyword string, headers map[string]string) (string, *ResolvedURL, error) {
+	searchURL := strings.TrimRight(s.baseURL, "/") + "/sa"
+	form := url.Values{}
+	form.Set("searchkey", keyword)
+	form.Set("searchtype", "all")
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, searchURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return "", nil, err
+	}
+	req.Header.Set("User-Agent", defaultBrowserUserAgent)
+	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
+	req.Header.Set("Cache-Control", "max-age=0")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Referer", searchURL)
+	req.Header.Set("Upgrade-Insecure-Requests", "1")
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	req.Header.Set("Sec-Fetch-Mode", "navigate")
+	req.Header.Set("Sec-Fetch-User", "?1")
+	req.Header.Set("Sec-Fetch-Dest", "document")
+	if parsed, err := url.Parse(searchURL); err == nil && parsed.Scheme != "" && parsed.Host != "" {
+		req.Header.Set("Origin", parsed.Scheme+"://"+parsed.Host)
+	}
+	for key, value := range headers {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			req.Header.Set(key, value)
+		}
+	}
+	resp, err := s.yoduNoRedirectClient().Do(req)
+	if err != nil {
+		return "", nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		location := strings.TrimSpace(resp.Header.Get("Location"))
+		if location == "" {
+			return "", nil, fmt.Errorf("yodu search redirect without location")
+		}
+		resolved, ok := s.ResolveURL(absolutizeURL(s.baseURL, location))
+		if !ok || resolved.BookID == "" {
+			return "", nil, fmt.Errorf("yodu search redirected to unsupported location %s", location)
+		}
+		return "", resolved, nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", nil, fmt.Errorf("http %d for %s", resp.StatusCode, searchURL)
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", nil, err
+	}
+	reader, err := charsetpkg.NewReader(bytes.NewReader(data), resp.Header.Get("Content-Type"))
+	if err == nil {
+		if decoded, derr := io.ReadAll(reader); derr == nil {
+			return string(decoded), nil, nil
+		}
+	}
+	return string(data), nil, nil
+}
+
+func (s *YoduSite) yoduNoRedirectClient() *http.Client {
+	base := http.DefaultClient
+	if s.client != nil {
+		base = s.client
+	}
+	client := *base
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	return &client
+}
+
+func (s *YoduSite) yoduRedirectSearchResult(keyword string, resolved *ResolvedURL) model.SearchResult {
+	resultURL := strings.TrimRight(s.baseURL, "/") + "/book/" + resolved.BookID + "/"
+	if strings.TrimSpace(resolved.Canonical) != "" {
+		resultURL = resolved.Canonical
+	}
+	return model.SearchResult{
+		Site:   s.Key(),
+		BookID: resolved.BookID,
+		Title:  strings.TrimSpace(keyword),
+		URL:    resultURL,
+	}
+}
+
 func yoduSearchPageURL(keyword string, page int) string {
+	return yoduSearchPageURLWithBase("https://www.yodu.org", keyword, page)
+}
+
+func yoduSearchPageURLWithBase(baseURL, keyword string, page int) string {
+	baseURL = strings.TrimRight(baseURL, "/")
 	if page <= 1 {
 		values := url.Values{}
 		values.Set("searchkey", keyword)
 		values.Set("searchtype", "all")
-		return "https://www.yodu.org/sa?" + values.Encode()
+		return baseURL + "/sa?" + values.Encode()
 	}
-	return fmt.Sprintf("https://www.yodu.org/sa/all-%s-%d.html", url.PathEscape(keyword), page)
+	return fmt.Sprintf("%s/sa/all-%s-%d.html", baseURL, url.PathEscape(keyword), page)
 }
 
 func parseYoduSearchResults(markup string) ([]model.SearchResult, bool, error) {
+	return parseYoduSearchResultsWithBase(markup, "https://www.yodu.org")
+}
+
+func parseYoduSearchResultsWithBase(markup, baseURL string) ([]model.SearchResult, bool, error) {
 	doc, err := parseHTML(markup)
 	if err != nil {
 		return nil, false, err
@@ -263,7 +393,7 @@ func parseYoduSearchResults(markup string) ([]model.SearchResult, bool, error) {
 			if titleLink == nil {
 				continue
 			}
-			resolved, ok := normalizeYoduSearchURL(attrValue(titleLink, "href"))
+			resolved, ok := normalizeYoduSearchURLWithBase(attrValue(titleLink, "href"), baseURL)
 			if !ok || resolved.BookID == "" {
 				continue
 			}
@@ -278,7 +408,7 @@ func parseYoduSearchResults(markup string) ([]model.SearchResult, bool, error) {
 				Title:       cleanText(nodeText(titleLink)),
 				Author:      yoduSearchAuthor(item),
 				Description: cleanText(nodeText(findFirst(item, func(n *html.Node) bool { return n.Type == html.ElementNode && n.Data == "p" && hasClass(n, "g_ells") }))),
-				URL:         fmt.Sprintf("https://www.yodu.org/book/%s/", resolved.BookID),
+				URL:         strings.TrimRight(baseURL, "/") + "/book/" + resolved.BookID + "/",
 				LatestChapter: cleanText(nodeText(findFirst(item, func(n *html.Node) bool {
 					return n.Type == html.ElementNode && n.Data == "a" && hasAncestorTag(n, "p") && strings.Contains(attrValue(n, "href"), "/book/")
 				}))),
@@ -293,10 +423,14 @@ func parseYoduSearchResults(markup string) ([]model.SearchResult, bool, error) {
 }
 
 func normalizeYoduSearchURL(raw string) (*ResolvedURL, bool) {
+	return normalizeYoduSearchURLWithBase(raw, "https://www.yodu.org")
+}
+
+func normalizeYoduSearchURLWithBase(raw, baseURL string) (*ResolvedURL, bool) {
 	if raw == "" {
 		return nil, false
 	}
-	raw = absolutizeURL("https://www.yodu.org", raw)
+	raw = absolutizeURL(baseURL, raw)
 	parsed, err := normalizeURL(raw)
 	if err != nil {
 		return nil, false
@@ -308,7 +442,7 @@ func normalizeYoduSearchURL(raw string) (*ResolvedURL, bool) {
 	return &ResolvedURL{
 		SiteKey:   "yodu",
 		BookID:    match[1],
-		Canonical: "https://www.yodu.org/book/" + match[1] + "/",
+		Canonical: strings.TrimRight(baseURL, "/") + "/book/" + match[1] + "/",
 	}, true
 }
 
@@ -330,4 +464,62 @@ func yoduSearchAuthor(item *html.Node) string {
 		return values[1]
 	}
 	return ""
+}
+
+func (s *YoduSite) bookURL(bookID string) string {
+	return strings.TrimRight(s.baseURL, "/") + "/book/" + strings.TrimSpace(bookID) + "/"
+}
+
+func (s *YoduSite) chapterURL(bookID, chapterID string, page int) string {
+	if page <= 1 {
+		return fmt.Sprintf("%s/book/%s/%s.html", strings.TrimRight(s.baseURL, "/"), strings.TrimSpace(bookID), strings.TrimSpace(chapterID))
+	}
+	return fmt.Sprintf("%s/book/%s/%s_%d.html", strings.TrimRight(s.baseURL, "/"), strings.TrimSpace(bookID), strings.TrimSpace(chapterID), page)
+}
+
+func (s *YoduSite) searchPageURL(keyword string, page int) string {
+	return yoduSearchPageURLWithBase(s.baseURL, keyword, page)
+}
+
+func yoduHeaders(referer string) map[string]string {
+	headers := map[string]string{
+		"Accept-Language": "zh-CN,zh;q=0.9",
+		"Cookie":          "zh_choose=n",
+	}
+	if referer = strings.TrimSpace(referer); referer != "" {
+		headers["Referer"] = referer
+	}
+	return headers
+}
+
+func cleanYoduParagraph(text string) string {
+	replacer := strings.NewReplacer(
+		"（内容加载失败！）", "",
+		"(内容加载失败！)", "",
+		"内容加载失败！", "",
+	)
+	return strings.TrimSpace(replacer.Replace(text))
+}
+
+func isYoduUnsupportedParagraph(text string) bool {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return true
+	}
+	markers := []string{
+		"(ò﹏ò)",
+		"抱歉，章节内容不支持",
+		"为了使用完整的阅读功能",
+		"请考虑使用",
+		"Chrome 谷歌浏览器",
+		"Safari 苹果浏览器",
+		"Edge 微软浏览器",
+		"谢谢!!!",
+	}
+	for _, marker := range markers {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
 }

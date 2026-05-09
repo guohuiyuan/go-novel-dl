@@ -92,13 +92,13 @@ func DefaultConfig() Config {
 				BookIDs: []model.BookRef{{BookID: "6238"}},
 			},
 			"yodu": {
-				BookIDs: []model.BookRef{{BookID: "1"}},
+				BookIDs: []model.BookRef{{BookID: "5969"}},
 			},
 			"linovelib": {
 				BookIDs: []model.BookRef{{BookID: "8"}},
 			},
 			"n23qb": {
-				BookIDs: []model.BookRef{{BookID: "12282"}},
+				BookIDs: []model.BookRef{{BookID: "12433"}},
 			},
 			"biquge345": {
 				BookIDs: []model.BookRef{{BookID: "151120"}},

@@ -117,9 +117,6 @@ func (r *Runtime) HybridSearch(ctx context.Context, keyword string, opts HybridS
 		perSiteLimit = 8
 	}
 	perSiteTimeout := opts.PerSiteTimeout
-	if perSiteTimeout <= 0 && len(sites) > 1 {
-		perSiteTimeout = 20 * time.Second
-	}
 
 	siteResults := make(chan siteSearchResponse, len(sites))
 	var wg sync.WaitGroup
@@ -142,10 +139,14 @@ func (r *Runtime) HybridSearch(ctx context.Context, keyword string, opts HybridS
 				return
 			}
 
+			siteTimeout := perSiteTimeout
+			if siteTimeout <= 0 {
+				siteTimeout = defaultHybridSearchPerSiteTimeout(siteKey, len(sites) > 1)
+			}
 			searchCtx := ctx
 			cancel := func() {}
-			if perSiteTimeout > 0 {
-				searchCtx, cancel = context.WithTimeout(ctx, perSiteTimeout)
+			if siteTimeout > 0 {
+				searchCtx, cancel = context.WithTimeout(ctx, siteTimeout)
 			}
 			defer cancel()
 
@@ -186,6 +187,24 @@ func (r *Runtime) HybridSearch(ctx context.Context, keyword string, opts HybridS
 		Results:  aggregated,
 		Warnings: warnings,
 	}, nil
+}
+
+func defaultHybridSearchPerSiteTimeout(siteKey string, multiSite bool) time.Duration {
+	if !multiSite {
+		return 0
+	}
+	switch strings.ToLower(strings.TrimSpace(siteKey)) {
+	case "aaatxt":
+		return 90 * time.Second
+	case "tianyabooks", "linovelib":
+		return 3 * time.Minute
+	case "esjzone":
+		return 50 * time.Second
+	case "tongrenshe", "n8novel", "yodu", "biquge5", "piaotia":
+		return 45 * time.Second
+	default:
+		return 20 * time.Second
+	}
 }
 
 func groupHybridSearchResults(items []model.SearchResult, keyword string, defaultSiteOrder []string, limit int) []HybridSearchResult {
