@@ -61,6 +61,8 @@ const appState = {
   detailResult: null,
   activeDetailKey: "",
   activeDetailVariant: null,
+  activeDetailPage: 1,
+  activeDetailPageSize: loadChapterPageSize(),
   detailWarmupToken: 0,
   chapterPageSize: loadChapterPageSize(),
   chapterColumns: loadChapterColumns(),
@@ -276,10 +278,6 @@ const generalConfigForm = document.getElementById("generalConfigForm");
 const generalWorkersNode = document.getElementById("generalWorkers");
 const generalTimeoutNode = document.getElementById("generalTimeout");
 const generalRequestIntervalNode = document.getElementById("generalRequestInterval");
-const generalMaxConnectionsNode = document.getElementById("generalMaxConnections");
-const generalMaxRPSNode = document.getElementById("generalMaxRPS");
-const generalRetryTimesNode = document.getElementById("generalRetryTimes");
-const generalBackoffFactorNode = document.getElementById("generalBackoffFactor");
 const generalLocaleStyleNode = document.getElementById("generalLocaleStyle");
 const generalFormatsNode = document.getElementById("generalFormats");
 const generalAppendTimestampNode = document.getElementById("generalAppendTimestamp");
@@ -727,63 +725,76 @@ function renderResults(results) {
 }
 
 function openDetail(result, variant) {
+  openDetailPage(result, variant, 1, true);
+}
+
+function openDetailPage(result, variant, chapterPage = 1, resetScroll = false) {
   const activeVariant = variant || result.primary;
-  const cacheKey = detailKey(activeVariant);
+  const pageSize = normalizedChapterPageSize();
+  const baseKey = detailKey(activeVariant);
+  const cacheKey = detailRequestKey(activeVariant, chapterPage, pageSize);
   appState.detailResult = result;
   appState.activeDetailVariant = activeVariant;
-  appState.activeDetailKey = cacheKey;
+  appState.activeDetailKey = baseKey;
+  appState.activeDetailPage = chapterPage;
+  appState.activeDetailPageSize = pageSize;
   detailOverlay.hidden = false;
   document.body.classList.add("has-overlay");
   const detailPanel = detailContentNode.closest(".detail-panel");
-  if (detailPanel) detailPanel.scrollTop = 0;
+  if (detailPanel && resetScroll) detailPanel.scrollTop = 0;
 
   const cached = appState.detailCache.get(cacheKey);
   if (cached) return renderDetail(result, activeVariant, cached, false, "");
 
   renderDetail(result, activeVariant, null, true, "");
-  void loadDetail(result, activeVariant, cacheKey);
+  void loadDetail(result, activeVariant, cacheKey, chapterPage, pageSize);
 }
 
 function closeDetail() {
   detailOverlay.hidden = true; document.body.classList.remove("has-overlay");
 }
 
-async function loadDetail(result, variant, cacheKey) {
+async function loadDetail(result, variant, cacheKey, chapterPage = 1, chapterPageSize = normalizedChapterPageSize()) {
   const startedAt = performance.now();
   try {
     let pending = appState.detailPending.get(cacheKey);
     if (!pending) {
-      pending = fetchBookDetail(variant).finally(() => {
+      pending = fetchBookDetail(variant, chapterPage, chapterPageSize).finally(() => {
         appState.detailPending.delete(cacheKey);
       });
       appState.detailPending.set(cacheKey, pending);
     }
-    const book = await pending;
-    if (!book) throw new Error("未返回详情数据");
+    const detail = await pending;
+    if (!detail || !detail.book) throw new Error("未返回详情数据");
 
-    appState.detailCache.set(cacheKey, book);
+    appState.detailCache.set(cacheKey, detail);
     appState.detailTimings.set(cacheKey, Math.max(1, Math.round(performance.now() - startedAt)));
-    if (appState.detailResult === result && appState.activeDetailKey === cacheKey) {
-      renderDetail(result, variant, book, false, "");
+    if (isActiveDetailRequest(result, variant, chapterPage, chapterPageSize)) {
+      renderDetail(result, variant, detail, false, "");
     }
   } catch (error) {
-    if (appState.detailResult === result && appState.activeDetailKey === cacheKey) {
+    if (isActiveDetailRequest(result, variant, chapterPage, chapterPageSize)) {
       renderDetail(result, variant, null, false, error.message);
     }
   }
 }
 
-async function fetchBookDetail(variant) {
+async function fetchBookDetail(variant, chapterPage = 1, chapterPageSize = normalizedChapterPageSize()) {
   const url = new URL(`${window.location.origin}${root}/api/books/detail`);
   url.searchParams.set("site", variant.site);
   url.searchParams.set("book_id", variant.book_id);
+  url.searchParams.set("chapter_page", String(chapterPage));
+  url.searchParams.set("chapter_page_size", String(chapterPageSize));
   const payload = await fetchJSONWithTimeout(
     url.toString(),
     {},
     detailLoadTimeoutMs(variant.site),
     `${sourceLabel(variant.site)} 详情/章节目录加载超时，请稍后重试或暂时切换来源`,
   );
-  return payload.book || null;
+  return {
+    book: payload.book || null,
+    chapterPage: payload.chapter_page || null,
+  };
 }
 
 async function warmupDetailCache(results) {
@@ -791,24 +802,27 @@ async function warmupDetailCache(results) {
   const queue = results.slice(0, 6).map((result) => ({
     result,
     variant: result.primary,
-  })).filter((item) => item.variant && item.variant.site && item.variant.book_id && shouldWarmupDetail(item.variant.site) && !appState.detailCache.has(detailKey(item.variant)));
+  })).filter((item) => item.variant && item.variant.site && item.variant.book_id && shouldWarmupDetail(item.variant.site) && !appState.detailCache.has(detailRequestKey(item.variant, 1, normalizedChapterPageSize())));
   const workers = Math.min(2, queue.length);
   let cursor = 0;
 
   async function worker() {
     while (token === appState.detailWarmupToken && cursor < queue.length) {
       const item = queue[cursor++];
-      await loadDetail(item.result, item.variant, detailKey(item.variant));
+      await loadDetail(item.result, item.variant, detailRequestKey(item.variant, 1, normalizedChapterPageSize()), 1, normalizedChapterPageSize());
     }
   }
 
   await Promise.all(Array.from({ length: workers }, worker));
 }
 
-function renderDetail(result, variant, book, loading, errorMessage) {
+function renderDetail(result, variant, detail, loading, errorMessage) {
   detailContentNode.innerHTML = "";
   const activeVariant = variant || result.primary;
   const variants = Array.isArray(result.variants) && result.variants.length ? result.variants : [result.primary];
+  const book = detail && detail.book ? detail.book : detail;
+  const chapterPage = normalizeChapterPage(book, detail && detail.chapterPage);
+  const chapterOffset = Math.max(0, (chapterPage.page - 1) * chapterPage.page_size);
   const title = displayDetailTitle(result, activeVariant, book);
   const author = displayDetailAuthor(result, activeVariant, book);
   const description = displayDetailDescription(result, book);
@@ -843,8 +857,8 @@ function renderDetail(result, variant, book, loading, errorMessage) {
   const meta = document.createElement("div");
   meta.className = "detail-meta";
   meta.appendChild(resultBadge(sourceLabel(activeVariant.site)));
-  meta.appendChild(resultBadge(chapters.length ? `${chapters.length} 章` : loading ? "加载章节中" : "暂无章节"));
-  const timing = appState.detailTimings.get(detailKey(activeVariant));
+  meta.appendChild(resultBadge(chapterPage.total ? `${chapterPage.total} 章` : loading ? "加载章节中" : "暂无章节"));
+  const timing = appState.detailTimings.get(detailRequestKey(activeVariant, chapterPage.page, chapterPage.page_size));
   if (timing) meta.appendChild(resultBadge(`目录 ${timing}ms`));
   if (result.latest_chapter) meta.appendChild(resultBadge(result.latest_chapter));
   if (result.source_count > 1) meta.appendChild(resultBadge(`${result.source_count} 个来源`));
@@ -896,10 +910,10 @@ function renderDetail(result, variant, book, loading, errorMessage) {
     const controlsGroup = document.createElement("div");
     controlsGroup.className = "detail-controls-group";
     controlsGroup.appendChild(createChapterColumnsControl(() => {
-      renderDetail(result, activeVariant, book, false, "");
+      renderDetail(result, activeVariant, detail, false, "");
     }));
     controlsGroup.appendChild(createChapterPageSizeControl(() => {
-      renderDetail(result, activeVariant, book, false, "");
+      openDetailPage(result, activeVariant, 1, false);
     }));
     chapterHead.appendChild(controlsGroup);
   }
@@ -908,12 +922,16 @@ function renderDetail(result, variant, book, loading, errorMessage) {
   if (loading) chapterSection.appendChild(createEmptyInline("正在加载章节列表..."));
   else if (errorMessage) chapterSection.appendChild(createEmptyInline(`详情加载失败：${errorMessage}`));
   else if (!chapters.length) chapterSection.appendChild(createEmptyInline("当前源没有返回章节列表。"));
-  else chapterSection.appendChild(renderChapterList(chapters));
+  else {
+    if (chapterPage.total > chapterPage.page_size) chapterSection.appendChild(createChapterPaging(result, activeVariant, chapterPage));
+    chapterSection.appendChild(renderChapterList(chapters, chapterOffset));
+    if (chapterPage.total > chapterPage.page_size) chapterSection.appendChild(createChapterPaging(result, activeVariant, chapterPage));
+  }
 
   detailContentNode.appendChild(chapterSection);
 }
 
-function renderChapterList(chapters) {
+function renderChapterList(chapters, chapterOffset = 0) {
   const container = document.createElement("div");
   container.className = "chapter-list-shell";
   const list = document.createElement("div");
@@ -938,10 +956,10 @@ function renderChapterList(chapters) {
       const item = document.createElement("div");
       item.className = "chapter-item is-clickable";
       const number = document.createElement("span");
-      number.className = "chapter-index"; number.textContent = String(chapter.order || i + 1);
+      number.className = "chapter-index"; number.textContent = String(chapter.order || chapterOffset + i + 1);
       const content = document.createElement("div");
       const title = document.createElement("span");
-      title.className = "chapter-title"; title.textContent = chapter.title || `第 ${i + 1} 章`;
+      title.className = "chapter-title"; title.textContent = chapter.title || `第 ${chapterOffset + i + 1} 章`;
       content.appendChild(title);
       item.appendChild(number); item.appendChild(content);
       item.addEventListener("click", () => openReader(chapters, i));
@@ -967,11 +985,41 @@ function renderChapterList(chapters) {
   return container;
 }
 
+function createChapterPaging(result, variant, chapterPage) {
+  const pageSize = chapterPage.page_size || normalizedChapterPageSize();
+  const total = chapterPage.total || 0;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.min(Math.max(1, chapterPage.page || 1), totalPages);
+  const wrap = document.createElement("div");
+  wrap.className = "chapter-paging";
+
+  const prev = document.createElement("button");
+  prev.type = "button"; prev.className = "page-button"; prev.textContent = "上一页";
+  prev.disabled = !chapterPage.has_prev;
+  prev.addEventListener("click", () => {
+    if (!prev.disabled) openDetailPage(result, variant, page - 1, false);
+  });
+
+  const indicator = document.createElement("span");
+  indicator.className = "page-indicator";
+  indicator.textContent = `第 ${page}/${totalPages} 页 · 共 ${total} 章`;
+
+  const next = document.createElement("button");
+  next.type = "button"; next.className = "page-button"; next.textContent = "下一页";
+  next.disabled = !chapterPage.has_next;
+  next.addEventListener("click", () => {
+    if (!next.disabled) openDetailPage(result, variant, page + 1, false);
+  });
+
+  wrap.append(prev, indicator, next);
+  return wrap;
+}
+
 function createChapterPageSizeControl(onChange) {
   const wrap = document.createElement("label");
   wrap.className = "chapter-control-item";
   const text = document.createElement("span");
-  text.textContent = "每批加载";
+  text.textContent = "每页章节";
   const select = document.createElement("select");
   select.className = "chapter-control-select";
   [50, 100, 200, 500].forEach((size) => {
@@ -1032,6 +1080,27 @@ function loadChapterColumns() {
 
 function normalizedChapterPageSize() {
   return [50, 100, 200, 500].includes(appState.chapterPageSize) ? appState.chapterPageSize : 100;
+}
+
+function normalizeChapterPage(book, chapterPage) {
+  const pageSize = [50, 100, 200, 500].includes(Number(chapterPage && chapterPage.page_size)) ? Number(chapterPage.page_size) : normalizedChapterPageSize();
+  const total = Math.max(0, Number(chapterPage && chapterPage.total) || (Array.isArray(book && book.chapters) ? book.chapters.length : 0));
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.min(Math.max(1, Number(chapterPage && chapterPage.page) || appState.activeDetailPage || 1), totalPages);
+  return {
+    page,
+    page_size: pageSize,
+    total,
+    has_prev: Boolean(chapterPage && chapterPage.has_prev) || page > 1,
+    has_next: Boolean(chapterPage && chapterPage.has_next) || page < totalPages,
+  };
+}
+
+function isActiveDetailRequest(result, variant, chapterPage, chapterPageSize) {
+  return appState.detailResult === result
+    && appState.activeDetailKey === detailKey(variant)
+    && appState.activeDetailPage === chapterPage
+    && appState.activeDetailPageSize === chapterPageSize;
 }
 
 // ===== Chapter Reader =====
@@ -1603,6 +1672,7 @@ function displayDetailAuthor(result, variant, book) { return (book && book.autho
 function displayDetailDescription(result, book) { return (book && book.description) || result.description || "暂无简介。"; }
 function sourceLabel(siteKey) { return sourceLabelMap.get(siteKey) || siteKey || "未知来源"; }
 function detailKey(variant) { return `${variant.site}/${variant.book_id}`; }
+function detailRequestKey(variant, chapterPage = 1, chapterPageSize = normalizedChapterPageSize()) { return `${detailKey(variant)}?chapter_page=${chapterPage}&chapter_page_size=${chapterPageSize}`; }
 function totalLabel(total, exact) { return exact ? `${total}` : `${total}+`; }
 
 async function loadSiteConfigs() {
@@ -1689,10 +1759,6 @@ function renderGeneralConfigForm(item) {
   setRangeVal("generalWorkers", item.workers || 4);
   setRangeVal("generalTimeout", item.timeout || 10);
   setRangeVal("generalRequestInterval", item.request_interval || 0.5);
-  setRangeVal("generalMaxConnections", item.max_connections || 10);
-  setRangeVal("generalMaxRPS", item.max_rps || 5.0);
-  setRangeVal("generalRetryTimes", item.retry_times || 3);
-  setRangeVal("generalBackoffFactor", item.backoff_factor || 2.0);
   generalLocaleStyleNode.value = item.locale_style || "simplified";
   generalFormatsNode.value = Array.isArray(item.formats) ? item.formats.join(",") : "txt,epub";
   generalAppendTimestampNode.checked = item.append_timestamp !== false;
@@ -1712,6 +1778,11 @@ async function loadGeneralConfig() {
   const payload = await response.json();
   if (!response.ok) throw new Error(payload.error || "general config load failed");
   appState.generalConfig = payload.item || appState.generalConfig;
+  if (payload.item && payload.item.web_page_size) {
+    appState.pageSize = Math.max(1, Number.parseInt(String(payload.item.web_page_size), 10) || defaultPageSize);
+    renderPaging();
+    renderResultMeta();
+  }
   renderGeneralConfigForm(appState.generalConfig);
 }
 
@@ -1721,10 +1792,6 @@ async function saveGeneralConfig() {
     workers: Math.max(1, Number.parseInt(generalWorkersNode.value || "4", 10) || 4),
     timeout: Math.max(1, Number.parseFloat(generalTimeoutNode.value || "10") || 10),
     request_interval: Math.max(0, Number.parseFloat(generalRequestIntervalNode.value || "0.5") || 0.5),
-    max_connections: Math.max(1, Number.parseInt(String(current.max_connections || 10), 10) || 10),
-    max_rps: Math.max(0.1, Number.parseFloat(String(current.max_rps || 5)) || 5),
-    retry_times: Math.max(0, Number.parseInt(String(current.retry_times ?? 3), 10) || 0),
-    backoff_factor: Math.max(1, Number.parseFloat(String(current.backoff_factor || 2)) || 2),
     locale_style: (generalLocaleStyleNode.value || "simplified").trim(),
     formats: (generalFormatsNode.value || "txt,epub").split(",").map((item) => item.trim()).filter(Boolean),
     append_timestamp: generalAppendTimestampNode.checked,
@@ -1745,8 +1812,16 @@ async function saveGeneralConfig() {
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || "save general config failed");
   appState.generalConfig = data.item || payload;
+  appState.pageSize = Math.max(1, Number.parseInt(String(appState.generalConfig.web_page_size || payload.web_page_size || defaultPageSize), 10) || defaultPageSize);
+  appState.page = 1;
+  appState.detailCache.clear();
+  appState.detailPending.clear();
+  appState.detailTimings.clear();
   renderGeneralConfigForm(appState.generalConfig);
-  setStatus("已保存全局配置。新任务将使用最新参数。");
+  renderPaging();
+  renderResultMeta();
+  applyImageBlurSetting(appState.generalConfig);
+  setStatus("已保存全局配置。后续搜索、详情和下载将使用最新参数。");
 }
 
 function applyImageBlurSetting(item) {

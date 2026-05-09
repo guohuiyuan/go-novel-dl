@@ -384,6 +384,45 @@ func TestBookDetailEndpointReturnsBookMetadataAndChapters(t *testing.T) {
 	}
 }
 
+func TestBookDetailEndpointPaginatesChapters(t *testing.T) {
+	service := newTestService()
+	router := newRouter(service)
+
+	req := httptest.NewRequest(http.MethodGet, RoutePrefix+"/api/books/detail?site=esjzone&book_id=001&chapter_page=2&chapter_page_size=1", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", resp.Code, resp.Body.String())
+	}
+
+	var payload bookDetailResponse
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode detail payload: %v", err)
+	}
+	if payload.ChapterPage.Page != 2 || payload.ChapterPage.PageSize != 1 || payload.ChapterPage.Total != 2 {
+		t.Fatalf("unexpected chapter page: %+v", payload.ChapterPage)
+	}
+	if !payload.ChapterPage.HasPrev || payload.ChapterPage.HasNext {
+		t.Fatalf("unexpected chapter page flags: %+v", payload.ChapterPage)
+	}
+	if len(payload.Book.Chapters) != 1 || payload.Book.Chapters[0].ID != "c2" {
+		t.Fatalf("unexpected paginated chapters: %+v", payload.Book.Chapters)
+	}
+}
+
+func TestWebPageSizeFromConfigUsesCurrentRuntimeConfig(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.General.WebPageSize = 12
+	if got := webPageSizeFromConfig(&cfg); got != 12 {
+		t.Fatalf("expected web page size 12, got %d", got)
+	}
+	cfg.General.WebPageSize = 0
+	if got := webPageSizeFromConfig(&cfg); got != defaultWebPageSize {
+		t.Fatalf("expected default web page size %d, got %d", defaultWebPageSize, got)
+	}
+}
+
 func TestSearchEndpointAppliesLocaleConversion(t *testing.T) {
 	service := newTestService()
 	if siteCfg, ok := service.Config.Sites["esjzone"]; ok {

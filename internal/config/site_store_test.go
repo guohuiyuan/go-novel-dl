@@ -134,6 +134,69 @@ func TestLegacyESJZoneLoginRequirementIsRelaxedWhenNoAuthConfigured(t *testing.T
 	}
 }
 
+func TestHiddenSiteCatalogRuntimeKnobsDoNotOverrideGeneralWebSettings(t *testing.T) {
+	resetSiteCatalogForTest(t)
+
+	general, err := LoadGeneralConfig()
+	if err != nil {
+		t.Fatalf("load general config: %v", err)
+	}
+	general.IncludePicture = false
+	general.Workers = 2
+	if _, err := SaveGeneralConfig(general); err != nil {
+		t.Fatalf("save general config: %v", err)
+	}
+
+	enabled := true
+	workerLimit := 9
+	if _, err := UpsertSiteCatalog("esjzone", SiteCatalogUpdate{
+		LoginRequired: &enabled,
+		WorkerLimit:   &workerLimit,
+		FetchImages:   &enabled,
+	}); err != nil {
+		t.Fatalf("seed legacy site catalog knobs: %v", err)
+	}
+
+	cfg := DefaultConfig()
+	if err := mergeGeneralConfig(&cfg); err != nil {
+		t.Fatalf("merge general config: %v", err)
+	}
+	if err := mergeSiteCatalog(&cfg); err != nil {
+		t.Fatalf("merge site catalog: %v", err)
+	}
+	resolved := cfg.ResolveSiteConfig("esjzone")
+	if resolved.General.LoginRequired {
+		t.Fatalf("expected hidden login_required to stop overriding runtime config")
+	}
+	if resolved.General.Workers != 2 {
+		t.Fatalf("expected general workers to remain 2, got %d", resolved.General.Workers)
+	}
+	if resolved.General.Output.IncludePicture {
+		t.Fatalf("expected general include_picture=false to remain effective")
+	}
+}
+
+func TestHiddenGeneralRuntimeKnobsNormalizeToDefaults(t *testing.T) {
+	resetSiteCatalogForTest(t)
+
+	record, err := LoadGeneralConfig()
+	if err != nil {
+		t.Fatalf("load general config: %v", err)
+	}
+	record.MaxConnections = 99
+	record.MaxRPS = 88
+	record.RetryTimes = 77
+	record.BackoffFactor = 66
+	saved, err := SaveGeneralConfig(record)
+	if err != nil {
+		t.Fatalf("save general config: %v", err)
+	}
+	defaults := defaultGeneralRecord(DefaultConfig().General)
+	if saved.MaxConnections != defaults.MaxConnections || saved.MaxRPS != defaults.MaxRPS || saved.RetryTimes != defaults.RetryTimes || saved.BackoffFactor != defaults.BackoffFactor {
+		t.Fatalf("expected hidden runtime knobs to normalize to defaults, got %+v", saved)
+	}
+}
+
 func resetSiteCatalogForTest(t *testing.T) {
 	t.Helper()
 

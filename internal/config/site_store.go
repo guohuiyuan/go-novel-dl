@@ -529,12 +529,6 @@ func mergeSiteCatalog(cfg *Config) error {
 	}
 	for _, entry := range entries {
 		siteCfg := cfg.Sites[entry.Key]
-		if entry.LoginRequired {
-			siteCfg.LoginRequired = boolPtr(true)
-		}
-		if entry.WorkerLimit > 0 {
-			siteCfg.Workers = intPtr(entry.WorkerLimit)
-		}
 		if entry.Username != "" {
 			siteCfg.Username = entry.Username
 		}
@@ -546,13 +540,6 @@ func mergeSiteCatalog(cfg *Config) error {
 		}
 		if hosts := parseMirrorHosts(entry.MirrorHosts); len(hosts) > 0 {
 			siteCfg.MirrorHosts = hosts
-		}
-		if siteCfg.Output == nil {
-			siteCfg.Output = &OutputOverride{}
-		}
-		siteCfg.Output.IncludePicture = boolPtr(entry.FetchImages)
-		if locale := strings.TrimSpace(entry.LocaleStyle); locale != "" {
-			siteCfg.LocaleStyle = locale
 		}
 		cfg.Sites[entry.Key] = siteCfg
 	}
@@ -667,18 +654,10 @@ func normalizeGeneralRecord(record GeneralConfigRecord) GeneralConfigRecord {
 	if record.Workers <= 0 {
 		record.Workers = defaults.Workers
 	}
-	if record.MaxConnections <= 0 {
-		record.MaxConnections = defaults.MaxConnections
-	}
-	if record.MaxRPS <= 0 {
-		record.MaxRPS = defaults.MaxRPS
-	}
-	if record.RetryTimes < 0 {
-		record.RetryTimes = defaults.RetryTimes
-	}
-	if record.BackoffFactor <= 0 {
-		record.BackoffFactor = defaults.BackoffFactor
-	}
+	record.MaxConnections = defaults.MaxConnections
+	record.MaxRPS = defaults.MaxRPS
+	record.RetryTimes = defaults.RetryTimes
+	record.BackoffFactor = defaults.BackoffFactor
 	if record.Timeout <= 0 {
 		record.Timeout = defaults.Timeout
 	}

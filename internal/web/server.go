@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	goRuntime "runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -34,6 +35,8 @@ var templateFS embed.FS
 const RoutePrefix = "/novel"
 
 const defaultWebPageSize = 50
+const defaultWebChapterPageSize = 100
+const maxWebChapterPageSize = 500
 
 const (
 	webBookDetailCacheTTL     = 10 * time.Minute
@@ -118,7 +121,16 @@ type downloadRequest struct {
 }
 
 type bookDetailResponse struct {
-	Book model.Book `json:"book"`
+	Book        model.Book          `json:"book"`
+	ChapterPage chapterPageResponse `json:"chapter_page"`
+}
+
+type chapterPageResponse struct {
+	Page     int  `json:"page"`
+	PageSize int  `json:"page_size"`
+	Total    int  `json:"total"`
+	HasPrev  bool `json:"has_prev"`
+	HasNext  bool `json:"has_next"`
 }
 
 type paginatedSearchResponse struct {
@@ -167,10 +179,7 @@ func newService(configPath string) (*Service, error) {
 	allSources := searchableDownloadDescriptors(runtime.Registry.SiteDescriptors(runtime.AllSearchSites()))
 	defaultSources := allSources
 
-	pageSize := cfg.General.WebPageSize
-	if pageSize <= 0 {
-		pageSize = defaultWebPageSize
-	}
+	pageSize := webPageSizeFromConfig(cfg)
 
 	warnings := collectSiteWarnings(runtime)
 	stats := collectSiteStats(runtime)
@@ -209,6 +218,7 @@ func (s *Service) reloadRuntime() error {
 		s.GeneralConfig = general
 	}
 	s.Runtime = runtime
+	s.PageSize = webPageSizeFromConfig(cfg)
 	s.SiteWarnings = collectSiteWarnings(runtime)
 	s.SiteStats = collectSiteStats(runtime)
 	s.SiteConfigs, _ = config.ListSiteCatalog()
@@ -486,7 +496,9 @@ func newRouter(service *Service) *gin.Engine {
 			return
 		}
 
-		c.JSON(http.StatusOK, bookDetailResponse{Book: *book})
+		chapterPage := queryPositiveInt(c, "chapter_page", 1)
+		chapterPageSize := queryPositiveInt(c, "chapter_page_size", defaultWebChapterPageSize)
+		c.JSON(http.StatusOK, paginateBookDetail(book, chapterPage, chapterPageSize))
 	})
 	group.POST("/api/search", func(c *gin.Context) {
 		var req searchRequest
@@ -1089,6 +1101,69 @@ func paginateSearchResponse(response app.HybridSearchResponse, page, pageSize in
 		HasPrev:              offset > 0,
 		HasNext:              hasNext,
 	}
+}
+
+func paginateBookDetail(book *model.Book, page, pageSize int) bookDetailResponse {
+	if book == nil {
+		return bookDetailResponse{}
+	}
+	page = clampPositive(page, 1)
+	pageSize = clampPositive(pageSize, defaultWebChapterPageSize)
+	if pageSize > maxWebChapterPageSize {
+		pageSize = maxWebChapterPageSize
+	}
+
+	total := len(book.Chapters)
+	totalPages := 1
+	if total > 0 {
+		totalPages = (total + pageSize - 1) / pageSize
+	}
+	if page > totalPages {
+		page = totalPages
+	}
+	offset := (page - 1) * pageSize
+	if offset > total {
+		offset = total
+	}
+	end := offset + pageSize
+	if end > total {
+		end = total
+	}
+
+	pagedBook := book.Clone()
+	if offset < end {
+		pagedBook.Chapters = append([]model.Chapter(nil), book.Chapters[offset:end]...)
+	} else {
+		pagedBook.Chapters = nil
+	}
+	return bookDetailResponse{
+		Book: *pagedBook,
+		ChapterPage: chapterPageResponse{
+			Page:     page,
+			PageSize: pageSize,
+			Total:    total,
+			HasPrev:  offset > 0,
+			HasNext:  total > end,
+		},
+	}
+}
+
+func queryPositiveInt(c *gin.Context, key string, fallback int) int {
+	if c == nil {
+		return fallback
+	}
+	value, err := strconv.Atoi(strings.TrimSpace(c.Query(key)))
+	if err != nil || value <= 0 {
+		return fallback
+	}
+	return value
+}
+
+func webPageSizeFromConfig(cfg *config.Config) int {
+	if cfg == nil || cfg.General.WebPageSize <= 0 {
+		return defaultWebPageSize
+	}
+	return cfg.General.WebPageSize
 }
 
 func clampPositive(value, fallback int) int {
