@@ -41,6 +41,7 @@ func TestManualDefaultRangeDownloadHealth(t *testing.T) {
 	siteSlots := make(chan struct{}, manualHealthSiteParallelism)
 
 	testCases := []manualHealthCase{
+		{siteKey: "aaatxt", bookURL: "http://www.aaatxt.com/shu/8042.html", chapterURL: "http://www.aaatxt.com/yuedu/8042_1.html", timeout: 2 * time.Minute},
 		{siteKey: "alicesw", bookURL: "https://www.alicesw.com/novel/50427.html", chapterURL: "https://www.alicesw.com/book/51676/1af0fd0e46369.html", timeout: 2 * time.Minute},
 		{siteKey: "esjzone", bookURL: "https://www.esjzone.cc/detail/1660702902.html", chapterURL: "https://www.esjzone.cc/forum/1660702902/294593.html", timeout: 3 * time.Minute},
 		{siteKey: "westnovel", bookURL: "https://www.westnovel.com/ksl/sq/", chapterURL: "https://www.westnovel.com/ksl/sq/140072.html", timeout: 2 * time.Minute},

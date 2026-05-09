@@ -42,11 +42,11 @@ func TestMetaIncludesSearchableDownloadSources(t *testing.T) {
 		t.Fatalf("decode meta payload: %v", err)
 	}
 
-	if len(payload.DefaultSources) != 3 {
-		t.Fatalf("expected 3 default searchable download sources, got %d", len(payload.DefaultSources))
+	if len(payload.DefaultSources) != 4 {
+		t.Fatalf("expected 4 default searchable download sources, got %d", len(payload.DefaultSources))
 	}
-	if len(payload.AllSources) != 3 {
-		t.Fatalf("expected 3 all searchable download sources, got %d", len(payload.AllSources))
+	if len(payload.AllSources) != 4 {
+		t.Fatalf("expected 4 all searchable download sources, got %d", len(payload.AllSources))
 	}
 
 	westnovel := findDescriptor(payload.AllSources, "westnovel")
@@ -55,6 +55,9 @@ func TestMetaIncludesSearchableDownloadSources(t *testing.T) {
 	}
 	if findDescriptor(payload.DefaultSources, "esjzone") == nil {
 		t.Fatalf("expected esjzone in default web sources")
+	}
+	if findDescriptor(payload.DefaultSources, "aaatxt") == nil {
+		t.Fatalf("expected aaatxt in default web sources")
 	}
 	if findDescriptor(payload.DefaultSources, "biquge345") == nil {
 		t.Fatalf("expected biquge345 in default web sources")
@@ -79,6 +82,18 @@ func TestMetaIncludesSearchableDownloadSources(t *testing.T) {
 	wantTags := []string{"简体中文", "轻小说", "转载站", "翻译", "NSFW"}
 	if !reflect.DeepEqual(esjzone.Tags, wantTags) {
 		t.Fatalf("expected esjzone tags %v, got %v", wantTags, esjzone.Tags)
+	}
+
+	aaatxt := findDescriptor(payload.AllSources, "aaatxt")
+	if aaatxt == nil {
+		t.Fatalf("expected aaatxt descriptor to be present")
+	}
+	if aaatxt.DisplayName != "3A电子书" {
+		t.Fatalf("expected metadata title for aaatxt, got %q", aaatxt.DisplayName)
+	}
+	wantAaatxtTags := []string{"简体中文", "转载站", "成人向", "NSFW"}
+	if !reflect.DeepEqual(aaatxt.Tags, wantAaatxtTags) {
+		t.Fatalf("expected aaatxt tags %v, got %v", wantAaatxtTags, aaatxt.Tags)
 	}
 
 	yodu := findDescriptor(payload.AllSources, "yodu")
@@ -591,6 +606,16 @@ func newTestServiceWithOptions(opts testServiceOptions) *Service {
 	console := ui.NewConsole(strings.NewReader(""), io.Discard, io.Discard)
 	runtime := app.NewRuntime(&cfg, console)
 	registry := site.NewRegistry()
+	registry.Register("aaatxt", func(cfg config.ResolvedSiteConfig) site.Site {
+		return fakeWebSite{
+			key:         "aaatxt",
+			displayName: "Aaatxt",
+			capabilities: site.Capabilities{
+				Download: true,
+				Search:   true,
+			},
+		}
+	})
 	registry.Register("esjzone", func(cfg config.ResolvedSiteConfig) site.Site {
 		return fakeWebSite{
 			key:         "esjzone",

@@ -84,6 +84,9 @@ func (r *Registry) Keys() []string {
 
 func NewDefaultRegistry() *Registry {
 	registry := NewRegistry()
+	registry.RegisterWithHosts("aaatxt", []string{"aaatxt.com"}, func(cfg config.ResolvedSiteConfig) Site {
+		return NewAaatxtSite(cfg)
+	})
 	registry.RegisterWithHosts("alicesw", []string{"alicesw.com"}, func(cfg config.ResolvedSiteConfig) Site {
 		return NewAliceswSite(cfg)
 	})

@@ -111,6 +111,7 @@ type defaultSiteCatalogRow struct {
 }
 
 var defaultSiteCatalog = []defaultSiteCatalogRow{
+	{Key: "aaatxt", DisplayName: "3A电子书", WorkerLimit: 0, FetchImages: true},
 	{Key: "alicesw", DisplayName: "爱丽丝书屋", WorkerLimit: 0, FetchImages: true},
 	{Key: "esjzone", DisplayName: "ESJ Zone", LoginRequired: false, WorkerLimit: 0, FetchImages: true, MirrorHosts: []string{"https://www.esjzone.one"}},
 	{Key: "faloo", DisplayName: "飞卢小说网", WorkerLimit: 0, FetchImages: true},

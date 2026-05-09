@@ -15,6 +15,7 @@ type SiteDescriptor struct {
 }
 
 var defaultAvailableSiteKeys = []string{
+	"aaatxt",
 	"esjzone",
 	"linovelib",
 	"n23qb",

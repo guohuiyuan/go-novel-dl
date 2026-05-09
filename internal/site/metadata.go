@@ -8,6 +8,10 @@ type SiteMetadata struct {
 }
 
 var siteMetadata = map[string]SiteMetadata{
+	"aaatxt": {
+		Title: "3A电子书",
+		Tags:  []string{"简体中文", "转载站", "成人向", "NSFW"},
+	},
 	"alicesw": {
 		Title: "爱丽丝书屋",
 		Tags:  []string{"简体中文", "转载站", "成人向", "NSFW"},

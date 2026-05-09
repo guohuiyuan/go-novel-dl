@@ -74,6 +74,9 @@ func DefaultConfig() Config {
 			}},
 		},
 		Sites: map[string]SiteConfig{
+			"aaatxt": {
+				BookIDs: []model.BookRef{{BookID: "8042"}},
+			},
 			"alicesw": {
 				BookIDs: []model.BookRef{{BookID: "50427"}},
 			},
