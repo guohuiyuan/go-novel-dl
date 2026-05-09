@@ -44,8 +44,8 @@ func TestAaatxtFullFlowWithLocalServer(t *testing.T) {
 	if results[0].Site != "aaatxt" || results[0].BookID != "24514" || results[0].Title != "示例小说" || results[0].Author != "作者甲" {
 		t.Fatalf("unexpected search result: %+v", results[0])
 	}
-	if !strings.Contains(results[0].Description, "本书简介") {
-		t.Fatalf("expected enriched description, got %q", results[0].Description)
+	if results[0].Description != "搜索简介" {
+		t.Fatalf("expected search-page description, got %q", results[0].Description)
 	}
 
 	book, err := site.DownloadPlan(ctx, model.BookRef{BookID: "24514"})

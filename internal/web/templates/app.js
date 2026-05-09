@@ -791,7 +791,7 @@ async function warmupDetailCache(results) {
   const queue = results.slice(0, 6).map((result) => ({
     result,
     variant: result.primary,
-  })).filter((item) => item.variant && item.variant.site && item.variant.book_id && !appState.detailCache.has(detailKey(item.variant)));
+  })).filter((item) => item.variant && item.variant.site && item.variant.book_id && shouldWarmupDetail(item.variant.site) && !appState.detailCache.has(detailKey(item.variant)));
   const workers = Math.min(2, queue.length);
   let cursor = 0;
 
@@ -1265,6 +1265,8 @@ function detailLoadTimeoutMs(site) {
   switch (String(site || "").toLowerCase()) {
     case "alicesw":
       return 12000;
+    case "aaatxt":
+      return 120000;
     case "esjzone":
     case "n8novel":
     case "tongrenshe":
@@ -1281,11 +1283,22 @@ function chapterLoadTimeoutMs(site) {
   switch (String(site || "").toLowerCase()) {
     case "alicesw":
       return 12000;
+    case "aaatxt":
+      return 120000;
     case "n8novel":
     case "esjzone":
       return 30000;
     default:
       return 20000;
+  }
+}
+
+function shouldWarmupDetail(site) {
+  switch (String(site || "").toLowerCase()) {
+    case "aaatxt":
+      return false;
+    default:
+      return true;
   }
 }
 

@@ -32,9 +32,12 @@ type AaatxtSite struct {
 }
 
 func NewAaatxtSite(cfg config.ResolvedSiteConfig) *AaatxtSite {
-	timeout := 20 * time.Second
+	timeout := 90 * time.Second
 	if cfg.General.Timeout > 0 {
-		timeout = time.Duration(cfg.General.Timeout * float64(time.Second))
+		configured := time.Duration(cfg.General.Timeout * float64(time.Second))
+		if configured > timeout {
+			timeout = configured
+		}
 	}
 	baseURL := aaatxtDefaultBaseURL
 	if len(cfg.MirrorHosts) > 0 {
@@ -190,7 +193,6 @@ func (s *AaatxtSite) Search(ctx context.Context, keyword string, limit int) ([]m
 	if limit > 0 && len(results) > limit {
 		results = results[:limit]
 	}
-	enrichSearchResultsParallel(ctx, results, 6, s.populateSearchDetail)
 	return results, nil
 }
 

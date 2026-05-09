@@ -96,6 +96,10 @@ func searchTimeoutSecondsForSites(sites []string) float64 {
 	timeout := 5.0
 	for _, siteKey := range sites {
 		switch strings.ToLower(strings.TrimSpace(siteKey)) {
+		case "aaatxt":
+			if timeout < 90 {
+				timeout = 90
+			}
 		case "tongrenshe", "n8novel", "biquge5", "piaotia":
 			if timeout < 45 {
 				timeout = 45
@@ -115,6 +119,14 @@ func searchTimeoutSecondsForSites(sites []string) float64 {
 		}
 	}
 	return timeout
+}
+
+func detailTimeoutForSiteKey(siteKey string) time.Duration {
+	timeout := searchTimeoutSecondsForSites([]string{siteKey})
+	if timeout < 25 {
+		timeout = 25
+	}
+	return time.Duration(timeout * float64(time.Second))
 }
 
 func requireSite(cmd *cobra.Command, site string) error {

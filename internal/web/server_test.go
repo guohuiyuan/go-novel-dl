@@ -859,4 +859,7 @@ func TestSearchTimeoutForSites(t *testing.T) {
 	if got := searchTimeoutForSites([]string{"linovelib"}); got != 3*time.Minute {
 		t.Fatalf("expected linovelib timeout, got %s", got)
 	}
+	if got := searchTimeoutForSites([]string{"aaatxt"}); got != 90*time.Second {
+		t.Fatalf("expected aaatxt timeout, got %s", got)
+	}
 }

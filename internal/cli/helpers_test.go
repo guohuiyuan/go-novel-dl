@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/guohuiyuan/go-novel-dl/internal/app"
 	"github.com/guohuiyuan/go-novel-dl/internal/config"
@@ -58,6 +59,12 @@ func TestSearchTimeoutSecondsForSites(t *testing.T) {
 	}
 	if got := searchTimeoutSecondsForSites([]string{"linovelib", "tongrenshe"}); got != 180 {
 		t.Fatalf("expected linovelib timeout, got %v", got)
+	}
+	if got := searchTimeoutSecondsForSites([]string{"aaatxt"}); got != 90 {
+		t.Fatalf("expected aaatxt timeout, got %v", got)
+	}
+	if got := detailTimeoutForSiteKey("aaatxt"); got != 90*time.Second {
+		t.Fatalf("expected aaatxt detail timeout, got %s", got)
 	}
 }
 

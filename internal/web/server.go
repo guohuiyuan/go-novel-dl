@@ -1121,6 +1121,8 @@ func searchTimeoutForSites(sites []string) time.Duration {
 			timeout = maxDuration(timeout, 45*time.Second)
 		case "linovelib":
 			timeout = maxDuration(timeout, 3*time.Minute)
+		case "aaatxt":
+			timeout = maxDuration(timeout, 90*time.Second)
 		}
 	}
 	return timeout

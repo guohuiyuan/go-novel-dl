@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -464,7 +463,7 @@ func (m interactiveModel) chapterCountsCmd(results []app.HybridSearchResult) tea
 					return
 				}
 
-				itemCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
+				itemCtx, cancel := context.WithTimeout(ctx, detailTimeoutForSiteKey(resultItem.Primary.Site))
 				defer cancel()
 
 				book, err := client.DownloadPlan(itemCtx, model.BookRef{BookID: resultItem.Primary.BookID})

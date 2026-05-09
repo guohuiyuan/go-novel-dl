@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -322,7 +321,7 @@ func loadHybridChapterCounts(ctx context.Context, runtime *app.Runtime, results 
 				return
 			}
 
-			itemCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
+			itemCtx, cancel := context.WithTimeout(ctx, detailTimeoutForSiteKey(result.Primary.Site))
 			defer cancel()
 
 			book, err := client.DownloadPlan(itemCtx, model.BookRef{BookID: result.Primary.BookID})
