@@ -40,6 +40,10 @@ var siteMetadata = map[string]SiteMetadata{
 		Title: "次元姬",
 		Tags:  []string{"简体中文", "二次元", "轻小说", "原创"},
 	},
+	"czbooks": {
+		Title: "小说狂人",
+		Tags:  []string{"繁体中文", "成人向", "NSFW"},
+	},
 	"esjzone": {
 		Title: "ESJ Zone",
 		Tags:  []string{"简体中文", "轻小说", "转载站", "翻译", "NSFW"},
@@ -63,6 +67,10 @@ var siteMetadata = map[string]SiteMetadata{
 	"ixdzs8": {
 		Title: "爱下电子书",
 		Tags:  []string{"简体中文", "转载站"},
+	},
+	"xiguashuwu": {
+		Title: "西瓜书屋",
+		Tags:  []string{"简体中文", "转载站", "成人向", "NSFW"},
 	},
 	"kadokado": {
 		Title: "KadoKado",
@@ -127,6 +135,10 @@ var siteMetadata = map[string]SiteMetadata{
 	"syosetu18": {
 		Title: "小説家になろう 18禁",
 		Tags:  []string{"日文", "原创", "免费", "成人向", "NSFW"},
+	},
+	"uaa": {
+		Title: "有爱爱",
+		Tags:  []string{"简体中文", "成人向", "NSFW"},
 	},
 	"syosetu_org": {
 		Title: "ハーメルン",

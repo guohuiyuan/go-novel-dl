@@ -128,6 +128,16 @@ func DefaultConfig() Config {
 			"hongxiuzhao": {
 				BookIDs: []model.BookRef{{BookID: "ZG6rmWO"}},
 			},
+			"czbooks": {
+				BookIDs: []model.BookRef{{BookID: "dr4p0k7"}},
+			},
+			"xiguashuwu": {
+				BookIDs: []model.BookRef{{BookID: "1234"}},
+			},
+			"uaa": {
+				BookIDs:       []model.BookRef{{BookID: "11304099"}},
+				LoginRequired: boolPtr(true),
+			},
 			"fanqienovel": {
 				BookIDs: []model.BookRef{{BookID: "7276384138653862966"}},
 			},

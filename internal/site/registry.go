@@ -140,6 +140,12 @@ func NewDefaultRegistry() *Registry {
 	registry.RegisterWithHosts("ixdzs8", []string{"ixdzs8.com"}, func(cfg config.ResolvedSiteConfig) Site {
 		return NewIxdzs8Site(cfg)
 	})
+	registry.RegisterWithHosts("czbooks", []string{"czbooks.net"}, func(cfg config.ResolvedSiteConfig) Site {
+		return NewCzbooksSite(cfg)
+	})
+	registry.RegisterWithHosts("xiguashuwu", []string{"xiguashuwu.com"}, func(cfg config.ResolvedSiteConfig) Site {
+		return NewXiguashuwuSite(cfg)
+	})
 	registry.RegisterWithHosts("kadokado", []string{"kadokado.com.tw", "api.kadokado.com.tw"}, func(cfg config.ResolvedSiteConfig) Site {
 		return NewKadokadoSite(cfg)
 	})
@@ -157,6 +163,9 @@ func NewDefaultRegistry() *Registry {
 	})
 	registry.RegisterWithHosts("hongxiuzhao", []string{"hongxiuzhao.net"}, func(cfg config.ResolvedSiteConfig) Site {
 		return NewHongxiuzhaoSite(cfg)
+	})
+	registry.RegisterWithHosts("uaa", []string{"uaa.com"}, func(cfg config.ResolvedSiteConfig) Site {
+		return NewUaaSite(cfg)
 	})
 	registry.RegisterWithHosts("haiwaishubao", []string{"haiwaishubao.com", "haiwaishubao1.com"}, func(cfg config.ResolvedSiteConfig) Site {
 		return NewHaiwaishubaoSite(cfg)
