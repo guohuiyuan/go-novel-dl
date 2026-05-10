@@ -140,7 +140,6 @@ var defaultSiteCatalog = []defaultSiteCatalogRow{
 	{Key: "shuhaige", DisplayName: "书海阁小说网", WorkerLimit: 0, FetchImages: true},
 	{Key: "syosetu", DisplayName: "小説家になろう", WorkerLimit: 0, FetchImages: true},
 	{Key: "syosetu18", DisplayName: "小説家になろう 18禁", WorkerLimit: 0, FetchImages: true},
-	{Key: "uaa", DisplayName: "有爱爱", LoginRequired: true, WorkerLimit: 0, FetchImages: true},
 	{Key: "syosetu_org", DisplayName: "ハーメルン", WorkerLimit: 0, FetchImages: true},
 	{Key: "tianyabooks", DisplayName: "天涯书库", WorkerLimit: 0, FetchImages: true},
 	{Key: "tongrenshe", DisplayName: "同人社", WorkerLimit: 0, FetchImages: true},

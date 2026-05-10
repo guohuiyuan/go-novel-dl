@@ -134,10 +134,6 @@ func DefaultConfig() Config {
 			"xiguashuwu": {
 				BookIDs: []model.BookRef{{BookID: "1234"}},
 			},
-			"uaa": {
-				BookIDs:       []model.BookRef{{BookID: "11304099"}},
-				LoginRequired: boolPtr(true),
-			},
 			"fanqienovel": {
 				BookIDs: []model.BookRef{{BookID: "7276384138653862966"}},
 			},

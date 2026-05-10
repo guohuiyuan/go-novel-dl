@@ -164,9 +164,6 @@ func NewDefaultRegistry() *Registry {
 	registry.RegisterWithHosts("hongxiuzhao", []string{"hongxiuzhao.net"}, func(cfg config.ResolvedSiteConfig) Site {
 		return NewHongxiuzhaoSite(cfg)
 	})
-	registry.RegisterWithHosts("uaa", []string{"uaa.com"}, func(cfg config.ResolvedSiteConfig) Site {
-		return NewUaaSite(cfg)
-	})
 	registry.RegisterWithHosts("haiwaishubao", []string{"haiwaishubao.com", "haiwaishubao1.com"}, func(cfg config.ResolvedSiteConfig) Site {
 		return NewHaiwaishubaoSite(cfg)
 	})

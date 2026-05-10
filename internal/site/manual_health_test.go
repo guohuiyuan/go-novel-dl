@@ -64,7 +64,6 @@ func TestManualDefaultRangeDownloadHealth(t *testing.T) {
 		{siteKey: "mjyhb", bookURL: "https://m.mjyhb.com/info_3119/", chapterURL: "https://m.mjyhb.com/read_3119/62d0d.html", timeout: 2 * time.Minute},
 		{siteKey: "czbooks", bookURL: "https://czbooks.net/n/dr4p0k7", chapterURL: "https://czbooks.net/n/dr4p0k7/drgkg7hgh?chapterNumber=0", timeout: 2 * time.Minute},
 		{siteKey: "xiguashuwu", bookURL: "https://www.xiguashuwu.com/book/1234/iszip/1/", chapterURL: "https://www.xiguashuwu.com/book/1234/482.html", timeout: 2 * time.Minute},
-		{siteKey: "uaa", bookURL: "https://www.uaa.com/novel/intro?id=11304099", chapterURL: "https://www.uaa.com/novel/chapter?id=234639", chapterID: "234639", timeout: 2 * time.Minute},
 		{siteKey: "ruochu", bookURL: "https://www.ruochu.com/book/158713", chapterURL: "https://www.ruochu.com/book/158713/13869103", timeout: 2 * time.Minute},
 		{siteKey: "n17k", bookURL: "https://www.17k.com/book/3631088.html", chapterURL: "https://www.17k.com/chapter/3631088/49406153.html", timeout: 2 * time.Minute},
 		{siteKey: "hongxiuzhao", bookURL: "https://hongxiuzhao.net/ZG6rmWO.html", chapterURL: "https://hongxiuzhao.net/aBKBVz6a.html", chapterID: "aBKBVz6a", timeout: 2 * time.Minute},

@@ -136,10 +136,6 @@ var siteMetadata = map[string]SiteMetadata{
 		Title: "小説家になろう 18禁",
 		Tags:  []string{"日文", "原创", "免费", "成人向", "NSFW"},
 	},
-	"uaa": {
-		Title: "有爱爱",
-		Tags:  []string{"简体中文", "成人向", "NSFW"},
-	},
 	"syosetu_org": {
 		Title: "ハーメルン",
 		Tags:  []string{"日文", "原创", "免费", "同人二创", "转载站"},
