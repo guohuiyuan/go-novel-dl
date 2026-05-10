@@ -42,11 +42,11 @@ func TestMetaIncludesSearchableDownloadSources(t *testing.T) {
 		t.Fatalf("decode meta payload: %v", err)
 	}
 
-	if len(payload.DefaultSources) != 4 {
-		t.Fatalf("expected 4 default searchable download sources, got %d", len(payload.DefaultSources))
+	if len(payload.DefaultSources) != 3 {
+		t.Fatalf("expected 3 default searchable download sources, got %d", len(payload.DefaultSources))
 	}
-	if len(payload.AllSources) != 4 {
-		t.Fatalf("expected 4 all searchable download sources, got %d", len(payload.AllSources))
+	if len(payload.AllSources) != 3 {
+		t.Fatalf("expected 3 all searchable download sources, got %d", len(payload.AllSources))
 	}
 
 	westnovel := findDescriptor(payload.AllSources, "westnovel")
@@ -62,11 +62,11 @@ func TestMetaIncludesSearchableDownloadSources(t *testing.T) {
 	if findDescriptor(payload.DefaultSources, "biquge345") == nil {
 		t.Fatalf("expected biquge345 in default web sources")
 	}
-	if findDescriptor(payload.DefaultSources, "yodu") == nil {
-		t.Fatalf("expected yodu in default web sources")
-	}
 	if findDescriptor(payload.AllSources, "biquge345") == nil {
 		t.Fatalf("expected biquge345 in searchable web sources")
+	}
+	if findDescriptor(payload.AllSources, "yodu") != nil {
+		t.Fatalf("did not expect yodu in searchable web sources")
 	}
 	if findDescriptor(payload.AllSources, "tongrenshe") != nil {
 		t.Fatalf("did not expect tongrenshe in searchable web sources")
@@ -96,17 +96,6 @@ func TestMetaIncludesSearchableDownloadSources(t *testing.T) {
 		t.Fatalf("expected aaatxt tags %v, got %v", wantAaatxtTags, aaatxt.Tags)
 	}
 
-	yodu := findDescriptor(payload.AllSources, "yodu")
-	if yodu == nil {
-		t.Fatalf("expected yodu descriptor to be present")
-	}
-	if yodu.DisplayName != "有度中文网" {
-		t.Fatalf("expected metadata title for yodu, got %q", yodu.DisplayName)
-	}
-	wantYoduTags := []string{"简体中文", "转载站", "网络小说"}
-	if !reflect.DeepEqual(yodu.Tags, wantYoduTags) {
-		t.Fatalf("expected yodu tags %v, got %v", wantYoduTags, yodu.Tags)
-	}
 }
 
 func TestIndexPageIncludesSourceTagFilterControls(t *testing.T) {
@@ -248,7 +237,7 @@ func TestSearchEndpointPaginatesMixedSearchableSources(t *testing.T) {
 
 	body := strings.NewReader(`{
 		"keyword":"Alpha",
-		"sites":["esjzone","yodu"],
+		"sites":["esjzone","aaatxt"],
 		"page":2,
 		"page_size":2
 	}`)
@@ -704,19 +693,6 @@ func newTestServiceWithOptions(opts testServiceOptions) *Service {
 			},
 		}
 	})
-	registry.Register("yodu", func(cfg config.ResolvedSiteConfig) site.Site {
-		return fakeWebSite{
-			key:         "yodu",
-			displayName: "Yodu",
-			capabilities: site.Capabilities{
-				Download: true,
-				Search:   true,
-			},
-			results: []model.SearchResult{
-				{Site: "yodu", BookID: "101", Title: "Alpha 99", Author: "Author", Description: "Yodu Desc"},
-			},
-		}
-	})
 	registry.Register("biquge345", func(cfg config.ResolvedSiteConfig) site.Site {
 		return fakeWebSite{
 			key:         "biquge345",
@@ -880,9 +856,6 @@ func TestSearchTimeoutForSites(t *testing.T) {
 	}
 	if got := searchTimeoutForSites([]string{"n8novel"}); got != 45*time.Second {
 		t.Fatalf("expected n8novel timeout, got %s", got)
-	}
-	if got := searchTimeoutForSites([]string{"yodu"}); got != 45*time.Second {
-		t.Fatalf("expected yodu timeout, got %s", got)
 	}
 	if got := searchTimeoutForSites([]string{"tongrenshe"}); got != 45*time.Second {
 		t.Fatalf("expected tongrenshe timeout, got %s", got)

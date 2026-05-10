@@ -119,7 +119,6 @@ var defaultSiteCatalog = []defaultSiteCatalogRow{
 	{Key: "ixdzs8", DisplayName: "爱下电子书", WorkerLimit: 0, FetchImages: true},
 	{Key: "linovelib", DisplayName: "哔哩轻小说", WorkerLimit: 0, FetchImages: true},
 	{Key: "n23qb", DisplayName: "铅笔小说", WorkerLimit: 0, FetchImages: true},
-	{Key: "yodu", DisplayName: "有度中文网", WorkerLimit: 0, FetchImages: true},
 	{Key: "ruochu", DisplayName: "若初文学网", WorkerLimit: 0, FetchImages: true},
 	{Key: "fanqienovel", DisplayName: "番茄小说", WorkerLimit: 0, FetchImages: true},
 	{Key: "sfacg", DisplayName: "SF轻小说", WorkerLimit: 0, FetchImages: true},

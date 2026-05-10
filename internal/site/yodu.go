@@ -47,7 +47,6 @@ func NewYoduSite(cfg config.ResolvedSiteConfig) *YoduSite {
 		}
 	}
 	client := newSiteHTTPClient(timeout, siteHTTPClientOptions{
-		Direct:       true,
 		DisableHTTP2: true,
 	})
 	return &YoduSite{cfg: cfg, html: NewHTMLSite(client), client: client, baseURL: baseURL}

@@ -46,7 +46,6 @@ func TestManualDefaultRangeDownloadHealth(t *testing.T) {
 		{siteKey: "esjzone", bookURL: "https://www.esjzone.cc/detail/1660702902.html", chapterURL: "https://www.esjzone.cc/forum/1660702902/294593.html", timeout: 3 * time.Minute},
 		{siteKey: "westnovel", bookURL: "https://www.westnovel.com/ksl/sq/", chapterURL: "https://www.westnovel.com/ksl/sq/140072.html", timeout: 2 * time.Minute},
 		{siteKey: "yibige", bookURL: "https://www.yibige.org/6238/", chapterURL: "https://www.yibige.org/6238/1.html", timeout: 2 * time.Minute},
-		{siteKey: "yodu", bookURL: "https://www.yodu.org/book/18862/", chapterURL: "https://www.yodu.org/book/18862/4662939.html", timeout: 2 * time.Minute},
 		{siteKey: "linovelib", bookURL: "https://www.linovelib.com/novel/1234.html", chapterURL: "https://www.linovelib.com/novel/1234/47800.html", timeout: 3 * time.Minute},
 		{siteKey: "n23qb", bookURL: "https://www.23qb.com/book/12282/", chapterURL: "https://www.23qb.com/book/12282/7908999.html", timeout: 5 * time.Minute},
 		{siteKey: "biquge345", bookURL: "https://www.biquge345.com/book/151120/", chapterURL: "https://www.biquge345.com/chapter/151120/79336811.html", timeout: 3 * time.Minute},

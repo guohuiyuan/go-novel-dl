@@ -91,9 +91,6 @@ func DefaultConfig() Config {
 			"yibige": {
 				BookIDs: []model.BookRef{{BookID: "6238"}},
 			},
-			"yodu": {
-				BookIDs: []model.BookRef{{BookID: "5969"}},
-			},
 			"linovelib": {
 				BookIDs: []model.BookRef{{BookID: "8"}},
 			},

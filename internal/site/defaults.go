@@ -19,7 +19,6 @@ var defaultAvailableSiteKeys = []string{
 	"esjzone",
 	"linovelib",
 	"n23qb",
-	"yodu",
 	"biquge345",
 	"ixdzs8",
 	"ruochu",

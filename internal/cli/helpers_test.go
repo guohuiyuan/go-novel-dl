@@ -51,9 +51,6 @@ func TestSearchTimeoutSecondsForSites(t *testing.T) {
 	if got := searchTimeoutSecondsForSites([]string{"tongrenshe"}); got != 45 {
 		t.Fatalf("expected tongrenshe timeout, got %v", got)
 	}
-	if got := searchTimeoutSecondsForSites([]string{"yodu"}); got != 45 {
-		t.Fatalf("expected yodu timeout, got %v", got)
-	}
 	if got := searchTimeoutSecondsForSites([]string{"tianyabooks"}); got != 180 {
 		t.Fatalf("expected tianyabooks timeout, got %v", got)
 	}

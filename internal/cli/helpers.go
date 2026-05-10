@@ -100,7 +100,7 @@ func searchTimeoutSecondsForSites(sites []string) float64 {
 			if timeout < 90 {
 				timeout = 90
 			}
-		case "tongrenshe", "n8novel", "yodu", "biquge5", "piaotia":
+		case "tongrenshe", "n8novel", "biquge5", "piaotia":
 			if timeout < 45 {
 				timeout = 45
 			}

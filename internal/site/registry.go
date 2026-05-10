@@ -100,9 +100,6 @@ func NewDefaultRegistry() *Registry {
 	registry.RegisterWithHosts("yibige", []string{"yibige.org", "tw.yibige.org", "sg.yibige.org", "hk.yibige.org"}, func(cfg config.ResolvedSiteConfig) Site {
 		return NewYibigeSite(cfg)
 	})
-	registry.RegisterWithHosts("yodu", []string{"yodu.org", "tw.yodu.org"}, func(cfg config.ResolvedSiteConfig) Site {
-		return NewYoduSite(cfg)
-	})
 	registry.RegisterWithHosts("linovelib", []string{"linovelib.com"}, func(cfg config.ResolvedSiteConfig) Site {
 		return NewLinovelibSite(cfg)
 	})

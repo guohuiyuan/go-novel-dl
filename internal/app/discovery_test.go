@@ -113,19 +113,19 @@ func TestHybridSearchCollectsWarnings(t *testing.T) {
 			err:         context.DeadlineExceeded,
 		}
 	})
-	registry.Register("yodu", func(cfg config.ResolvedSiteConfig) site.Site {
+	registry.Register("ruochu", func(cfg config.ResolvedSiteConfig) site.Site {
 		return fakeSearchSite{
-			key:         "yodu",
-			displayName: "Yodu",
+			key:         "ruochu",
+			displayName: "Ruochu",
 			results: []model.SearchResult{
-				{Site: "yodu", BookID: "200", Title: "Three Body", Author: "Liu"},
+				{Site: "ruochu", BookID: "200", Title: "Three Body", Author: "Liu"},
 			},
 		}
 	})
 
 	runtime := newFakeRuntime(registry)
 	response, err := runtime.HybridSearch(context.Background(), "Three Body", HybridSearchOptions{
-		Sites: []string{"esjzone", "yodu"},
+		Sites: []string{"esjzone", "ruochu"},
 	})
 	if err != nil {
 		t.Fatalf("HybridSearch returned error: %v", err)
@@ -135,7 +135,7 @@ func TestHybridSearchCollectsWarnings(t *testing.T) {
 		t.Fatalf("expected esjzone warning, got %+v", response.Warnings)
 	}
 	if len(response.Results) != 1 {
-		t.Fatalf("expected yodu result to survive partial failure, got %d", len(response.Results))
+		t.Fatalf("expected ruochu result to survive partial failure, got %d", len(response.Results))
 	}
 }
 
