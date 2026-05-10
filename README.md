@@ -628,3 +628,8 @@ http://localhost:8080/novel
 - 请遵守目标站点服务条款、版权要求与当地法律法规
 - 部分站点可能受限流、Cloudflare、登录态、反爬或网络连通性影响
 - 站点能力表表示“代码已实现”，不代表目标站点长期稳定可用
+
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/image?repos=guohuiyuan/go-novel-dl&type=date&legend=top-left)](https://www.star-history.com/?repos=guohuiyuan%2Fgo-novel-dl&type=date&legend=top-left)
