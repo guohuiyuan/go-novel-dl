@@ -20,7 +20,7 @@
 
 ## 当前能力
 
-- 聚合搜索：并发搜索多个站点，按书名/作者归并同作品变体
+- 聚合搜索：并发搜索多个站点，按书名/作者归并同作品变体，达到结果数后提前返回并取消剩余慢源请求
 - 混合结果排序：结合关键词匹配、站点优先级、简介完整度、封面可用性选出主结果
 - URL 直达：CLI 下载和 Web 搜索都支持直接输入站点链接进行解析
 - 详情页预取：Web 详情通过 `DownloadPlan` 拉取目录与书籍元数据
@@ -32,12 +32,21 @@
 - 图片处理：支持章节图片保留、EPUB 图片抓取与压缩
 - 统一配置：CLI 与 Web 共用 `data/site_catalog.db`
 - 站点级配置：支持可选登录/Cookie、镜像、并发、抓图、文字转换和缓存开关；ESJ Zone 搜索和详情无需预先配置账号
-- 站点兼容：支持 Alice Book House 加密章节接口、Linovelib 多页目录、N23QB 站点地图搜索等站点差异处理
+- 站点兼容：支持 Alice Book House 加密章节接口、Linovelib 多页目录、轻之文库/轻小说百科/神凑轻小说等站点差异处理
 - Web 图片模糊化：全局配置可开启网页图片模糊显示，降低展示风险
 
 ![Web UI](./screenshots/web.png)
 
 ## 版本更新摘要
+
+### v1.0.8
+
+- 聚合搜索改为“并发收集 + 满额提前返回”：调用方设置结果上限后，结果数达到上限即返回，并取消剩余慢源请求
+- 慢源/坏源隔离增强：单个渠道超时、403、Cloudflare 或网络异常不会拖慢 Web/CLI 首屏搜索结果
+- 新增并纳入当前渠道：`linovel`（轻之文库）、`lnovel`（轻小说百科）、`shencou`（神凑轻小说），支持 URL 识别、目录与章节抓取
+- 新增/完善 NSFW 与多语言渠道：`aaatxt`、`kadokado`、`haiwaishubao`、`mjyhb`、`novelpia` 等站点的搜索、详情或下载能力
+- 清理不稳定渠道入口：`n23qb`、`akatsuki_novels`、`xiguashuwu`、`czbooks`、`qbtr`、`n37yq`、`yodu` 等适配器代码保留，但不作为当前注册/默认渠道启用
+- README 站点列表、配置中心列表和能力分组已按当前 `Registry` / `site_catalog` 状态更新
 
 ### v1.0.7
 
@@ -104,6 +113,8 @@ docs/architecture.md 附加架构说明
 `internal/app/discovery.go` 中的 `HybridSearch` 会：
 
 - 并发调用多个站点的 `Search`
+- 当调用方设置 `OverallLimit` 时，聚合结果达到上限即返回，并通过 context 取消剩余慢源请求
+- 单站点失败会被记录为 warning，不会让已收集到的其它站点结果失效
 - 用归一化后的书名/作者进行分组
 - 为每组结果选择一个主结果
 - 保留全部来源变体，供 Web 详情和下载时切换
@@ -235,7 +246,7 @@ novel-dl clean book              清理书籍原始数据
 ### `search`
 
 - `--site, -s`：指定搜索站点，可重复传入
-- `--limit, -l`：总结果数上限
+- `--limit, -l`：总结果数上限；达到上限后会提前返回，不等待其它慢源超时
 - `--site-limit`：单站点结果上限
 - `--page-size`：CLI 每页显示数量
 - `--timeout`：搜索超时秒数
@@ -282,8 +293,9 @@ go run ./cmd/novel-dl config site-set esjzone ^
 ### Web 特性
 
 - 搜索页仅展示“同时支持搜索和下载”的站点
-- 当前 Web 搜索页会隐藏 `biquge345`
 - 支持输入关键词，也支持直接输入书籍 URL
+- 搜索达到当前页所需结果数后会先返回，慢源/坏源不会阻塞首屏展示
+- 支持按站点标签筛选搜索源，可多选取交集
 - 详情接口通过 `DownloadPlan` 获取目录、简介、封面等信息，并缓存短时间内的重复请求
 - 详情页支持章节分页/批量展示、加载耗时提示、目录预热和错误提示
 - 内置阅读器通过章节正文接口按需拉取正文，支持滚动续读、上下文预加载和前端去重缓存
@@ -390,44 +402,93 @@ data/
 
 ### 已注册站点
 
-当前默认 `Registry` 中已注册以下站点：
+当前默认 `Registry` 中已注册、可由 URL 解析和下载流程使用的站点：
 
 ```text
 aaatxt
 alicesw
-esjzone
-yibige
-linovelib
-n23qb
+alphapolis
 biquge345
 biquge5
-fsshu
-n69shuba
-ixdzs8
-novalpie
-ruochu
-n17k
-hongxiuzhao
-fanqienovel
-faloo
-wenku8
-sfacg
-ciyuanji
-qbtr
 ciweimao
-tongrenshe
-tianyabooks
+ciyuanji
+esjzone
+faloo
+fanqienovel
+fsshu
+haiwaishubao
+hongxiuzhao
+ixdzs8
+kadokado
+linovel
+linovelib
+lnovel
+mjyhb
+n17k
+n69shuba
 n8novel
+novalpie
+novelpia
+ruochu
+sfacg
+shencou
 shuhaige
+syosetu
+syosetu18
+syosetu_org
+tianyabooks
+tongrenshe
+wenku8
+yibige
 ```
 
-代码中保留但当前未注册启用的站点：
+### 默认启用渠道
+
+当前 `defaultAvailableSiteKeys` 覆盖以下站点：
+
+```text
+aaatxt
+esjzone
+linovelib
+linovel
+lnovel
+shencou
+biquge345
+biquge5
+ixdzs8
+ruochu
+fanqienovel
+n17k
+faloo
+sfacg
+ciyuanji
+ciweimao
+n8novel
+shuhaige
+tianyabooks
+alicesw
+kadokado
+haiwaishubao
+mjyhb
+novelpia
+```
+
+代码中保留但当前未注册启用的站点包括：
 
 ```text
 westnovel
 yodu
 piaotia
+n23qb
+n37yq
+akatsuki_novels
+czbooks
+xiguashuwu
+qbtr
+uaa
 ```
+
+这些站点的适配器或测试仍在代码中，主要因站点稳定性、403/Cloudflare、浏览器指纹、登录或网络连通性问题暂不作为当前 active 渠道。
 
 ### 能力分组
 
@@ -443,12 +504,15 @@ ciweimao
 esjzone
 faloo
 fsshu
+haiwaishubao
 ixdzs8
+kadokado
+linovel
 linovelib
 n17k
 n8novel
-n23qb
-qbtr
+novalpie
+novelpia
 ruochu
 sfacg
 shuhaige
@@ -459,10 +523,16 @@ tongrenshe
 仅支持下载：
 
 ```text
+alphapolis
 fanqienovel
 hongxiuzhao
+lnovel
+mjyhb
 n69shuba
-novalpie
+shencou
+syosetu
+syosetu18
+syosetu_org
 wenku8
 yibige
 ```
@@ -474,6 +544,8 @@ esjzone
 novalpie
 ```
 
+ESJ Zone 搜索和详情无需预先登录；只有遇到需要认证的章节时才可能需要 Cookie/账号。
+
 ### 可在配置中心管理的站点
 
 当前 SQLite `site_catalog` 覆盖以下站点：
@@ -481,23 +553,32 @@ novalpie
 ```text
 aaatxt
 alicesw
-ciyuanji
-ciweimao
+alphapolis
 esjzone
 faloo
-fanqienovel
 fsshu
 biquge5
 ixdzs8
 linovelib
+linovel
+lnovel
+shencou
+ruochu
+fanqienovel
+sfacg
+ciyuanji
+ciweimao
+kadokado
+novalpie
+novelpia
+haiwaishubao
+mjyhb
 n17k
 n8novel
-n23qb
-novalpie
-qbtr
-ruochu
-sfacg
 shuhaige
+syosetu
+syosetu18
+syosetu_org
 tianyabooks
 tongrenshe
 ```
