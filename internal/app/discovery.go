@@ -118,6 +118,9 @@ func (r *Runtime) HybridSearch(ctx context.Context, keyword string, opts HybridS
 	}
 	perSiteTimeout := opts.PerSiteTimeout
 
+	searchCtx, cancelSearches := context.WithCancel(ctx)
+	defer cancelSearches()
+
 	siteResults := make(chan siteSearchResponse, len(sites))
 	var wg sync.WaitGroup
 	for _, siteKey := range sites {
@@ -143,14 +146,14 @@ func (r *Runtime) HybridSearch(ctx context.Context, keyword string, opts HybridS
 			if siteTimeout <= 0 {
 				siteTimeout = defaultHybridSearchPerSiteTimeout(siteKey, len(sites) > 1)
 			}
-			searchCtx := ctx
+			siteCtx := searchCtx
 			cancel := func() {}
 			if siteTimeout > 0 {
-				searchCtx, cancel = context.WithTimeout(ctx, siteTimeout)
+				siteCtx, cancel = context.WithTimeout(searchCtx, siteTimeout)
 			}
 			defer cancel()
 
-			items, err := client.Search(searchCtx, keyword, perSiteLimit)
+			items, err := client.Search(siteCtx, keyword, perSiteLimit)
 			if err != nil {
 				siteResults <- siteSearchResponse{siteKey: siteKey, err: err}
 				return
@@ -161,32 +164,51 @@ func (r *Runtime) HybridSearch(ctx context.Context, keyword string, opts HybridS
 		}(siteKey)
 	}
 
-	wg.Wait()
-	close(siteResults)
-
 	rawResults := make([]model.SearchResult, 0, len(sites)*perSiteLimit)
 	warnings := make([]SearchWarning, 0)
-	for result := range siteResults {
-		if result.err != nil {
-			warnings = append(warnings, SearchWarning{
-				Site:  result.siteKey,
-				Error: result.err.Error(),
-			})
-			continue
+	completed := 0
+	for completed < len(sites) {
+		select {
+		case result := <-siteResults:
+			completed++
+			if result.err != nil {
+				warnings = append(warnings, SearchWarning{
+					Site:  result.siteKey,
+					Error: result.err.Error(),
+				})
+				continue
+			}
+			rawResults = append(rawResults, result.items...)
+			if opts.OverallLimit > 0 && len(rawResults) >= opts.OverallLimit {
+				aggregated := groupHybridSearchResults(rawResults, keyword, r.Registry.DefaultSearchKeys(), opts.OverallLimit)
+				if len(aggregated) >= opts.OverallLimit {
+					cancelSearches()
+					return newHybridSearchResponse(keyword, sites, aggregated, warnings), nil
+				}
+			}
+		case <-ctx.Done():
+			cancelSearches()
+			aggregated := groupHybridSearchResults(rawResults, keyword, r.Registry.DefaultSearchKeys(), opts.OverallLimit)
+			return newHybridSearchResponse(keyword, sites, aggregated, warnings), nil
 		}
-		rawResults = append(rawResults, result.items...)
 	}
+
+	wg.Wait()
+	cancelSearches()
+	aggregated := groupHybridSearchResults(rawResults, keyword, r.Registry.DefaultSearchKeys(), opts.OverallLimit)
+	return newHybridSearchResponse(keyword, sites, aggregated, warnings), nil
+}
+
+func newHybridSearchResponse(keyword string, sites []string, results []HybridSearchResult, warnings []SearchWarning) HybridSearchResponse {
 	sort.SliceStable(warnings, func(i, j int) bool {
 		return warnings[i].Site < warnings[j].Site
 	})
-
-	aggregated := groupHybridSearchResults(rawResults, keyword, r.Registry.DefaultSearchKeys(), opts.OverallLimit)
 	return HybridSearchResponse{
 		Keyword:  keyword,
 		Sites:    sites,
-		Results:  aggregated,
+		Results:  results,
 		Warnings: warnings,
-	}, nil
+	}
 }
 
 func defaultHybridSearchPerSiteTimeout(siteKey string, multiSite bool) time.Duration {

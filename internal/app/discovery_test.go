@@ -219,6 +219,58 @@ func TestHybridSearchPerSiteTimeoutKeepsFastSites(t *testing.T) {
 	}
 }
 
+func TestHybridSearchReturnsWhenOverallLimitIsReached(t *testing.T) {
+	registry := site.NewRegistry()
+	registry.Register("slow", func(cfg config.ResolvedSiteConfig) site.Site {
+		return fakeSearchSite{
+			key:         "slow",
+			displayName: "Slow",
+			delay:       300 * time.Millisecond,
+			err:         context.DeadlineExceeded,
+		}
+	})
+	registry.Register("ruochu", func(cfg config.ResolvedSiteConfig) site.Site {
+		return fakeSearchSite{
+			key:         "ruochu",
+			displayName: "Ruochu",
+			results: []model.SearchResult{
+				{Site: "ruochu", BookID: "100", Title: "Alpha One", Author: "A"},
+			},
+		}
+	})
+	registry.Register("sfacg", func(cfg config.ResolvedSiteConfig) site.Site {
+		return fakeSearchSite{
+			key:         "sfacg",
+			displayName: "SFACG",
+			results: []model.SearchResult{
+				{Site: "sfacg", BookID: "200", Title: "Alpha Two", Author: "B"},
+			},
+		}
+	})
+
+	runtime := newFakeRuntime(registry)
+	started := time.Now()
+	response, err := runtime.HybridSearch(context.Background(), "Alpha", HybridSearchOptions{
+		Sites:        []string{"slow", "ruochu", "sfacg"},
+		OverallLimit: 2,
+		PerSiteLimit: 1,
+	})
+	if err != nil {
+		t.Fatalf("HybridSearch returned error: %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 150*time.Millisecond {
+		t.Fatalf("expected search to return before slow source finished, took %s", elapsed)
+	}
+	if len(response.Results) != 2 {
+		t.Fatalf("expected 2 results, got %d (%+v)", len(response.Results), response.Results)
+	}
+	for _, result := range response.Results {
+		if result.PreferredSite == "slow" {
+			t.Fatalf("slow source should not be required for early return: %+v", response.Results)
+		}
+	}
+}
+
 func TestRuntimeExposesDownloadSourcesSeparatelyFromSearchSources(t *testing.T) {
 	registry := site.NewRegistry()
 	registry.Register("ruochu", func(cfg config.ResolvedSiteConfig) site.Site {
