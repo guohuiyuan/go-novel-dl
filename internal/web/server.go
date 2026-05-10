@@ -1184,7 +1184,7 @@ func searchTimeoutForSites(sites []string) time.Duration {
 			timeout = maxDuration(timeout, 45*time.Second)
 		case "tianyabooks":
 			timeout = maxDuration(timeout, 3*time.Minute)
-		case "biquge5", "piaotia":
+		case "biquge5", "piaotia", "qbtr":
 			timeout = maxDuration(timeout, 45*time.Second)
 		case "linovelib":
 			timeout = maxDuration(timeout, 3*time.Minute)

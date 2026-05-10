@@ -136,6 +136,13 @@ func TestParseBiqugePagedSearchResults(t *testing.T) {
 	}
 }
 
+func TestMaxBiqugePagedIndexIgnoresJumpTemplate(t *testing.T) {
+	markup := `<div class="pages"><a href="/9_9194/index_1.html">1</a><a href="/9_9194/index_2.html">2</a><a href="/9_9194/index_3.html">3</a><input id="jumppage"></div><script>var pagebase="/9_9194/index_99999.html";</script>`
+	if got := maxBiqugePagedIndex(markup); got != 3 {
+		t.Fatalf("expected max page 3, got %d", got)
+	}
+}
+
 func TestParseRuochuSearchResults(t *testing.T) {
 	payload := []byte(`{"success":true,"code":1,"status":true,"data":{"content":[{"id":147625,"name":"都市修罗医仙","introduce":"第一段\r\n第二段","authorname":"无敌豆子","lastchaptername":"第一百五十二章 最终结局","iconUrlSmall":"/book/147625.jpg@!bns?1"}],"totalPages":317,"number":0,"last":false}}`)
 	results, hasNext, err := parseRuochuSearchResults(payload)

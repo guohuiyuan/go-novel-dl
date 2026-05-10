@@ -869,6 +869,9 @@ func TestSearchTimeoutForSites(t *testing.T) {
 	if got := searchTimeoutForSites([]string{"biquge5", "piaotia"}); got != 45*time.Second {
 		t.Fatalf("expected slow-site timeout, got %s", got)
 	}
+	if got := searchTimeoutForSites([]string{"qbtr"}); got != 45*time.Second {
+		t.Fatalf("expected qbtr timeout, got %s", got)
+	}
 	if got := searchTimeoutForSites([]string{"linovelib", "esjzone"}); got != 3*time.Minute {
 		t.Fatalf("expected max timeout, got %s", got)
 	}

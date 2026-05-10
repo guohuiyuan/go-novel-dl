@@ -49,7 +49,7 @@ func TestManualDefaultRangeDownloadHealth(t *testing.T) {
 		{siteKey: "linovelib", bookURL: "https://www.linovelib.com/novel/1234.html", chapterURL: "https://www.linovelib.com/novel/1234/47800.html", timeout: 3 * time.Minute},
 		{siteKey: "n23qb", bookURL: "https://www.23qb.com/book/12282/", chapterURL: "https://www.23qb.com/book/12282/7908999.html", timeout: 5 * time.Minute},
 		{siteKey: "biquge345", bookURL: "https://www.biquge345.com/book/151120/", chapterURL: "https://www.biquge345.com/chapter/151120/79336811.html", timeout: 3 * time.Minute},
-		{siteKey: "biquge5", bookURL: "https://www.biquge5.com/9_9194/", chapterURL: "https://www.biquge5.com/9_9194/737908.html", timeout: 2 * time.Minute},
+		{siteKey: "biquge5", bookURL: "https://www.biquge5.com/9_9194/", chapterURL: "https://www.biquge5.com/9_9194/457101.html", timeout: 2 * time.Minute},
 		{siteKey: "fsshu", bookURL: "https://www.fsshu.com/biquge/0_139/", chapterURL: "https://www.fsshu.com/biquge/0_139/c40381.html", timeout: 2 * time.Minute},
 		{siteKey: "n69shuba", bookURL: "https://www.69shuba.com/book/88724.htm", chapterURL: "https://www.69shuba.com/txt/88724/39943182", timeout: 2 * time.Minute},
 		{siteKey: "piaotia", bookURL: "https://www.piaotia.com/bookinfo/1/1705.html", chapterURL: "https://www.piaotia.com/html/1/1705/762992.html", timeout: 7 * time.Minute},

@@ -20,6 +20,10 @@ var siteMetadata = map[string]SiteMetadata{
 		Title: "笔趣阁",
 		Tags:  []string{"简体中文", "转载站", "笔趣阁"},
 	},
+	"biquge5": {
+		Title: "笔趣阁",
+		Tags:  []string{"简体中文", "转载站", "笔趣阁"},
+	},
 	"ciweimao": {
 		Title: "刺猬猫",
 		Tags:  []string{"简体中文", "二次元", "同人二创", "原创"},
@@ -67,6 +71,10 @@ var siteMetadata = map[string]SiteMetadata{
 	"yodu": {
 		Title: "有度中文网",
 		Tags:  []string{"简体中文", "转载站", "网络小说"},
+	},
+	"qbtr": {
+		Title: "全本同人小说",
+		Tags:  []string{"简体中文", "转载站", "同人二创"},
 	},
 	"n69shuba": {
 		Title: "69书吧",

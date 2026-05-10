@@ -42,7 +42,7 @@ func TestManualCandidateSourceHealth(t *testing.T) {
 		{siteKey: "faloo", keyword: "原神", bookURL: "https://b.faloo.com/1482723.html", chapterURL: "https://b.faloo.com/1482723_1.html", timeout: 5 * time.Minute},
 		{siteKey: "tongrenshe", keyword: "斗罗", bookURL: "https://tongrenshe.cc/tongren/8899.html", chapterURL: "https://tongrenshe.cc/tongren/8899/1.html", timeout: 2 * time.Minute},
 		{siteKey: "westnovel", keyword: "斗罗", bookURL: "https://www.westnovel.com/ksl/sq/", chapterURL: "https://www.westnovel.com/ksl/sq/140072.html", timeout: 90 * time.Second},
-		{siteKey: "biquge5", keyword: "斗破", bookURL: "https://www.biquge5.com/9_9194/", chapterURL: "https://www.biquge5.com/9_9194/737908.html", timeout: 2 * time.Minute},
+		{siteKey: "biquge5", keyword: "斗破", bookURL: "https://www.biquge5.com/9_9194/", chapterURL: "https://www.biquge5.com/9_9194/457101.html", timeout: 2 * time.Minute},
 		{siteKey: "piaotia", keyword: "斗破", bookURL: "https://www.piaotia.com/bookinfo/1/1705.html", chapterURL: "https://www.piaotia.com/html/1/1705/762992.html", timeout: 2 * time.Minute},
 		{siteKey: "qbtr", keyword: "斗罗", bookURL: "https://www.qbtr.cc/tongren/8978.html", chapterURL: "https://www.qbtr.cc/tongren/8978/1.html", timeout: 90 * time.Second},
 	}
@@ -119,14 +119,8 @@ func registerCandidateHealthSites(registry *Registry) {
 	registry.RegisterWithHosts("westnovel", []string{"westnovel.com"}, func(cfg config.ResolvedSiteConfig) Site {
 		return NewWestNovelSite(cfg)
 	})
-	registry.RegisterWithHosts("biquge5", []string{"biquge5.com"}, func(cfg config.ResolvedSiteConfig) Site {
-		return NewBiqugePagedSite("biquge5", "Biquge5", "https://www.biquge5.com", "", cfg)
-	})
 	registry.RegisterWithHosts("piaotia", []string{"piaotia.com"}, func(cfg config.ResolvedSiteConfig) Site {
 		return NewPiaotiaSite(cfg)
-	})
-	registry.RegisterWithHosts("qbtr", []string{"qbtr.cc"}, func(cfg config.ResolvedSiteConfig) Site {
-		return NewQBTRSite(cfg)
 	})
 }
 

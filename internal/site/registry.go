@@ -109,10 +109,9 @@ func NewDefaultRegistry() *Registry {
 	registry.RegisterWithHosts("biquge345", []string{"biquge345.com"}, func(cfg config.ResolvedSiteConfig) Site {
 		return NewBiquge345Site(cfg)
 	})
-	// Disabled: HTTP 502 error
-	// registry.Register("biquge5", func(cfg config.ResolvedSiteConfig) Site {
-	// 	return NewBiqugePagedSite("biquge5", "Biquge5", "https://www.biquge5.com", "", cfg)
-	// })
+	registry.RegisterWithHosts("biquge5", []string{"biquge5.com"}, func(cfg config.ResolvedSiteConfig) Site {
+		return NewBiqugePagedSite("biquge5", "Biquge5", "https://www.biquge5.com", "", cfg)
+	})
 	registry.RegisterWithHosts("fsshu", []string{"fsshu.com"}, func(cfg config.ResolvedSiteConfig) Site {
 		return NewFsshuSite(cfg)
 	})
@@ -153,10 +152,9 @@ func NewDefaultRegistry() *Registry {
 	registry.RegisterWithHosts("ciyuanji", []string{"ciyuanji.com"}, func(cfg config.ResolvedSiteConfig) Site {
 		return NewCiyuanjiSite(cfg)
 	})
-	// Disabled: timeout issues
-	// registry.Register("qbtr", func(cfg config.ResolvedSiteConfig) Site {
-	// 	return NewQBTRSite(cfg)
-	// })
+	registry.RegisterWithHosts("qbtr", []string{"qbtr.cc"}, func(cfg config.ResolvedSiteConfig) Site {
+		return NewQBTRSite(cfg)
+	})
 	registry.RegisterWithHosts("ciweimao", []string{"ciweimao.com"}, func(cfg config.ResolvedSiteConfig) Site {
 		return NewCiweimaoSite(cfg)
 	})

@@ -6,7 +6,10 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/net/html"
@@ -14,6 +17,8 @@ import (
 	"github.com/guohuiyuan/go-novel-dl/internal/config"
 	"github.com/guohuiyuan/go-novel-dl/internal/model"
 )
+
+var biqugePagedIndexRe = regexp.MustCompile(`href=["'][^"']*index_(\d+)\.html`)
 
 type BiqugePagedSite struct {
 	key         string
@@ -88,7 +93,12 @@ func (s *BiqugePagedSite) Download(ctx context.Context, ref model.BookRef) (*mod
 	for idx, chapter := range book.Chapters {
 		loaded, err := s.FetchChapter(ctx, ref.BookID, chapter)
 		if err != nil {
-			return nil, err
+			if !shouldFallbackMissingChapter(err) {
+				return nil, err
+			}
+			loaded = chapter
+			loaded.Content = fmt.Sprintf("[章节抓取失败，已跳过] %v", err)
+			loaded.Downloaded = true
 		}
 		loaded.Order = idx + 1
 		book.Chapters[idx] = loaded
@@ -98,26 +108,9 @@ func (s *BiqugePagedSite) Download(ctx context.Context, ref model.BookRef) (*mod
 
 func (s *BiqugePagedSite) DownloadPlan(ctx context.Context, ref model.BookRef) (*model.Book, error) {
 	bookPath := ref.BookID
-	pages := []string{}
-	for idx := 0; ; idx++ {
-		url := fmt.Sprintf("%s/%s/%s/", s.baseURL, s.bookPrefix, bookPath)
-		if s.bookPrefix == "" {
-			url = fmt.Sprintf("%s/%s/", s.baseURL, bookPath)
-		}
-		if idx > 0 {
-			url = strings.TrimRight(url, "/") + fmt.Sprintf("/index_%d.html", idx+1)
-		}
-		markup, err := s.getWithRetry(ctx, url)
-		if err != nil {
-			if idx == 0 {
-				return nil, err
-			}
-			break
-		}
-		pages = append(pages, markup)
-		if !strings.Contains(markup, "book_list2") || !strings.Contains(markup, "index_") {
-			break
-		}
+	pages, err := s.fetchBookIndexPages(ctx, bookPath)
+	if err != nil {
+		return nil, err
 	}
 	if len(pages) == 0 {
 		return nil, fmt.Errorf("book page not found")
@@ -156,6 +149,95 @@ func (s *BiqugePagedSite) DownloadPlan(ctx context.Context, ref model.BookRef) (
 	}
 	book.Chapters = applyChapterRange(dedupChapters(chapters), ref)
 	return book, nil
+}
+
+func (s *BiqugePagedSite) fetchBookIndexPages(ctx context.Context, bookPath string) ([]string, error) {
+	firstPage, err := s.getWithRetry(ctx, s.bookIndexURL(bookPath, 1))
+	if err != nil {
+		return nil, err
+	}
+
+	maxPage := maxBiqugePagedIndex(firstPage)
+	pages := make([]string, maxPage)
+	pages[0] = firstPage
+	if maxPage <= 1 {
+		return pages, nil
+	}
+
+	pageCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	workerCount := 6
+	if maxPage-1 < workerCount {
+		workerCount = maxPage - 1
+	}
+	jobs := make(chan int)
+	errCh := make(chan error, 1)
+	var wg sync.WaitGroup
+	for worker := 0; worker < workerCount; worker++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for page := range jobs {
+				markup, err := s.getWithRetry(pageCtx, s.bookIndexURL(bookPath, page))
+				if err != nil {
+					select {
+					case errCh <- fmt.Errorf("fetch book index page %d: %w", page, err):
+						cancel()
+					default:
+					}
+					return
+				}
+				pages[page-1] = markup
+			}
+		}()
+	}
+
+sendPages:
+	for page := 2; page <= maxPage; page++ {
+		select {
+		case <-pageCtx.Done():
+			break sendPages
+		case jobs <- page:
+		}
+	}
+	close(jobs)
+	wg.Wait()
+
+	select {
+	case err := <-errCh:
+		return nil, err
+	default:
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return pages, nil
+}
+
+func (s *BiqugePagedSite) bookIndexURL(bookPath string, page int) string {
+	base := fmt.Sprintf("%s/%s/%s/", s.baseURL, s.bookPrefix, bookPath)
+	if s.bookPrefix == "" {
+		base = fmt.Sprintf("%s/%s/", s.baseURL, bookPath)
+	}
+	if page <= 1 {
+		return base
+	}
+	return strings.TrimRight(base, "/") + fmt.Sprintf("/index_%d.html", page)
+}
+
+func maxBiqugePagedIndex(markup string) int {
+	maxPage := 1
+	for _, match := range biqugePagedIndexRe.FindAllStringSubmatch(markup, -1) {
+		if len(match) != 2 {
+			continue
+		}
+		page, err := strconv.Atoi(match[1])
+		if err == nil && page > maxPage {
+			maxPage = page
+		}
+	}
+	return maxPage
 }
 
 func (s *BiqugePagedSite) FetchChapter(ctx context.Context, bookID string, chapter model.Chapter) (model.Chapter, error) {

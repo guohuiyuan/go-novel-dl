@@ -393,12 +393,14 @@ data/
 当前默认 `Registry` 中已注册以下站点：
 
 ```text
+aaatxt
 alicesw
 esjzone
 yibige
 linovelib
 n23qb
 biquge345
+biquge5
 fsshu
 n69shuba
 ixdzs8
@@ -411,7 +413,10 @@ faloo
 wenku8
 sfacg
 ciyuanji
+qbtr
 ciweimao
+tongrenshe
+tianyabooks
 n8novel
 shuhaige
 ```
@@ -421,9 +426,7 @@ shuhaige
 ```text
 westnovel
 yodu
-biquge5
 piaotia
-qbtr
 ```
 
 ### 能力分组
@@ -431,8 +434,10 @@ qbtr
 同时支持搜索和下载：
 
 ```text
+aaatxt
 alicesw
 biquge345
+biquge5
 ciyuanji
 ciweimao
 esjzone
@@ -443,9 +448,12 @@ linovelib
 n17k
 n8novel
 n23qb
+qbtr
 ruochu
 sfacg
 shuhaige
+tianyabooks
+tongrenshe
 ```
 
 仅支持下载：
@@ -471,6 +479,7 @@ novalpie
 当前 SQLite `site_catalog` 覆盖以下站点：
 
 ```text
+aaatxt
 alicesw
 ciyuanji
 ciweimao
@@ -478,15 +487,19 @@ esjzone
 faloo
 fanqienovel
 fsshu
+biquge5
 ixdzs8
 linovelib
 n17k
 n8novel
 n23qb
 novalpie
+qbtr
 ruochu
 sfacg
 shuhaige
+tianyabooks
+tongrenshe
 ```
 
 这意味着：
