@@ -64,9 +64,17 @@ var siteMetadata = map[string]SiteMetadata{
 		Title: "爱下电子书",
 		Tags:  []string{"简体中文", "转载站"},
 	},
+	"kadokado": {
+		Title: "KadoKado",
+		Tags:  []string{"繁体中文", "轻小说", "原创", "成人向", "NSFW"},
+	},
 	"linovelib": {
 		Title: "哔哩轻小说",
 		Tags:  []string{"简体中文", "轻小说", "转载站"},
+	},
+	"haiwaishubao": {
+		Title: "海外书包",
+		Tags:  []string{"简体中文", "转载站", "成人向", "NSFW"},
 	},
 	"n17k": {
 		Title: "17K小说网",
@@ -91,6 +99,10 @@ var siteMetadata = map[string]SiteMetadata{
 	"n8novel": {
 		Title: "无限轻小说",
 		Tags:  []string{"繁体中文", "轻小说", "转载站"},
+	},
+	"mjyhb": {
+		Title: "三五中文",
+		Tags:  []string{"简体中文", "转载站", "成人向", "NSFW"},
 	},
 	"novalpie": {
 		Title: "노벨피아",

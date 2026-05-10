@@ -14,7 +14,7 @@ import (
 	"github.com/guohuiyuan/go-novel-dl/internal/ui"
 )
 
-func TestDefaultWebMetaIncludesJapaneseSearchSources(t *testing.T) {
+func TestDefaultWebMetaIncludesNewSearchSources(t *testing.T) {
 	cfg := config.DefaultConfig()
 	runtime := app.NewRuntime(&cfg, ui.NewConsole(nil, io.Discard, io.Discard))
 	runtime.Progress = progress.NullReporter{}
@@ -41,7 +41,7 @@ func TestDefaultWebMetaIncludesJapaneseSearchSources(t *testing.T) {
 	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode meta payload: %v", err)
 	}
-	for _, siteKey := range []string{"akatsuki_novels", "novelpia"} {
+	for _, siteKey := range []string{"akatsuki_novels", "novelpia", "kadokado", "haiwaishubao"} {
 		if findDescriptor(payload.DefaultSources, siteKey) == nil {
 			t.Fatalf("expected %s in default web search sources", siteKey)
 		}

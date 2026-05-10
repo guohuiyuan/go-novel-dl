@@ -34,6 +34,9 @@ var defaultAvailableSiteKeys = []string{
 	"shuhaige",
 	"tianyabooks",
 	"alicesw",
+	"kadokado",
+	"haiwaishubao",
+	"mjyhb",
 	"akatsuki_novels",
 	"novelpia",
 }

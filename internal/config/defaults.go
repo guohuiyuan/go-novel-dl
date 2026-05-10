@@ -159,6 +159,15 @@ func DefaultConfig() Config {
 			"tianyabooks": {
 				BookIDs: []model.BookRef{{BookID: "cn/chandelizhi"}},
 			},
+			"kadokado": {
+				BookIDs: []model.BookRef{{BookID: "1"}},
+			},
+			"haiwaishubao": {
+				BookIDs: []model.BookRef{{BookID: "102659"}},
+			},
+			"mjyhb": {
+				BookIDs: []model.BookRef{{BookID: "3119"}},
+			},
 			"akatsuki_novels": {
 				BookIDs: []model.BookRef{{BookID: "103"}},
 			},
