@@ -106,9 +106,6 @@ func NewDefaultRegistry() *Registry {
 	registry.RegisterWithHosts("syosetu_org", []string{"syosetu.org"}, func(cfg config.ResolvedSiteConfig) Site {
 		return NewSyosetuOrgSite(cfg)
 	})
-	registry.RegisterWithHosts("akatsuki_novels", []string{"akatsuki-novels.com"}, func(cfg config.ResolvedSiteConfig) Site {
-		return NewAkatsukiNovelsSite(cfg)
-	})
 	// registry.Register("westnovel", func(cfg config.ResolvedSiteConfig) Site {
 	// 	return NewWestNovelSite(cfg)
 	// })
@@ -118,8 +115,14 @@ func NewDefaultRegistry() *Registry {
 	registry.RegisterWithHosts("linovelib", []string{"linovelib.com"}, func(cfg config.ResolvedSiteConfig) Site {
 		return NewLinovelibSite(cfg)
 	})
-	registry.RegisterWithHosts("n23qb", []string{"23qb.com"}, func(cfg config.ResolvedSiteConfig) Site {
-		return NewN23QBSite(cfg)
+	registry.RegisterWithHosts("linovel", []string{"linovel.net"}, func(cfg config.ResolvedSiteConfig) Site {
+		return NewLinovelSite(cfg)
+	})
+	registry.RegisterWithHosts("shencou", []string{"shencou.com"}, func(cfg config.ResolvedSiteConfig) Site {
+		return NewShencouSite(cfg)
+	})
+	registry.RegisterWithHosts("lnovel", []string{"lnovel.org", "lnovel.tw"}, func(cfg config.ResolvedSiteConfig) Site {
+		return NewLnovelSite(cfg)
 	})
 	registry.RegisterWithHosts("biquge345", []string{"biquge345.com"}, func(cfg config.ResolvedSiteConfig) Site {
 		return NewBiquge345Site(cfg)
@@ -139,12 +142,6 @@ func NewDefaultRegistry() *Registry {
 	// })
 	registry.RegisterWithHosts("ixdzs8", []string{"ixdzs8.com"}, func(cfg config.ResolvedSiteConfig) Site {
 		return NewIxdzs8Site(cfg)
-	})
-	registry.RegisterWithHosts("czbooks", []string{"czbooks.net"}, func(cfg config.ResolvedSiteConfig) Site {
-		return NewCzbooksSite(cfg)
-	})
-	registry.RegisterWithHosts("xiguashuwu", []string{"xiguashuwu.com"}, func(cfg config.ResolvedSiteConfig) Site {
-		return NewXiguashuwuSite(cfg)
 	})
 	registry.RegisterWithHosts("kadokado", []string{"kadokado.com.tw", "api.kadokado.com.tw"}, func(cfg config.ResolvedSiteConfig) Site {
 		return NewKadokadoSite(cfg)
@@ -184,9 +181,6 @@ func NewDefaultRegistry() *Registry {
 	})
 	registry.RegisterWithHosts("ciyuanji", []string{"ciyuanji.com"}, func(cfg config.ResolvedSiteConfig) Site {
 		return NewCiyuanjiSite(cfg)
-	})
-	registry.RegisterWithHosts("qbtr", []string{"qbtr.cc"}, func(cfg config.ResolvedSiteConfig) Site {
-		return NewQBTRSite(cfg)
 	})
 	registry.RegisterWithHosts("ciweimao", []string{"ciweimao.com"}, func(cfg config.ResolvedSiteConfig) Site {
 		return NewCiweimaoSite(cfg)

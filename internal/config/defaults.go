@@ -94,8 +94,15 @@ func DefaultConfig() Config {
 			"linovelib": {
 				BookIDs: []model.BookRef{{BookID: "8"}},
 			},
-			"n23qb": {
-				BookIDs: []model.BookRef{{BookID: "12433"}},
+			"linovel": {
+				BookIDs: []model.BookRef{{BookID: "101752"}},
+			},
+			"lnovel": {
+				BookIDs:     []model.BookRef{{BookID: "3638"}},
+				LocaleStyle: "simplified",
+			},
+			"shencou": {
+				BookIDs: []model.BookRef{{BookID: "3540"}},
 			},
 			"biquge345": {
 				BookIDs: []model.BookRef{{BookID: "151120"}},
@@ -128,12 +135,6 @@ func DefaultConfig() Config {
 			"hongxiuzhao": {
 				BookIDs: []model.BookRef{{BookID: "ZG6rmWO"}},
 			},
-			"czbooks": {
-				BookIDs: []model.BookRef{{BookID: "dr4p0k7"}},
-			},
-			"xiguashuwu": {
-				BookIDs: []model.BookRef{{BookID: "1234"}},
-			},
 			"fanqienovel": {
 				BookIDs: []model.BookRef{{BookID: "7276384138653862966"}},
 			},
@@ -148,9 +149,6 @@ func DefaultConfig() Config {
 			},
 			"ciyuanji": {
 				BookIDs: []model.BookRef{{BookID: "12030"}},
-			},
-			"qbtr": {
-				BookIDs: []model.BookRef{{BookID: "tongren-8978"}},
 			},
 			"ciweimao": {
 				BookIDs: []model.BookRef{{BookID: "100011781"}},
@@ -173,9 +171,6 @@ func DefaultConfig() Config {
 			},
 			"mjyhb": {
 				BookIDs: []model.BookRef{{BookID: "3119"}},
-			},
-			"akatsuki_novels": {
-				BookIDs: []model.BookRef{{BookID: "103"}},
 			},
 			"novelpia": {
 				BookIDs: []model.BookRef{{BookID: "2393"}},

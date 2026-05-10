@@ -41,7 +41,7 @@ func TestDefaultWebMetaIncludesNewSearchSources(t *testing.T) {
 	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode meta payload: %v", err)
 	}
-	for _, siteKey := range []string{"akatsuki_novels", "novelpia", "kadokado", "haiwaishubao"} {
+	for _, siteKey := range []string{"novelpia", "kadokado", "haiwaishubao"} {
 		if findDescriptor(payload.DefaultSources, siteKey) == nil {
 			t.Fatalf("expected %s in default web search sources", siteKey)
 		}

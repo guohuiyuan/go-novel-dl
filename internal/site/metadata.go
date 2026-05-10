@@ -80,6 +80,14 @@ var siteMetadata = map[string]SiteMetadata{
 		Title: "哔哩轻小说",
 		Tags:  []string{"简体中文", "轻小说", "转载站"},
 	},
+	"linovel": {
+		Title: "轻之文库",
+		Tags:  []string{"简体中文", "轻小说", "原创"},
+	},
+	"lnovel": {
+		Title: "轻小说百科",
+		Tags:  []string{"简体中文", "繁体中文", "轻小说", "转载站"},
+	},
 	"haiwaishubao": {
 		Title: "海外书包",
 		Tags:  []string{"简体中文", "转载站", "成人向", "NSFW"},
@@ -91,6 +99,10 @@ var siteMetadata = map[string]SiteMetadata{
 	"n23qb": {
 		Title: "铅笔小说",
 		Tags:  []string{"简体中文", "转载站", "轻小说", "网络小说"},
+	},
+	"n37yq": {
+		Title: "三七轻小说",
+		Tags:  []string{"简体中文", "轻小说", "转载站"},
 	},
 	"yodu": {
 		Title: "有度中文网",
@@ -127,6 +139,10 @@ var siteMetadata = map[string]SiteMetadata{
 	"sfacg": {
 		Title: "SF轻小说",
 		Tags:  []string{"简体中文", "轻小说", "原创"},
+	},
+	"shencou": {
+		Title: "神凑轻小说",
+		Tags:  []string{"简体中文", "轻小说", "转载站"},
 	},
 	"syosetu": {
 		Title: "小説家になろう",

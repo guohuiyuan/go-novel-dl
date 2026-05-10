@@ -37,7 +37,6 @@ func TestManualWebSourceDetailHealth(t *testing.T) {
 		{siteKey: "linovelib", keyword: "闅愬尶鐨勫瓨鍦?", timeout: 3 * time.Minute},
 		{siteKey: "n17k", keyword: "璇＄涔嬪湴", timeout: 90 * time.Second},
 		{siteKey: "n8novel", keyword: "斗罗", timeout: 2 * time.Minute},
-		{siteKey: "n23qb", keyword: "寰″吔", timeout: 3 * time.Minute},
 		{siteKey: "ruochu", keyword: "鎬昏", timeout: 90 * time.Second},
 		{siteKey: "sfacg", keyword: "灏戝コ", timeout: 2 * time.Minute},
 	}

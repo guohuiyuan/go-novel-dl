@@ -18,7 +18,9 @@ var defaultAvailableSiteKeys = []string{
 	"aaatxt",
 	"esjzone",
 	"linovelib",
-	"n23qb",
+	"linovel",
+	"lnovel",
+	"shencou",
 	"biquge345",
 	"biquge5",
 	"ixdzs8",
@@ -28,7 +30,6 @@ var defaultAvailableSiteKeys = []string{
 	"faloo",
 	"sfacg",
 	"ciyuanji",
-	"qbtr",
 	"ciweimao",
 	"n8novel",
 	"shuhaige",
@@ -37,7 +38,6 @@ var defaultAvailableSiteKeys = []string{
 	"kadokado",
 	"haiwaishubao",
 	"mjyhb",
-	"akatsuki_novels",
 	"novelpia",
 }
 
