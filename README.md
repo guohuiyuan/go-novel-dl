@@ -624,6 +624,10 @@ http://localhost:8080/novel
 ./novel-dl web --port 8080 --no-browser
 ```
 
+## 许可证
+
+本项目遵循 GNU Affero General Public License v3.0（AGPL-3.0）。详情见 [LICENSE](LICENSE)。
+
 ## 使用说明
 
 - 本项目仅供学习、研究与个人技术验证使用
