@@ -374,6 +374,50 @@ func TestBookDetailEndpointReturnsBookMetadataAndChapters(t *testing.T) {
 	}
 }
 
+func TestBookDetailEndpointAllowsDownloadOnlySite(t *testing.T) {
+	service := newTestService()
+	router := newRouter(service)
+
+	req := httptest.NewRequest(http.MethodGet, RoutePrefix+"/api/books/detail?site=westnovel&book_id=w1", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", resp.Code, resp.Body.String())
+	}
+
+	var payload bookDetailResponse
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode detail payload: %v", err)
+	}
+	if payload.Book.Site != "westnovel" || payload.Book.Title != "Download Only" {
+		t.Fatalf("unexpected book detail: %+v", payload.Book)
+	}
+}
+
+func TestURLSearchAllowsDownloadOnlySite(t *testing.T) {
+	service := newTestService()
+	router := newRouter(service)
+
+	body := bytes.NewBufferString(`{"keyword":"https://westnovel.example/book/w1"}`)
+	req := httptest.NewRequest(http.MethodPost, RoutePrefix+"/api/search", body)
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", resp.Code, resp.Body.String())
+	}
+
+	var payload paginatedSearchResponse
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode search payload: %v", err)
+	}
+	if len(payload.Results) != 1 || payload.Results[0].PreferredSite != "westnovel" {
+		t.Fatalf("unexpected URL search result: %+v", payload.Results)
+	}
+}
+
 func TestBookDetailEndpointPaginatesChapters(t *testing.T) {
 	service := newTestService()
 	router := newRouter(service)
@@ -691,6 +735,16 @@ func newTestServiceWithOptions(opts testServiceOptions) *Service {
 				Download: true,
 				Search:   false,
 			},
+			book: &model.Book{
+				Site:        "westnovel",
+				ID:          "w1",
+				Title:       "Download Only",
+				Author:      "Author",
+				Description: "Download-only source",
+				Chapters: []model.Chapter{
+					{ID: "1", Title: "Chapter 1", Order: 1},
+				},
+			},
 		}
 	})
 	registry.Register("biquge345", func(cfg config.ResolvedSiteConfig) site.Site {
@@ -831,6 +885,13 @@ func (s fakeWebSite) ResolveURL(rawURL string) (*site.ResolvedURL, bool) {
 			SiteKey:   s.key,
 			BookID:    "001",
 			Canonical: "https://www.esjzone.cc/detail/001.html",
+		}, true
+	}
+	if s.key == "westnovel" && strings.Contains(rawURL, "/book/w1") {
+		return &site.ResolvedURL{
+			SiteKey:   s.key,
+			BookID:    "w1",
+			Canonical: "https://westnovel.example/book/w1",
 		}, true
 	}
 	return nil, false

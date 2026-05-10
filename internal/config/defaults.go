@@ -159,6 +159,12 @@ func DefaultConfig() Config {
 			"tianyabooks": {
 				BookIDs: []model.BookRef{{BookID: "cn/chandelizhi"}},
 			},
+			"akatsuki_novels": {
+				BookIDs: []model.BookRef{{BookID: "103"}},
+			},
+			"novelpia": {
+				BookIDs: []model.BookRef{{BookID: "2393"}},
+			},
 		},
 		Plugins: PluginsConfig{
 			EnableLocalPlugins: false,

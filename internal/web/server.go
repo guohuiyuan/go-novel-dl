@@ -474,8 +474,8 @@ func newRouter(service *Service) *gin.Engine {
 			return
 		}
 
-		if _, ok := descriptorKeySet(service.AllSources)[siteKey]; !ok {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "selected site must support both search and download"})
+		if !siteSupportsDownload(service.Runtime.Registry, siteKey) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "selected site must support download"})
 			return
 		}
 
@@ -652,8 +652,8 @@ func (s *Service) resolveURLSearch(ctx context.Context, rawURL string) (paginate
 	if !ok || resolved == nil || strings.TrimSpace(resolved.SiteKey) == "" || strings.TrimSpace(resolved.BookID) == "" {
 		return paginatedSearchResponse{}, fmt.Errorf("无法识别该链接，当前仅支持受支持站点的书籍详情或章节链接")
 	}
-	if _, ok := descriptorKeySet(s.AllSources)[resolved.SiteKey]; !ok {
-		return paginatedSearchResponse{}, fmt.Errorf("该链接所属站点当前不支持 Web 搜索下载")
+	if !siteSupportsDownload(s.Runtime.Registry, resolved.SiteKey) {
+		return paginatedSearchResponse{}, fmt.Errorf("该链接所属站点当前不支持 Web 下载")
 	}
 	detailCtx, cancel := context.WithTimeout(ctx, detailTimeoutForSite(resolved.SiteKey))
 	defer cancel()
@@ -1014,6 +1014,14 @@ func searchableDownloadDescriptors(items []site.SiteDescriptor) []site.SiteDescr
 		filtered = append(filtered, item)
 	}
 	return filtered
+}
+
+func siteSupportsDownload(registry *site.Registry, siteKey string) bool {
+	if registry == nil {
+		return false
+	}
+	descriptor, ok := registry.SiteDescriptor(siteKey)
+	return ok && descriptor.Capabilities.Download
 }
 
 func descriptorKeys(items []site.SiteDescriptor) []string {

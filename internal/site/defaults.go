@@ -34,6 +34,8 @@ var defaultAvailableSiteKeys = []string{
 	"shuhaige",
 	"tianyabooks",
 	"alicesw",
+	"akatsuki_novels",
+	"novelpia",
 }
 
 func DefaultAvailableSiteKeys() []string {

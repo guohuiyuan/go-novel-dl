@@ -16,6 +16,14 @@ var siteMetadata = map[string]SiteMetadata{
 		Title: "爱丽丝书屋",
 		Tags:  []string{"简体中文", "转载站", "成人向", "NSFW"},
 	},
+	"alphapolis": {
+		Title: "アルファポリス",
+		Tags:  []string{"日文", "原创", "免费", "轻小说"},
+	},
+	"akatsuki_novels": {
+		Title: "暁",
+		Tags:  []string{"日文", "原创", "免费", "同人二创"},
+	},
 	"biquge345": {
 		Title: "笔趣阁",
 		Tags:  []string{"简体中文", "转载站", "笔趣阁"},
@@ -88,6 +96,10 @@ var siteMetadata = map[string]SiteMetadata{
 		Title: "노벨피아",
 		Tags:  []string{"韩文", "原创", "免费", "轻小说", "成人向", "NSFW"},
 	},
+	"novelpia": {
+		Title: "ノベルピア",
+		Tags:  []string{"日文", "原创", "免费", "轻小说", "成人向", "NSFW"},
+	},
 	"ruochu": {
 		Title: "若初文学网",
 		Tags:  []string{"简体中文", "原创", "女性向"},
@@ -95,6 +107,18 @@ var siteMetadata = map[string]SiteMetadata{
 	"sfacg": {
 		Title: "SF轻小说",
 		Tags:  []string{"简体中文", "轻小说", "原创"},
+	},
+	"syosetu": {
+		Title: "小説家になろう",
+		Tags:  []string{"日文", "原创", "免费", "轻小说"},
+	},
+	"syosetu18": {
+		Title: "小説家になろう 18禁",
+		Tags:  []string{"日文", "原创", "免费", "成人向", "NSFW"},
+	},
+	"syosetu_org": {
+		Title: "ハーメルン",
+		Tags:  []string{"日文", "原创", "免费", "同人二创", "转载站"},
 	},
 	"shuhaige": {
 		Title: "书海阁小说网",

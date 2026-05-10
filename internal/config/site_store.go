@@ -113,6 +113,8 @@ type defaultSiteCatalogRow struct {
 var defaultSiteCatalog = []defaultSiteCatalogRow{
 	{Key: "aaatxt", DisplayName: "3A电子书", WorkerLimit: 0, FetchImages: true},
 	{Key: "alicesw", DisplayName: "爱丽丝书屋", WorkerLimit: 0, FetchImages: true},
+	{Key: "alphapolis", DisplayName: "アルファポリス", WorkerLimit: 0, FetchImages: true},
+	{Key: "akatsuki_novels", DisplayName: "暁", WorkerLimit: 0, FetchImages: true},
 	{Key: "esjzone", DisplayName: "ESJ Zone", LoginRequired: false, WorkerLimit: 0, FetchImages: true, MirrorHosts: []string{"https://www.esjzone.one"}},
 	{Key: "faloo", DisplayName: "飞卢小说网", WorkerLimit: 0, FetchImages: true},
 	{Key: "fsshu", DisplayName: "笔趣阁", WorkerLimit: 0, FetchImages: true},
@@ -127,9 +129,13 @@ var defaultSiteCatalog = []defaultSiteCatalogRow{
 	{Key: "qbtr", DisplayName: "全本同人小说", WorkerLimit: 0, FetchImages: true},
 	{Key: "ciweimao", DisplayName: "刺猬猫", WorkerLimit: 0, FetchImages: true},
 	{Key: "novalpie", DisplayName: "Novalpie", LoginRequired: true, WorkerLimit: 0, FetchImages: true},
+	{Key: "novelpia", DisplayName: "ノベルピア", WorkerLimit: 0, FetchImages: true},
 	{Key: "n17k", DisplayName: "17K小说网", WorkerLimit: 0, FetchImages: true},
 	{Key: "n8novel", DisplayName: "无限轻小说", WorkerLimit: 0, FetchImages: true, LocaleStyle: "simplified"},
 	{Key: "shuhaige", DisplayName: "书海阁小说网", WorkerLimit: 0, FetchImages: true},
+	{Key: "syosetu", DisplayName: "小説家になろう", WorkerLimit: 0, FetchImages: true},
+	{Key: "syosetu18", DisplayName: "小説家になろう 18禁", WorkerLimit: 0, FetchImages: true},
+	{Key: "syosetu_org", DisplayName: "ハーメルン", WorkerLimit: 0, FetchImages: true},
 	{Key: "tianyabooks", DisplayName: "天涯书库", WorkerLimit: 0, FetchImages: true},
 	{Key: "tongrenshe", DisplayName: "同人社", WorkerLimit: 0, FetchImages: true},
 }

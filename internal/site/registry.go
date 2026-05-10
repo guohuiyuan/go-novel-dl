@@ -90,9 +90,24 @@ func NewDefaultRegistry() *Registry {
 	registry.RegisterWithHosts("alicesw", []string{"alicesw.com"}, func(cfg config.ResolvedSiteConfig) Site {
 		return NewAliceswSite(cfg)
 	})
+	registry.RegisterWithHosts("alphapolis", []string{"alphapolis.co.jp"}, func(cfg config.ResolvedSiteConfig) Site {
+		return NewAlphapolisSite(cfg)
+	})
 	// Disabled: connection issues
 	registry.RegisterWithHosts("esjzone", []string{"esjzone.cc", "esjzone.one"}, func(cfg config.ResolvedSiteConfig) Site {
 		return NewESJZoneSite(cfg)
+	})
+	registry.RegisterWithHosts("syosetu", []string{"ncode.syosetu.com"}, func(cfg config.ResolvedSiteConfig) Site {
+		return NewSyosetuSite(cfg)
+	})
+	registry.RegisterWithHosts("syosetu18", []string{"novel18.syosetu.com", "mnlt.syosetu.com", "noc.syosetu.com"}, func(cfg config.ResolvedSiteConfig) Site {
+		return NewSyosetu18Site(cfg)
+	})
+	registry.RegisterWithHosts("syosetu_org", []string{"syosetu.org"}, func(cfg config.ResolvedSiteConfig) Site {
+		return NewSyosetuOrgSite(cfg)
+	})
+	registry.RegisterWithHosts("akatsuki_novels", []string{"akatsuki-novels.com"}, func(cfg config.ResolvedSiteConfig) Site {
+		return NewAkatsukiNovelsSite(cfg)
 	})
 	// registry.Register("westnovel", func(cfg config.ResolvedSiteConfig) Site {
 	// 	return NewWestNovelSite(cfg)
@@ -127,6 +142,9 @@ func NewDefaultRegistry() *Registry {
 	})
 	registry.RegisterWithHosts("novalpie", []string{"novalpie.cc", "novalpie.jp", "novalpia.cc"}, func(cfg config.ResolvedSiteConfig) Site {
 		return NewNovalpieSite(cfg)
+	})
+	registry.RegisterWithHosts("novelpia", []string{"novelpia.jp"}, func(cfg config.ResolvedSiteConfig) Site {
+		return NewNovelpiaSite(cfg)
 	})
 	registry.RegisterWithHosts("ruochu", []string{"ruochu.com"}, func(cfg config.ResolvedSiteConfig) Site {
 		return NewRuochuSite(cfg)

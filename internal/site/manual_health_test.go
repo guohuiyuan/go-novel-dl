@@ -57,6 +57,8 @@ func TestManualDefaultRangeDownloadHealth(t *testing.T) {
 		{siteKey: "n8novel", bookURL: "https://www.8novel.com/novelbooks/109806/", chapterURL: "https://article.8novel.com/read/109806/?1769597", timeout: 6 * time.Minute},
 		{siteKey: "shuhaige", bookURL: "https://www.shuhaige.net/126726/", chapterURL: "https://www.shuhaige.net/126726/996145.html", timeout: 2 * time.Minute},
 		{siteKey: "novalpie", bookURL: "https://novalpie.jp/novel/2393?sid=main5", chapterURL: "https://novalpie.jp/viewer/51118", timeout: 3 * time.Minute},
+		{siteKey: "akatsuki_novels", bookURL: "https://www.akatsuki-novels.com/stories/index/novel_id~103", chapterURL: "https://www.akatsuki-novels.com/stories/view/163722/novel_id~103", timeout: 2 * time.Minute},
+		{siteKey: "novelpia", bookURL: "https://novelpia.jp/novel/2393", chapterURL: "https://novelpia.jp/viewer/51118", timeout: 2 * time.Minute},
 		{siteKey: "ruochu", bookURL: "https://www.ruochu.com/book/158713", chapterURL: "https://www.ruochu.com/book/158713/13869103", timeout: 2 * time.Minute},
 		{siteKey: "n17k", bookURL: "https://www.17k.com/book/3631088.html", chapterURL: "https://www.17k.com/chapter/3631088/49406153.html", timeout: 2 * time.Minute},
 		{siteKey: "hongxiuzhao", bookURL: "https://hongxiuzhao.net/ZG6rmWO.html", chapterURL: "https://hongxiuzhao.net/aBKBVz6a.html", chapterID: "aBKBVz6a", timeout: 2 * time.Minute},
