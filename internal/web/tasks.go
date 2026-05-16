@@ -7,6 +7,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/guohuiyuan/go-novel-dl/internal/config"
 )
 
 const maxTaskMessages = 200
@@ -17,6 +19,14 @@ type DownloadTaskMessage struct {
 	Text  string    `json:"text"`
 }
 
+// DownloadTaskTarget controls how a task's output is delivered. browser ->
+// generates files for browser download (default); shelf -> only caches the raw
+// data into the local library so the in-app reader can use it.
+const (
+	DownloadTaskTargetBrowser = "browser"
+	DownloadTaskTargetShelf   = "shelf"
+)
+
 type DownloadTask struct {
 	ID                string                `json:"id"`
 	Site              string                `json:"site"`
@@ -24,6 +34,8 @@ type DownloadTask struct {
 	Title             string                `json:"title,omitempty"`
 	Status            string                `json:"status"`
 	Phase             string                `json:"phase"`
+	Target            string                `json:"target,omitempty"`
+	Formats           []string              `json:"formats,omitempty"`
 	TotalChapters     int                   `json:"total_chapters"`
 	CompletedChapters int                   `json:"completed_chapters"`
 	CurrentChapter    string                `json:"current_chapter,omitempty"`
@@ -40,21 +52,83 @@ type DownloadTask struct {
 	smoothedRate      float64               `json:"-"`
 }
 
+// DownloadTaskOptions describes optional fields when creating a download task.
+type DownloadTaskOptions struct {
+	Target  string
+	Formats []string
+}
+
+// taskPersister abstracts the persistence layer so tests can run without a
+// SQLite connection while production code wires the config-backed store via
+// HydrateFromConfig.
+type taskPersister interface {
+	Save(record config.DownloadTaskRecord) error
+	Delete(id string) error
+}
+
+type noopTaskPersister struct{}
+
+func (noopTaskPersister) Save(_ config.DownloadTaskRecord) error { return nil }
+func (noopTaskPersister) Delete(_ string) error                  { return nil }
+
+type configTaskPersister struct{}
+
+func (configTaskPersister) Save(record config.DownloadTaskRecord) error {
+	return config.SaveDownloadTask(record)
+}
+
+func (configTaskPersister) Delete(id string) error {
+	return config.DeleteDownloadTask(id)
+}
+
 type DownloadTaskStore struct {
-	mu    sync.RWMutex
-	seq   uint64
-	tasks map[string]*DownloadTask
+	mu        sync.RWMutex
+	seq       uint64
+	tasks     map[string]*DownloadTask
+	persister taskPersister
 }
 
 func NewDownloadTaskStore() *DownloadTaskStore {
 	return &DownloadTaskStore{
-		tasks: make(map[string]*DownloadTask),
+		tasks:     make(map[string]*DownloadTask),
+		persister: noopTaskPersister{},
 	}
 }
 
-func (s *DownloadTaskStore) Create(siteKey string, bookID string) DownloadTask {
+// HydrateFromConfig switches the store to the SQLite-backed persister, loads
+// any tasks the previous process left behind, and marks queued/running tasks
+// as failed (we cannot resume them after a restart). Returns the number of
+// orphaned tasks that were transitioned to failed.
+func (s *DownloadTaskStore) HydrateFromConfig() (int, error) {
+	orphans, err := config.MarkOrphanedDownloadTasksFailed("进程已重启，任务被中断")
+	if err != nil {
+		return 0, err
+	}
+	records, err := config.ListDownloadTasks()
+	if err != nil {
+		return 0, err
+	}
+	s.mu.Lock()
+	s.persister = configTaskPersister{}
+	for _, record := range records {
+		s.tasks[record.ID] = recordToTask(record)
+	}
+	s.mu.Unlock()
+	return orphans, nil
+}
+
+func (s *DownloadTaskStore) Create(siteKey string, bookID string, opts ...DownloadTaskOptions) DownloadTask {
 	now := time.Now().UTC()
 	id := fmt.Sprintf("task-%d-%d", now.UnixNano(), atomic.AddUint64(&s.seq, 1))
+
+	var opt DownloadTaskOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
+	target := strings.TrimSpace(opt.Target)
+	if target == "" {
+		target = DownloadTaskTargetBrowser
+	}
 
 	task := &DownloadTask{
 		ID:        id,
@@ -62,6 +136,8 @@ func (s *DownloadTaskStore) Create(siteKey string, bookID string) DownloadTask {
 		BookID:    strings.TrimSpace(bookID),
 		Status:    "queued",
 		Phase:     "queued",
+		Target:    target,
+		Formats:   append([]string(nil), opt.Formats...),
 		CreatedAt: now,
 		UpdatedAt: now,
 		Messages: []DownloadTaskMessage{{
@@ -73,9 +149,14 @@ func (s *DownloadTaskStore) Create(siteKey string, bookID string) DownloadTask {
 
 	s.mu.Lock()
 	s.tasks[id] = task
+	persister := s.persister
+	snapshot := cloneTask(task)
 	s.mu.Unlock()
 
-	return cloneTask(task)
+	if persister != nil {
+		_ = persister.Save(taskRecordFromSnapshot(snapshot))
+	}
+	return snapshot
 }
 
 func (s *DownloadTaskStore) Snapshot(id string) (DownloadTask, bool) {
@@ -86,6 +167,37 @@ func (s *DownloadTaskStore) Snapshot(id string) (DownloadTask, bool) {
 		return DownloadTask{}, false
 	}
 	return cloneTask(task), true
+}
+
+// List returns a stable snapshot of every task currently in the store.
+func (s *DownloadTaskStore) List() []DownloadTask {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]DownloadTask, 0, len(s.tasks))
+	for _, task := range s.tasks {
+		out = append(out, cloneTask(task))
+	}
+	return out
+}
+
+// Delete removes a task from the store and the persistent backend. Returns
+// false when the task does not exist.
+func (s *DownloadTaskStore) Delete(id string) bool {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return false
+	}
+	s.mu.Lock()
+	_, ok := s.tasks[id]
+	if ok {
+		delete(s.tasks, id)
+	}
+	persister := s.persister
+	s.mu.Unlock()
+	if persister != nil {
+		_ = persister.Delete(id)
+	}
+	return ok
 }
 
 func (s *DownloadTaskStore) MarkRunning(id string, siteKey string, bookID string, title string, total int) {
@@ -309,14 +421,19 @@ func (s *DownloadTaskStore) MarkFailed(id string, err error) {
 
 func (s *DownloadTaskStore) update(id string, mutate func(task *DownloadTask)) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	task, ok := s.tasks[id]
 	if !ok {
+		s.mu.Unlock()
 		return
 	}
 	mutate(task)
 	task.UpdatedAt = time.Now().UTC()
+	persister := s.persister
+	snapshot := cloneTask(task)
+	s.mu.Unlock()
+	if persister != nil {
+		_ = persister.Save(taskRecordFromSnapshot(snapshot))
+	}
 }
 
 func appendTaskMessage(task *DownloadTask, level string, text string) {
@@ -345,11 +462,78 @@ func cloneTask(task *DownloadTask) DownloadTask {
 	}
 	cloned.Messages = append([]DownloadTaskMessage(nil), task.Messages...)
 	cloned.Exported = append([]string(nil), task.Exported...)
+	cloned.Formats = append([]string(nil), task.Formats...)
 	if task.FinishedAt != nil {
 		finishedAt := *task.FinishedAt
 		cloned.FinishedAt = &finishedAt
 	}
 	return cloned
+}
+
+func taskRecordFromSnapshot(task DownloadTask) config.DownloadTaskRecord {
+	messages := make([]config.DownloadTaskMessageRecord, 0, len(task.Messages))
+	for _, msg := range task.Messages {
+		messages = append(messages, config.DownloadTaskMessageRecord{
+			At:    msg.At,
+			Level: msg.Level,
+			Text:  msg.Text,
+		})
+	}
+	return config.DownloadTaskRecord{
+		ID:                task.ID,
+		Site:              task.Site,
+		BookID:            task.BookID,
+		Title:             task.Title,
+		Status:            task.Status,
+		Phase:             task.Phase,
+		Target:            task.Target,
+		Formats:           append([]string(nil), task.Formats...),
+		TotalChapters:     task.TotalChapters,
+		CompletedChapters: task.CompletedChapters,
+		CurrentChapter:    task.CurrentChapter,
+		ETA:               task.ETA,
+		Speed:             task.Speed,
+		Exported:          append([]string(nil), task.Exported...),
+		Messages:          messages,
+		Error:             task.Error,
+		StartTime:         task.StartTime,
+		CreatedAt:         task.CreatedAt,
+		UpdatedAt:         task.UpdatedAt,
+		FinishedAt:        task.FinishedAt,
+	}
+}
+
+func recordToTask(record config.DownloadTaskRecord) *DownloadTask {
+	messages := make([]DownloadTaskMessage, 0, len(record.Messages))
+	for _, msg := range record.Messages {
+		messages = append(messages, DownloadTaskMessage{
+			At:    msg.At,
+			Level: msg.Level,
+			Text:  msg.Text,
+		})
+	}
+	return &DownloadTask{
+		ID:                record.ID,
+		Site:              record.Site,
+		BookID:            record.BookID,
+		Title:             record.Title,
+		Status:            record.Status,
+		Phase:             record.Phase,
+		Target:            record.Target,
+		Formats:           append([]string(nil), record.Formats...),
+		TotalChapters:     record.TotalChapters,
+		CompletedChapters: record.CompletedChapters,
+		CurrentChapter:    record.CurrentChapter,
+		ETA:               record.ETA,
+		Speed:             record.Speed,
+		Exported:          append([]string(nil), record.Exported...),
+		Error:             record.Error,
+		Messages:          messages,
+		StartTime:         record.StartTime,
+		CreatedAt:         record.CreatedAt,
+		UpdatedAt:         record.UpdatedAt,
+		FinishedAt:        record.FinishedAt,
+	}
 }
 
 func isFiniteFloat(value float64) bool {

@@ -29,6 +29,10 @@
       <button type="button" id="searchTabButton" class="tab-button is-active" data-tab="search">
         搜索
       </button>
+      <button type="button" id="bookshelfTabButton" class="tab-button" data-tab="bookshelf">
+        书架
+        <span id="bookshelfTabCount" class="tab-count">0</span>
+      </button>
       <button type="button" id="tasksTabButton" class="tab-button" data-tab="tasks">
         下载任务
         <span id="taskTabCount" class="tab-count">0</span>
@@ -98,14 +102,35 @@
       </div>
     </section>
 
+    <section id="bookshelfTabPanel" class="tab-panel">
+      <section class="panel-card bookshelf-panel">
+        <div class="bookshelf-toolbar">
+          <nav id="bookshelfBreadcrumb" class="bookshelf-breadcrumb" aria-label="书架路径">
+            <button type="button" class="bookshelf-crumb is-root" data-parent-id="">书架</button>
+          </nav>
+          <div class="bookshelf-actions">
+            <button type="button" id="bookshelfNewFolder" class="tool-button">新建文件夹</button>
+            <button type="button" id="bookshelfRefresh" class="tool-button is-ghost">刷新</button>
+          </div>
+        </div>
+        <p id="bookshelfStatus" class="panel-hint">在搜索结果中点击「加入书架」即可把书放到这里管理。</p>
+        <div id="bookshelf" class="results-grid">
+          <div class="empty-state empty-state-compact">书架还是空的。</div>
+        </div>
+      </section>
+    </section>
+
     <section id="tasksTabPanel" class="tab-panel">
       <section class="panel-card tasks-panel">
         <div class="panel-header">
           <div>
             <h2>下载任务</h2>
-            <p class="panel-hint">这里显示当前会话创建的下载任务和导出结果。</p>
+            <p class="panel-hint">这里显示历史与当前会话的下载任务。重启进程后未完成任务会被标记为失败。</p>
           </div>
-          <span id="taskCount" class="count-badge">0</span>
+          <div class="tasks-tools">
+            <span id="taskCount" class="count-badge">0</span>
+            <button type="button" id="tasksClearFinished" class="tool-button is-ghost">清理已完成/失败</button>
+          </div>
         </div>
 
         <div id="tasks" class="task-list">

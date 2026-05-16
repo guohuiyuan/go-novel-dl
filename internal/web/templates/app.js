@@ -54,7 +54,16 @@ const appState = {
   selectedSites: new Set(defaultSources.map((source) => source.key)),
   selectedSourceTags: new Set(),
   tasks: new Map(),
+  tasksLoaded: false,
   pollers: new Map(),
+  bookshelf: {
+    parentId: null,
+    items: [],
+    breadcrumb: [],
+    loading: false,
+    loaded: false,
+    booksByKey: new Map(),
+  },
   detailCache: new Map(),
   detailPending: new Map(),
   detailTimings: new Map(),
@@ -251,10 +260,19 @@ const sourceSelectorNode = document.getElementById("sourceSelector");
 const sourceTagFiltersNode = document.getElementById("sourceTagFilters");
 const clearTagFiltersButton = document.getElementById("clearTagFilters");
 const tasksNode = document.getElementById("tasks");
+const tasksClearFinishedButton = document.getElementById("tasksClearFinished");
 const searchTabButton = document.getElementById("searchTabButton");
+const bookshelfTabButton = document.getElementById("bookshelfTabButton");
+const bookshelfTabCountNode = document.getElementById("bookshelfTabCount");
 const tasksTabButton = document.getElementById("tasksTabButton");
 const searchTabPanel = document.getElementById("searchTabPanel");
+const bookshelfTabPanel = document.getElementById("bookshelfTabPanel");
 const tasksTabPanel = document.getElementById("tasksTabPanel");
+const bookshelfNode = document.getElementById("bookshelf");
+const bookshelfBreadcrumbNode = document.getElementById("bookshelfBreadcrumb");
+const bookshelfStatusNode = document.getElementById("bookshelfStatus");
+const bookshelfNewFolderButton = document.getElementById("bookshelfNewFolder");
+const bookshelfRefreshButton = document.getElementById("bookshelfRefresh");
 const selectAllSourcesButton = document.getElementById("selectAllSources");
 const clearSourcesButton = document.getElementById("clearSources");
 const detailOverlay = document.getElementById("detailOverlay");
@@ -327,7 +345,23 @@ function bootstrap() {
   });
 
   searchTabButton.addEventListener("click", () => activateTab("search"));
+  if (bookshelfTabButton) bookshelfTabButton.addEventListener("click", () => activateTab("bookshelf"));
   tasksTabButton.addEventListener("click", () => activateTab("tasks"));
+
+  if (bookshelfNewFolderButton) bookshelfNewFolderButton.addEventListener("click", () => void createBookshelfFolderPrompt());
+  if (bookshelfRefreshButton) bookshelfRefreshButton.addEventListener("click", () => void loadBookshelf(appState.bookshelf.parentId));
+  if (bookshelfBreadcrumbNode) {
+    bookshelfBreadcrumbNode.addEventListener("click", (event) => {
+      const target = event.target.closest("[data-parent-id]");
+      if (!target) return;
+      const raw = target.dataset.parentId;
+      const parentId = raw === "" ? null : Number.parseInt(raw, 10);
+      void loadBookshelf(parentId);
+    });
+  }
+  if (tasksClearFinishedButton) tasksClearFinishedButton.addEventListener("click", () => void clearFinishedTasks());
+
+  void hydrateTasksFromServer();
 
   selectAllSourcesButton.addEventListener("click", () => {
     const visibleSources = filteredSources();
@@ -419,12 +453,17 @@ function bootstrap() {
 }
 
 function activateTab(tabName) {
+  if (tabName !== "search" && tabName !== "bookshelf" && tabName !== "tasks") tabName = "search";
   appState.activeTab = tabName;
-  const isSearch = tabName === "search";
-  searchTabButton.classList.toggle("is-active", isSearch);
-  tasksTabButton.classList.toggle("is-active", !isSearch);
-  searchTabPanel.classList.toggle("is-active", isSearch);
-  tasksTabPanel.classList.toggle("is-active", !isSearch);
+  searchTabButton.classList.toggle("is-active", tabName === "search");
+  if (bookshelfTabButton) bookshelfTabButton.classList.toggle("is-active", tabName === "bookshelf");
+  tasksTabButton.classList.toggle("is-active", tabName === "tasks");
+  searchTabPanel.classList.toggle("is-active", tabName === "search");
+  if (bookshelfTabPanel) bookshelfTabPanel.classList.toggle("is-active", tabName === "bookshelf");
+  tasksTabPanel.classList.toggle("is-active", tabName === "tasks");
+  if (tabName === "bookshelf" && !appState.bookshelf.loaded) {
+    void loadBookshelf(appState.bookshelf.parentId);
+  }
 }
 
 async function performSearch() {
@@ -886,6 +925,16 @@ function renderDetail(result, variant, detail, loading, errorMessage) {
     void startDownloadTask({ site: activeVariant.site, book_id: activeVariant.book_id }, downloadButton);
   });
   actions.appendChild(downloadButton);
+
+  const shelfButton = document.createElement("button");
+  shelfButton.type = "button";
+  shelfButton.className = "tool-button";
+  shelfButton.textContent = "加入书架";
+  shelfButton.addEventListener("click", () => {
+    void addCurrentDetailToBookshelf(result, activeVariant, detail, shelfButton);
+  });
+  actions.appendChild(shelfButton);
+
   summary.appendChild(actions);
 
   hero.appendChild(summary); detailContentNode.appendChild(hero);
@@ -1644,25 +1693,31 @@ function renderResultMeta() {
   resultMetaNode.textContent = `关键词“${appState.lastKeyword}”当前显示 ${start}-${end}，共 ${totalLabel(appState.total, appState.totalExact)} 条。`;
 }
 
-async function startDownloadTask(target, button) {
+async function startDownloadTask(target, button, options = {}) {
   const site = target.site || (target.primary && target.primary.site);
   const bookID = target.book_id || (target.primary && target.primary.book_id);
   if (!site || !bookID) return setStatus("下载目标缺失。");
 
+  const taskTarget = options.target === "shelf" ? "shelf" : "browser";
   const originalText = button ? button.textContent : "";
-  if (button) { button.disabled = true; button.textContent = "正在创建..."; }
+  if (button) { button.disabled = true; button.textContent = taskTarget === "shelf" ? "正在缓存..." : "正在创建..."; }
 
   try {
+    const body = { site, book_id: bookID, target: taskTarget };
+    if (Array.isArray(options.formats) && options.formats.length) body.formats = options.formats;
     const response = await fetch(`${root}/api/download-tasks`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ site, book_id: bookID }),
+      body: JSON.stringify(body),
     });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "download failed");
 
-    upsertTask(payload.task); startPollingTask(payload.task.id); closeDetail(); activateTab("tasks");
-    setStatus(`已创建下载任务：${payload.task.site}/${payload.task.book_id}`);
-  } catch (error) { setStatus(`创建下载任务失败：${error.message}`); } 
+    upsertTask(payload.task); startPollingTask(payload.task.id);
+    if (!options.keepDetailOpen) closeDetail();
+    activateTab("tasks");
+    const label = taskTarget === "shelf" ? "缓存" : "下载";
+    setStatus(`已创建${label}任务：${payload.task.site}/${payload.task.book_id}`);
+  } catch (error) { setStatus(`创建任务失败：${error.message}`); }
   finally { if (button) { button.disabled = false; button.textContent = originalText; } }
 }
 
@@ -1687,7 +1742,55 @@ function stopPollingTask(taskId) {
   window.clearInterval(appState.pollers.get(taskId)); appState.pollers.delete(taskId);
 }
 
-function upsertTask(task) { appState.tasks.set(task.id, task); renderTasks(); }
+function upsertTask(task) {
+  appState.tasks.set(task.id, task);
+  renderTasks();
+}
+
+async function hydrateTasksFromServer() {
+  try {
+    const response = await fetch(`${root}/api/download-tasks`);
+    if (!response.ok) return;
+    const payload = await response.json();
+    const tasks = Array.isArray(payload.tasks) ? payload.tasks : [];
+    tasks.forEach((task) => {
+      appState.tasks.set(task.id, task);
+      if (task.status === "queued" || task.status === "running") {
+        startPollingTask(task.id);
+      }
+    });
+    appState.tasksLoaded = true;
+    renderTasks();
+  } catch (error) {
+    setStatus(`任务列表加载失败：${error.message}`);
+  }
+}
+
+async function deleteTask(taskId) {
+  if (!taskId) return;
+  stopPollingTask(taskId);
+  try {
+    const response = await fetch(`${root}/api/download-tasks/${encodeURIComponent(taskId)}`, { method: "DELETE" });
+    if (!response.ok && response.status !== 404) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.error || `delete failed (${response.status})`);
+    }
+    appState.tasks.delete(taskId);
+    renderTasks();
+  } catch (error) {
+    setStatus(`删除任务失败：${error.message}`);
+  }
+}
+
+async function clearFinishedTasks() {
+  const tasks = Array.from(appState.tasks.values()).filter((task) => task.status === "completed" || task.status === "failed");
+  if (!tasks.length) return setStatus("没有可清理的任务。");
+  for (const task of tasks) {
+    // eslint-disable-next-line no-await-in-loop
+    await deleteTask(task.id);
+  }
+  setStatus(`已清理 ${tasks.length} 个任务。`);
+}
 
 function renderTasks() {
   const tasks = Array.from(appState.tasks.values()).sort((l, r) => new Date(r.updated_at).getTime() - new Date(l.updated_at).getTime());
@@ -1703,7 +1806,10 @@ function renderTasks() {
     const badgeNode = document.createElement("span"); badgeNode.className = `task-status status-${task.status}`; badgeNode.textContent = formatTaskStatus(task);
     head.appendChild(title); head.appendChild(badgeNode); card.appendChild(head);
 
-    const meta = document.createElement("div"); meta.className = "task-meta"; meta.textContent = `${task.site}/${task.book_id}`; card.appendChild(meta);
+    const meta = document.createElement("div"); meta.className = "task-meta";
+    const targetLabel = task.target === "shelf" ? "缓存到书架" : "下载到本地";
+    meta.textContent = `${task.site}/${task.book_id} · ${targetLabel}`;
+    card.appendChild(meta);
 
     if (task.total_chapters > 0) {
       const progressWrap = document.createElement("div"); progressWrap.className = "task-progress";
@@ -1743,6 +1849,19 @@ function renderTasks() {
       });
       card.appendChild(messages);
     }
+
+    const actions = document.createElement("div");
+    actions.className = "task-actions";
+    if (task.status === "completed" || task.status === "failed") {
+      const deleteButton = document.createElement("button");
+      deleteButton.type = "button";
+      deleteButton.className = "tool-button is-ghost";
+      deleteButton.textContent = "删除任务";
+      deleteButton.addEventListener("click", () => void deleteTask(task.id));
+      actions.appendChild(deleteButton);
+    }
+    if (actions.childElementCount > 0) card.appendChild(actions);
+
     tasksNode.appendChild(card);
   });
 }
@@ -1983,4 +2102,337 @@ async function saveSiteConfig() {
 function setStatus(text, tone) {
   statusNode.textContent = text;
   statusNode.dataset.tone = tone || "info";
+}
+
+// -----------------------------------------------------------------------------
+// 书架（bookshelf）
+// -----------------------------------------------------------------------------
+
+function bookshelfBookKey(item) {
+  return `${item.site || ""}::${item.book_id || ""}`;
+}
+
+function setBookshelfStatus(text) {
+  if (bookshelfStatusNode) bookshelfStatusNode.textContent = text;
+}
+
+async function loadBookshelf(parentId) {
+  if (!bookshelfNode) return;
+  const shelf = appState.bookshelf;
+  shelf.loading = true;
+  setBookshelfStatus("正在加载书架...");
+  const query = parentId ? `?parent_id=${encodeURIComponent(parentId)}` : "";
+  try {
+    const response = await fetch(`${root}/api/bookshelf/items${query}`);
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "load bookshelf failed");
+    shelf.parentId = parentId || null;
+    shelf.items = Array.isArray(payload.items) ? payload.items : [];
+    shelf.breadcrumb = Array.isArray(payload.breadcrumb) ? payload.breadcrumb : [];
+    shelf.loaded = true;
+    rebuildBookshelfIndex();
+    renderBookshelf();
+    renderBookshelfBreadcrumb();
+    const total = shelf.items.length;
+    setBookshelfStatus(total === 0 ? "当前目录为空。" : `当前目录共 ${total} 项。`);
+  } catch (error) {
+    setBookshelfStatus(`加载书架失败：${error.message}`);
+  } finally {
+    shelf.loading = false;
+  }
+}
+
+function rebuildBookshelfIndex() {
+  const map = appState.bookshelf.booksByKey;
+  map.clear();
+  appState.bookshelf.items.forEach((item) => {
+    if (item.kind === "book") map.set(bookshelfBookKey(item), item);
+  });
+  if (bookshelfTabCountNode) {
+    const bookCount = Array.from(map.keys()).length;
+    bookshelfTabCountNode.textContent = String(bookCount);
+  }
+}
+
+function renderBookshelfBreadcrumb() {
+  if (!bookshelfBreadcrumbNode) return;
+  bookshelfBreadcrumbNode.innerHTML = "";
+  const rootCrumb = document.createElement("button");
+  rootCrumb.type = "button";
+  rootCrumb.className = "bookshelf-crumb is-root";
+  rootCrumb.dataset.parentId = "";
+  rootCrumb.textContent = "书架";
+  bookshelfBreadcrumbNode.appendChild(rootCrumb);
+  appState.bookshelf.breadcrumb.forEach((item, idx) => {
+    const separator = document.createElement("span");
+    separator.className = "bookshelf-crumb-sep";
+    separator.textContent = "/";
+    bookshelfBreadcrumbNode.appendChild(separator);
+    const node = document.createElement("button");
+    node.type = "button";
+    node.className = "bookshelf-crumb";
+    node.dataset.parentId = String(item.id);
+    node.textContent = item.name || item.title || `#${item.id}`;
+    if (idx === appState.bookshelf.breadcrumb.length - 1) node.classList.add("is-current");
+    bookshelfBreadcrumbNode.appendChild(node);
+  });
+}
+
+function renderBookshelf() {
+  if (!bookshelfNode) return;
+  bookshelfNode.innerHTML = "";
+  const items = appState.bookshelf.items;
+  if (!items.length) {
+    bookshelfNode.appendChild(createEmptyState(appState.bookshelf.parentId ? "这个文件夹是空的。" : "书架还是空的。", true));
+    return;
+  }
+  items.forEach((item) => {
+    if (item.kind === "folder") {
+      bookshelfNode.appendChild(renderBookshelfFolderCard(item));
+    } else {
+      bookshelfNode.appendChild(renderBookshelfBookCard(item));
+    }
+  });
+}
+
+function renderBookshelfFolderCard(item) {
+  const card = document.createElement("article");
+  card.className = "result-card bookshelf-card is-folder";
+  const cover = document.createElement("button");
+  cover.type = "button";
+  cover.className = "result-cover bookshelf-folder-cover";
+  cover.setAttribute("aria-label", `打开文件夹 ${item.name}`);
+  cover.innerHTML = `<svg viewBox="0 0 64 48" width="64" height="48" aria-hidden="true"><path fill="currentColor" d="M6 6h18l6 6h28a4 4 0 0 1 4 4v24a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V10a4 4 0 0 1 4-4z"/></svg>`;
+  cover.addEventListener("click", () => void loadBookshelf(item.id));
+  card.appendChild(cover);
+
+  const body = document.createElement("div");
+  body.className = "result-body";
+  const title = document.createElement("h3");
+  title.className = "result-title";
+  title.textContent = item.name || `文件夹 #${item.id}`;
+  body.appendChild(title);
+  const meta = document.createElement("p");
+  meta.className = "result-author";
+  meta.textContent = `${item.child_count || 0} 项内容`;
+  body.appendChild(meta);
+
+  const actions = document.createElement("div");
+  actions.className = "bookshelf-actions-row";
+  const renameButton = document.createElement("button");
+  renameButton.type = "button";
+  renameButton.className = "tool-button is-ghost";
+  renameButton.textContent = "重命名";
+  renameButton.addEventListener("click", () => void renameBookshelfItem(item));
+  const deleteButton = document.createElement("button");
+  deleteButton.type = "button";
+  deleteButton.className = "tool-button is-ghost";
+  deleteButton.textContent = "删除";
+  deleteButton.addEventListener("click", () => void removeBookshelfItem(item));
+  actions.append(renameButton, deleteButton);
+  body.appendChild(actions);
+
+  card.appendChild(body);
+  return card;
+}
+
+function renderBookshelfBookCard(item) {
+  const card = document.createElement("article");
+  card.className = "result-card bookshelf-card is-book";
+  const cover = createCoverImage(item.cover_url, item.title || "Bookshelf cover", "result-cover");
+  card.appendChild(cover);
+
+  const body = document.createElement("div");
+  body.className = "result-body";
+  const title = document.createElement("h3");
+  title.className = "result-title";
+  title.textContent = item.title || item.book_id || "未命名小说";
+  body.appendChild(title);
+
+  const author = document.createElement("p");
+  author.className = "result-author";
+  author.textContent = item.author || "未知作者";
+  body.appendChild(author);
+
+  const meta = document.createElement("div");
+  meta.className = "result-meta";
+  meta.appendChild(resultBadge(sourceLabel(item.site)));
+  if (item.cached_chapters > 0 && item.total_chapters > 0) {
+    meta.appendChild(resultBadge(`已缓存 ${item.cached_chapters}/${item.total_chapters} 章`));
+  } else if (item.total_chapters > 0) {
+    meta.appendChild(resultBadge(`${item.total_chapters} 章`));
+  } else {
+    meta.appendChild(resultBadge("尚未缓存"));
+  }
+  if (item.latest_chapter) meta.appendChild(resultBadge(item.latest_chapter));
+  body.appendChild(meta);
+
+  const actions = document.createElement("div");
+  actions.className = "bookshelf-actions-row";
+
+  const readButton = document.createElement("button");
+  readButton.type = "button";
+  readButton.className = "tool-button";
+  readButton.textContent = "阅读";
+  readButton.addEventListener("click", () => void openBookshelfReader(item, readButton));
+  actions.appendChild(readButton);
+
+  const cacheButton = document.createElement("button");
+  cacheButton.type = "button";
+  cacheButton.className = "tool-button is-ghost";
+  cacheButton.textContent = "缓存全部";
+  cacheButton.addEventListener("click", () => void cacheBookshelfBook(item, cacheButton));
+  actions.appendChild(cacheButton);
+
+  const downloadButton = document.createElement("button");
+  downloadButton.type = "button";
+  downloadButton.className = "tool-button is-ghost";
+  downloadButton.textContent = "下载";
+  downloadButton.addEventListener("click", () => void startDownloadTask({ site: item.site, book_id: item.book_id }, downloadButton));
+  actions.appendChild(downloadButton);
+
+  const deleteButton = document.createElement("button");
+  deleteButton.type = "button";
+  deleteButton.className = "tool-button is-ghost";
+  deleteButton.textContent = "移除";
+  deleteButton.addEventListener("click", () => void removeBookshelfItem(item));
+  actions.appendChild(deleteButton);
+
+  body.appendChild(actions);
+  card.appendChild(body);
+  return card;
+}
+
+async function createBookshelfFolderPrompt() {
+  const name = window.prompt("文件夹名称");
+  if (!name || !name.trim()) return;
+  try {
+    const response = await fetch(`${root}/api/bookshelf/folders`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ parent_id: appState.bookshelf.parentId || null, name: name.trim() }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "create folder failed");
+    setBookshelfStatus(`已创建文件夹「${payload.item.name}」`);
+    await loadBookshelf(appState.bookshelf.parentId);
+  } catch (error) {
+    setBookshelfStatus(`新建文件夹失败：${error.message}`);
+  }
+}
+
+async function renameBookshelfItem(item) {
+  const fallback = item.kind === "folder" ? (item.name || "") : (item.title || "");
+  const next = window.prompt("新名称", fallback);
+  if (next === null) return;
+  const trimmed = next.trim();
+  if (!trimmed || trimmed === fallback) return;
+  try {
+    const response = await fetch(`${root}/api/bookshelf/items/${item.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: trimmed }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "rename failed");
+    await loadBookshelf(appState.bookshelf.parentId);
+  } catch (error) {
+    setBookshelfStatus(`重命名失败：${error.message}`);
+  }
+}
+
+async function removeBookshelfItem(item) {
+  const labelName = item.kind === "folder" ? (item.name || `文件夹 #${item.id}`) : (item.title || item.book_id || `条目 #${item.id}`);
+  const message = item.kind === "folder"
+    ? `确认删除文件夹「${labelName}」及其下全部内容？`
+    : `确认从书架移除「${labelName}」？`;
+  if (!window.confirm(message)) return;
+  try {
+    const response = await fetch(`${root}/api/bookshelf/items/${item.id}`, { method: "DELETE" });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.error || `delete failed (${response.status})`);
+    }
+    await loadBookshelf(appState.bookshelf.parentId);
+  } catch (error) {
+    setBookshelfStatus(`删除失败：${error.message}`);
+  }
+}
+
+async function cacheBookshelfBook(item, button) {
+  const original = button ? button.textContent : "";
+  if (button) { button.disabled = true; button.textContent = "正在排队..."; }
+  try {
+    const response = await fetch(`${root}/api/bookshelf/items/${item.id}/cache`, { method: "POST" });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "cache task failed");
+    upsertTask(payload.task);
+    startPollingTask(payload.task.id);
+    activateTab("tasks");
+    setStatus(`已开始缓存：${payload.task.site}/${payload.task.book_id}`);
+  } catch (error) {
+    setBookshelfStatus(`缓存失败：${error.message}`);
+  } finally {
+    if (button) { button.disabled = false; button.textContent = original; }
+  }
+}
+
+async function addCurrentDetailToBookshelf(result, variant, detail, button) {
+  if (!result || !variant) return;
+  const site = variant.site || (result.primary && result.primary.site);
+  const bookID = variant.book_id || (result.primary && result.primary.book_id);
+  if (!site || !bookID) { setStatus("加入书架失败：缺少站点或 book_id。"); return; }
+  const book = (detail && detail.book) || {};
+  const payload = {
+    parent_id: appState.bookshelf.parentId || null,
+    site,
+    book_id: bookID,
+    title: book.title || displayDetailTitle(result, variant, book),
+    author: book.author || displayDetailAuthor(result, variant, book),
+    cover_url: book.cover_url || result.cover_url || variant.cover_url || "",
+    description: book.description || result.description || "",
+    latest_chapter: result.latest_chapter || "",
+    source_url: book.source_url || variant.url || result.url || "",
+  };
+
+  const original = button ? button.textContent : "";
+  if (button) { button.disabled = true; button.textContent = "已加入"; }
+  try {
+    const response = await fetch(`${root}/api/bookshelf/books`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "add bookshelf failed");
+    appState.bookshelf.loaded = false;
+    setStatus(`已加入书架：${data.item.title || data.item.book_id}`);
+  } catch (error) {
+    setStatus(`加入书架失败：${error.message}`);
+    if (button) { button.disabled = false; button.textContent = original; }
+  }
+}
+
+async function openBookshelfReader(item, button) {
+  const original = button ? button.textContent : "";
+  if (button) { button.disabled = true; button.textContent = "加载中..."; }
+  try {
+    const variant = { site: item.site, book_id: item.book_id, title: item.title, author: item.author, url: item.source_url };
+    const synthetic = {
+      title: item.title,
+      author: item.author,
+      cover_url: item.cover_url,
+      description: item.description,
+      latest_chapter: item.latest_chapter,
+      url: item.source_url,
+      primary: variant,
+      sources: [variant],
+      source_count: 1,
+    };
+    openDetail(synthetic, variant);
+  } catch (error) {
+    setStatus(`加载详情失败：${error.message}`);
+  } finally {
+    if (button) { button.disabled = false; button.textContent = original; }
+  }
 }

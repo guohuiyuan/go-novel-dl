@@ -118,6 +118,7 @@ type downloadRequest struct {
 	Site    string   `json:"site"`
 	BookID  string   `json:"book_id"`
 	Formats []string `json:"formats"`
+	Target  string   `json:"target,omitempty"`
 }
 
 type bookDetailResponse struct {
@@ -187,6 +188,11 @@ func newService(configPath string) (*Service, error) {
 	paramSupports := config.SiteParameterSupports()
 	generalConfig, _ := config.LoadGeneralConfig()
 
+	tasks := NewDownloadTaskStore()
+	if _, err := tasks.HydrateFromConfig(); err != nil {
+		fmt.Printf("warn: download task hydrate failed: %v\n", err)
+	}
+
 	return &Service{
 		Config:         cfg,
 		ConfigPath:     configPath,
@@ -194,7 +200,7 @@ func newService(configPath string) (*Service, error) {
 		Runtime:        runtime,
 		DefaultSources: defaultSources,
 		AllSources:     allSources,
-		Tasks:          NewDownloadTaskStore(),
+		Tasks:          tasks,
 		PageSize:       pageSize,
 		SiteWarnings:   warnings,
 		SiteStats:      stats,
@@ -570,12 +576,28 @@ func newRouter(service *Service) *gin.Engine {
 			return
 		}
 
-		task := service.Tasks.Create(req.Site, req.BookID)
+		target := strings.TrimSpace(strings.ToLower(req.Target))
+		if target != DownloadTaskTargetShelf {
+			target = DownloadTaskTargetBrowser
+		}
+		req.Target = target
+		formats := append([]string(nil), req.Formats...)
+		if target == DownloadTaskTargetShelf {
+			formats = nil
+		}
+
+		task := service.Tasks.Create(req.Site, req.BookID, DownloadTaskOptions{
+			Target:  target,
+			Formats: formats,
+		})
 		service.startDownloadTask(task.ID, req)
 
 		c.JSON(http.StatusAccepted, gin.H{
 			"task": task,
 		})
+	})
+	group.GET("/api/download-tasks", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"tasks": service.Tasks.List()})
 	})
 	group.GET("/api/download-tasks/:id", func(c *gin.Context) {
 		task, ok := service.Tasks.Snapshot(c.Param("id"))
@@ -584,6 +606,14 @@ func newRouter(service *Service) *gin.Engine {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"task": task})
+	})
+	group.DELETE("/api/download-tasks/:id", func(c *gin.Context) {
+		id := strings.TrimSpace(c.Param("id"))
+		if !service.Tasks.Delete(id) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"deleted": id})
 	})
 	group.GET("/api/download-file", func(c *gin.Context) {
 		filePath := strings.TrimSpace(c.Query("path"))
@@ -633,7 +663,182 @@ func newRouter(service *Service) *gin.Engine {
 		c.JSON(http.StatusOK, gin.H{"chapter": result})
 	})
 
+	registerBookshelfRoutes(group, service)
+
 	return router
+}
+
+// parseBookshelfParentID extracts an optional parent_id from the request. The
+// returned ok flag is true when the parameter was syntactically valid (or
+// missing); false signals a 400 should be returned.
+func parseBookshelfParentID(raw string) (*uint, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "0" || strings.EqualFold(raw, "null") || strings.EqualFold(raw, "root") {
+		return nil, true
+	}
+	value, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil || value == 0 {
+		return nil, false
+	}
+	parent := uint(value)
+	return &parent, true
+}
+
+func parseBookshelfID(raw string) (uint, bool) {
+	value, err := strconv.ParseUint(strings.TrimSpace(raw), 10, 64)
+	if err != nil || value == 0 {
+		return 0, false
+	}
+	return uint(value), true
+}
+
+func registerBookshelfRoutes(group *gin.RouterGroup, service *Service) {
+	group.GET("/api/bookshelf/items", func(c *gin.Context) {
+		parentID, ok := parseBookshelfParentID(c.Query("parent_id"))
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid parent_id"})
+			return
+		}
+		items, err := config.ListBookshelfItems(parentID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		var breadcrumb []config.BookshelfItem
+		if parentID != nil {
+			breadcrumb, err = config.BookshelfBreadcrumb(*parentID)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"items":      items,
+			"breadcrumb": breadcrumb,
+		})
+	})
+
+	group.POST("/api/bookshelf/folders", func(c *gin.Context) {
+		var body struct {
+			ParentID *uint  `json:"parent_id"`
+			Name     string `json:"name"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+			return
+		}
+		item, err := config.CreateBookshelfFolder(body.ParentID, body.Name)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"item": item})
+	})
+
+	group.POST("/api/bookshelf/books", func(c *gin.Context) {
+		var body struct {
+			ParentID      *uint  `json:"parent_id"`
+			Site          string `json:"site"`
+			BookID        string `json:"book_id"`
+			Title         string `json:"title"`
+			Author        string `json:"author"`
+			CoverURL      string `json:"cover_url"`
+			Description   string `json:"description"`
+			LatestChapter string `json:"latest_chapter"`
+			SourceURL     string `json:"source_url"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+			return
+		}
+		item, err := config.AddBookshelfBook(config.BookshelfBookInput{
+			ParentID:      body.ParentID,
+			Site:          body.Site,
+			BookID:        body.BookID,
+			Title:         body.Title,
+			Author:        body.Author,
+			CoverURL:      body.CoverURL,
+			Description:   body.Description,
+			LatestChapter: body.LatestChapter,
+			SourceURL:     body.SourceURL,
+		})
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"item": item})
+	})
+
+	group.PATCH("/api/bookshelf/items/:id", func(c *gin.Context) {
+		id, ok := parseBookshelfID(c.Param("id"))
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			return
+		}
+		var body struct {
+			Name        *string `json:"name,omitempty"`
+			ParentID    *uint   `json:"parent_id,omitempty"`
+			ClearParent bool    `json:"clear_parent,omitempty"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+			return
+		}
+		patch := config.BookshelfMutation{
+			Name:        body.Name,
+			ParentID:    body.ParentID,
+			ClearParent: body.ClearParent,
+		}
+		item, err := config.UpdateBookshelfItem(id, patch)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"item": item})
+	})
+
+	group.DELETE("/api/bookshelf/items/:id", func(c *gin.Context) {
+		id, ok := parseBookshelfID(c.Param("id"))
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			return
+		}
+		if err := config.DeleteBookshelfItem(id); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"deleted": id})
+	})
+
+	group.POST("/api/bookshelf/items/:id/cache", func(c *gin.Context) {
+		id, ok := parseBookshelfID(c.Param("id"))
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			return
+		}
+		item, err := config.GetBookshelfItem(id)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "bookshelf item not found"})
+			return
+		}
+		if item.Kind != config.BookshelfItemKindBook {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "only book items can be cached"})
+			return
+		}
+		if strings.TrimSpace(item.Site) == "" || strings.TrimSpace(item.BookID) == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "bookshelf item is missing site/book_id"})
+			return
+		}
+		task := service.Tasks.Create(item.Site, item.BookID, DownloadTaskOptions{
+			Target: DownloadTaskTargetShelf,
+		})
+		service.startDownloadTask(task.ID, downloadRequest{
+			Site:   item.Site,
+			BookID: item.BookID,
+			Target: DownloadTaskTargetShelf,
+		})
+		c.JSON(http.StatusAccepted, gin.H{"task": task})
+	})
 }
 
 func looksLikeWebURL(raw string) bool {
@@ -713,10 +918,13 @@ func (s *Service) startDownloadTask(taskID string, req downloadRequest) {
 
 		s.Tasks.MarkLoadingChapters(taskID, req.Site, req.BookID)
 
+		target := strings.TrimSpace(strings.ToLower(req.Target))
+		skipExport := target == DownloadTaskTargetShelf
+
 		runtime := s.newTaskRuntime(taskID)
 		results, err := runtime.Download(context.Background(), req.Site, []model.BookRef{{
 			BookID: req.BookID,
-		}}, req.Formats, false)
+		}}, req.Formats, skipExport)
 		if err != nil {
 			s.Tasks.MarkFailed(taskID, err)
 			return
@@ -728,10 +936,58 @@ func (s *Service) startDownloadTask(taskID string, req downloadRequest) {
 
 		exported := make([]string, 0)
 		title := results[0].Book.Title
+		coverURL := ""
+		description := ""
+		sourceURL := ""
+		author := ""
+		totalChapters := 0
+		cachedChapters := 0
 		for _, result := range results {
 			exported = append(exported, result.Exported...)
-			if strings.TrimSpace(title) == "" && result.Book != nil {
+			if result.Book == nil {
+				continue
+			}
+			if strings.TrimSpace(title) == "" {
 				title = result.Book.Title
+			}
+			if coverURL == "" {
+				coverURL = result.Book.CoverURL
+			}
+			if description == "" {
+				description = result.Book.Description
+			}
+			if sourceURL == "" {
+				sourceURL = result.Book.SourceURL
+			}
+			if author == "" {
+				author = result.Book.Author
+			}
+			if chCount := len(result.Book.Chapters); chCount > totalChapters {
+				totalChapters = chCount
+			}
+			for _, chapter := range result.Book.Chapters {
+				if chapter.Downloaded || strings.TrimSpace(chapter.Content) != "" {
+					cachedChapters++
+				}
+			}
+		}
+		if totalChapters > 0 {
+			if err := config.UpdateBookshelfCacheStats(req.Site, req.BookID, totalChapters, cachedChapters); err != nil {
+				fmt.Printf("warn: update bookshelf cache stats failed: %v\n", err)
+			}
+		}
+		if target == DownloadTaskTargetShelf {
+			_, err := config.AddBookshelfBook(config.BookshelfBookInput{
+				Site:        req.Site,
+				BookID:      req.BookID,
+				Title:       title,
+				Author:      author,
+				CoverURL:    coverURL,
+				Description: description,
+				SourceURL:   sourceURL,
+			})
+			if err != nil {
+				fmt.Printf("warn: add bookshelf book after cache failed: %v\n", err)
 			}
 		}
 		s.Tasks.MarkCompleted(taskID, title, exported)
@@ -800,6 +1056,9 @@ func (s *Service) chapterContent(ctx context.Context, siteKey, bookID string, ch
 
 func (s *Service) fetchChapterContent(ctx context.Context, siteKey, bookID string, chapter model.Chapter) (model.Chapter, error) {
 	resolved := s.Config.ResolveSiteConfig(siteKey)
+	if cached, ok := s.lookupChapterInLibrary(siteKey, bookID, chapter); ok {
+		return normalizeChapterForWeb(cached, resolved.General.LocaleStyle), nil
+	}
 	client, err := s.Runtime.Registry.Build(siteKey, resolved)
 	if err != nil {
 		return chapter, err
@@ -809,6 +1068,42 @@ func (s *Service) fetchChapterContent(ctx context.Context, siteKey, bookID strin
 		return loaded, err
 	}
 	return normalizeChapterForWeb(loaded, resolved.General.LocaleStyle), nil
+}
+
+// lookupChapterInLibrary returns a chapter previously persisted into the local
+// library (e.g. via a shelf-target download). Matching prefers the chapter ID;
+// falling back to URL and title keeps it resilient to ID drift across sites.
+func (s *Service) lookupChapterInLibrary(siteKey, bookID string, chapter model.Chapter) (model.Chapter, bool) {
+	if s.Runtime == nil || s.Runtime.Library == nil {
+		return model.Chapter{}, false
+	}
+	if strings.TrimSpace(siteKey) == "" || strings.TrimSpace(bookID) == "" {
+		return model.Chapter{}, false
+	}
+	state, err := s.Runtime.Library.LoadBookState(siteKey, bookID, "")
+	if err != nil || state == nil || state.Book == nil {
+		return model.Chapter{}, false
+	}
+	if chapter.ID != "" {
+		if cached, ok := state.ChapterByID[chapter.ID]; ok && strings.TrimSpace(cached.Content) != "" {
+			return cached, true
+		}
+	}
+	for _, candidate := range state.Book.Chapters {
+		if strings.TrimSpace(candidate.Content) == "" {
+			continue
+		}
+		if chapter.URL != "" && candidate.URL == chapter.URL {
+			return candidate, true
+		}
+		if chapter.ID != "" && candidate.ID == chapter.ID {
+			return candidate, true
+		}
+		if chapter.Title != "" && candidate.Title == chapter.Title {
+			return candidate, true
+		}
+	}
+	return model.Chapter{}, false
 }
 
 func normalizeChapterForWeb(chapter model.Chapter, localeStyle string) model.Chapter {
