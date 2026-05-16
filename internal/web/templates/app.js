@@ -171,7 +171,7 @@ function showTemporaryWarningDialog(warnings) {
   });
   dialog.hidden = false;
   if (temporaryWarningDialogTimer) window.clearTimeout(temporaryWarningDialogTimer);
-  temporaryWarningDialogTimer = window.setTimeout(hideTemporaryWarningDialog, 9000);
+  temporaryWarningDialogTimer = window.setTimeout(hideTemporaryWarningDialog, 5000);
 }
 
 function hideTemporaryWarningDialog() {
@@ -941,8 +941,6 @@ function renderDetail(result, variant, detail, loading, errorMessage) {
   meta.className = "detail-meta";
   meta.appendChild(resultBadge(sourceLabel(activeVariant.site)));
   meta.appendChild(resultBadge(chapterPage.total ? `${chapterPage.total} 章` : loading ? "加载章节中" : "暂无章节"));
-  const timing = appState.detailTimings.get(detailRequestKey(activeVariant, chapterPage.page, chapterPage.page_size));
-  if (timing) meta.appendChild(resultBadge(`目录 ${timing}ms`));
   if (result.latest_chapter) meta.appendChild(resultBadge(result.latest_chapter));
   if (result.source_count > 1) meta.appendChild(resultBadge(`${result.source_count} 个来源`));
   summary.appendChild(meta);
@@ -964,20 +962,15 @@ function renderDetail(result, variant, detail, loading, errorMessage) {
   const actions = document.createElement("div");
   actions.className = "detail-actions";
   const downloadButton = document.createElement("button");
-  downloadButton.type = "button"; downloadButton.className = "download-button"; downloadButton.textContent = "下载并导出";
+  downloadButton.type = "button";
+  downloadButton.className = "download-button";
+  downloadButton.textContent = "下载";
+  downloadButton.title = "下载到本地，同时加入书架";
   downloadButton.addEventListener("click", () => {
+    void addCurrentDetailToBookshelf(result, activeVariant, detail, null, { silent: true });
     void startDownloadTask({ site: activeVariant.site, book_id: activeVariant.book_id }, downloadButton);
   });
   actions.appendChild(downloadButton);
-
-  const shelfButton = document.createElement("button");
-  shelfButton.type = "button";
-  shelfButton.className = "tool-button";
-  shelfButton.textContent = "加入书架";
-  shelfButton.addEventListener("click", () => {
-    void addCurrentDetailToBookshelf(result, activeVariant, detail, shelfButton);
-  });
-  actions.appendChild(shelfButton);
 
   summary.appendChild(actions);
 
@@ -2297,14 +2290,29 @@ function renderBookshelfFolderCard(item) {
 function renderBookshelfBookCard(item) {
   const card = document.createElement("article");
   card.className = "result-card bookshelf-card is-book";
-  const cover = createCoverImage(item.cover_url, item.title || "Bookshelf cover", "result-cover");
-  card.appendChild(cover);
+
+  const coverButton = document.createElement("button");
+  coverButton.type = "button";
+  coverButton.className = "result-cover-button";
+  coverButton.setAttribute("aria-label", `打开《${item.title || item.book_id}》阅读`);
+  coverButton.appendChild(createCoverImage(item.cover_url, item.title || "Bookshelf cover", "result-cover"));
+  const overlay = document.createElement("span");
+  overlay.className = "result-cover-overlay";
+  overlay.textContent = "立即阅读";
+  coverButton.appendChild(overlay);
+  coverButton.addEventListener("click", () => void openBookshelfReader(item, null));
+  card.appendChild(coverButton);
 
   const body = document.createElement("div");
   body.className = "result-body";
   const title = document.createElement("h3");
   title.className = "result-title";
-  title.textContent = item.title || item.book_id || "未命名小说";
+  const titleButton = document.createElement("button");
+  titleButton.type = "button";
+  titleButton.className = "bookshelf-title-button";
+  titleButton.textContent = item.title || item.book_id || "未命名小说";
+  titleButton.addEventListener("click", () => void openBookshelfReader(item, null));
+  title.appendChild(titleButton);
   body.appendChild(title);
 
   const author = document.createElement("p");
@@ -2327,13 +2335,6 @@ function renderBookshelfBookCard(item) {
 
   const actions = document.createElement("div");
   actions.className = "bookshelf-actions-row";
-
-  const readButton = document.createElement("button");
-  readButton.type = "button";
-  readButton.className = "tool-button";
-  readButton.textContent = "阅读";
-  readButton.addEventListener("click", () => void openBookshelfReader(item, readButton));
-  actions.appendChild(readButton);
 
   const cacheButton = document.createElement("button");
   cacheButton.type = "button";
@@ -2435,11 +2436,15 @@ async function cacheBookshelfBook(item, button) {
   }
 }
 
-async function addCurrentDetailToBookshelf(result, variant, detail, button) {
+async function addCurrentDetailToBookshelf(result, variant, detail, button, options = {}) {
   if (!result || !variant) return;
+  const silent = Boolean(options && options.silent);
   const site = variant.site || (result.primary && result.primary.site);
   const bookID = variant.book_id || (result.primary && result.primary.book_id);
-  if (!site || !bookID) { setStatus("加入书架失败：缺少站点或 book_id。"); return; }
+  if (!site || !bookID) {
+    if (!silent) setStatus("加入书架失败：缺少站点或 book_id。");
+    return;
+  }
   const book = (detail && detail.book) || {};
   const payload = {
     parent_id: appState.bookshelf.parentId || null,
@@ -2464,9 +2469,9 @@ async function addCurrentDetailToBookshelf(result, variant, detail, button) {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "add bookshelf failed");
     appState.bookshelf.loaded = false;
-    setStatus(`已加入书架：${data.item.title || data.item.book_id}`);
+    if (!silent) setStatus(`已加入书架：${data.item.title || data.item.book_id}`);
   } catch (error) {
-    setStatus(`加入书架失败：${error.message}`);
+    if (!silent) setStatus(`加入书架失败：${error.message}`);
     if (button) { button.disabled = false; button.textContent = original; }
   }
 }
@@ -2475,6 +2480,7 @@ async function openBookshelfReader(item, button) {
   const original = button ? button.textContent : "";
   if (button) { button.disabled = true; button.textContent = "加载中..."; }
   try {
+    if (!item.site || !item.book_id) throw new Error("缺少站点或 book_id");
     const variant = { site: item.site, book_id: item.book_id, title: item.title, author: item.author, url: item.source_url };
     const synthetic = {
       title: item.title,
@@ -2487,9 +2493,18 @@ async function openBookshelfReader(item, button) {
       sources: [variant],
       source_count: 1,
     };
-    openDetail(synthetic, variant);
+    appState.detailResult = synthetic;
+    appState.activeDetailVariant = variant;
+    setStatus(`正在打开《${item.title || item.book_id}》...`);
+    const detail = await fetchBookDetail(variant, 1, normalizedChapterPageSize());
+    if (!detail || !detail.book) throw new Error("未返回详情数据");
+    const initialChapters = Array.isArray(detail.book.chapters) ? detail.book.chapters : [];
+    const chapters = await loadReaderCatalog(variant, detail.chapterPage, initialChapters);
+    if (!chapters.length) throw new Error("没有可用的章节");
+    openReader(chapters, 0);
+    setStatus(`已打开《${item.title || item.book_id}》`);
   } catch (error) {
-    setStatus(`加载详情失败：${error.message}`);
+    setStatus(`加载阅读器失败：${error.message}`);
   } finally {
     if (button) { button.disabled = false; button.textContent = original; }
   }
