@@ -215,6 +215,13 @@ h3 { font-size: 14px; font-weight: 700; color: #334155; }
 .task-head, .task-messages, .detail-meta, .detail-actions, .detail-source-switch, .detail-links { display: flex; flex-wrap: wrap; gap: 8px; }
 .panel-header, .results-head, .task-head { justify-content: space-between; align-items: flex-end; margin-bottom: 6px; }
 
+/* 搜索源折叠按钮：桌面隐藏，手机显示 */
+.source-filters-toggle { display: none; }
+.source-filters-toggle-summary { color: var(--muted); font-weight: 500; font-size: 12px; }
+.source-filters-toggle-caret { transition: transform 0.2s ease; font-size: 14px; }
+.source-filters-toggle.is-collapsed .source-filters-toggle-caret { transform: rotate(-90deg); }
+.source-filters.is-collapsed { display: none; }
+
 /* 压缩标签面板 */
 .source-tag-panel {
   display: grid; gap: 10px; margin-bottom: 16px; padding: 14px 16px;
@@ -528,6 +535,21 @@ body.web-images-blurred .result-card:hover .result-cover {
   .detail-hero { grid-template-columns: 1fr; gap: 16px; }
   .detail-cover { max-width: 120px; margin: 0 auto; }
   .detail-actions .download-button { width: 100%; }
+
+  /* 移动端展示折叠按钮，默认折叠搜索源 */
+  .source-filters-toggle {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    width: 100%; padding: 10px 12px; margin: 4px 0 0;
+    background: #fff; border: 1px solid var(--line); border-radius: 10px;
+    color: var(--text); font-weight: 600; font-size: 13px; cursor: pointer;
+  }
+  .source-filters-toggle:hover { border-color: var(--accent); color: var(--accent-deep); }
+  .source-filters { display: grid; gap: 12px; margin-top: 10px; }
+
+  /* 书架卡片在移动端紧凑化 */
+  .bookshelf-toolbar { gap: 8px; }
+  .bookshelf-actions-row { gap: 6px; }
+  .bookshelf-actions-row .tool-button { padding: 4px 8px; font-size: 12px; min-height: 28px; }
 }
 
 @media (max-width: 960px) {
@@ -539,8 +561,11 @@ body.web-images-blurred .result-card:hover .result-cover {
 }
 
 @media (max-width: 400px) {
-  .results-grid { grid-template-columns: 1fr; }
-  .result-cover { max-width: 160px; margin: 0 auto; }
+  /* 即使在最小屏宽，书卡列表也保持一行 2 本 */
+  .results-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .result-card { padding: 6px; }
+  .result-title { font-size: 12px; line-height: 1.3; }
+  .result-author { font-size: 11px; }
   .chapter-list.cols-2, .chapter-list.cols-3, .chapter-list.cols-4, .chapter-list.cols-5 { grid-template-columns: repeat(1, 1fr); }
 }
 

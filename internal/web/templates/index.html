@@ -50,27 +50,35 @@
             <button class="search-button" type="submit">开始搜索</button>
           </form>
 
-          <div class="selection-toolbar">
-            <button type="button" id="selectAllSources" class="tool-button">全选</button>
-            <button type="button" id="clearSources" class="tool-button is-ghost">清空</button>
-          </div>
+          <button type="button" id="sourceFiltersToggle" class="source-filters-toggle" aria-controls="sourceFilters" aria-expanded="true">
+            <span class="source-filters-toggle-label">搜索源 / 筛选</span>
+            <span id="sourceFiltersToggleSummary" class="source-filters-toggle-summary"></span>
+            <span class="source-filters-toggle-caret" aria-hidden="true">▾</span>
+          </button>
 
-          <section class="source-tag-panel" aria-labelledby="sourceTagHeading">
-            <div class="source-tag-panel-head">
-              <span id="sourceTagHeading" class="field-label">标签筛选 · 多选取交集</span>
-              <button type="button" id="clearTagFilters" class="tool-button is-ghost" hidden>清除标签</button>
+          <div id="sourceFilters" class="source-filters">
+            <div class="selection-toolbar">
+              <button type="button" id="selectAllSources" class="tool-button">全选</button>
+              <button type="button" id="clearSources" class="tool-button is-ghost">清空</button>
             </div>
-            <div id="sourceTagFilters" class="source-tag-filters"></div>
-          </section>
 
-          <div class="panel-header">
-            <div>
-              <h2>渠道</h2>
-              <p id="sourceSummary" class="panel-hint">高亮即已选。</p>
+            <section class="source-tag-panel" aria-labelledby="sourceTagHeading">
+              <div class="source-tag-panel-head">
+                <span id="sourceTagHeading" class="field-label">标签筛选 · 多选取交集</span>
+                <button type="button" id="clearTagFilters" class="tool-button is-ghost" hidden>清除标签</button>
+              </div>
+              <div id="sourceTagFilters" class="source-tag-filters"></div>
+            </section>
+
+            <div class="panel-header">
+              <div>
+                <h2>渠道</h2>
+                <p id="sourceSummary" class="panel-hint">高亮即已选。</p>
+              </div>
             </div>
-          </div>
 
-          <div id="sourceSelector" class="source-selector"></div>
+            <div id="sourceSelector" class="source-selector"></div>
+          </div>
         </section>
         <div id="siteWarningPanel" class="site-warning-stack" hidden aria-live="polite"></div>
 

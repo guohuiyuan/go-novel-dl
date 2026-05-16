@@ -275,6 +275,9 @@ const bookshelfNewFolderButton = document.getElementById("bookshelfNewFolder");
 const bookshelfRefreshButton = document.getElementById("bookshelfRefresh");
 const selectAllSourcesButton = document.getElementById("selectAllSources");
 const clearSourcesButton = document.getElementById("clearSources");
+const sourceFiltersNode = document.getElementById("sourceFilters");
+const sourceFiltersToggleButton = document.getElementById("sourceFiltersToggle");
+const sourceFiltersToggleSummaryNode = document.getElementById("sourceFiltersToggleSummary");
 const detailOverlay = document.getElementById("detailOverlay");
 const detailBackdrop = document.getElementById("detailBackdrop");
 const detailCloseButton = document.getElementById("detailCloseButton");
@@ -386,6 +389,8 @@ function bootstrap() {
     renderSourceSelector();
     setStatus("已清空渠道标签筛选。");
   });
+
+  setupSourceFiltersToggle();
 
   prevPageButton.addEventListener("click", async () => {
     if (!appState.hasPrev || !appState.lastKeyword) return;
@@ -527,6 +532,7 @@ function renderSourceSelector() {
   if (!visibleSources.length) {
     sourceSelectorNode.appendChild(createEmptyState("当前标签组合下没有匹配的渠道。", true));
     sourceSummaryNode.textContent = sourceSummaryText(0);
+    refreshSourceFiltersToggleSummary();
     return;
   }
 
@@ -561,6 +567,7 @@ function renderSourceSelector() {
     sourceSelectorNode.appendChild(button);
   });
   sourceSummaryNode.textContent = sourceSummaryText(visibleSources.length);
+  refreshSourceFiltersToggleSummary();
 }
 
 function toggleSource(siteKey) {
@@ -658,6 +665,43 @@ function sourceSummaryText(visibleCount) {
     return `已选择 ${selectedCount} / ${total} 个渠道，高亮即已选。`;
   }
   return `标签筛选：${Array.from(appState.selectedSourceTags).join("、")}；当前显示 ${visibleCount} / ${total} 个渠道，已选择 ${selectedCount} 个。`;
+}
+
+function setupSourceFiltersToggle() {
+  if (!sourceFiltersToggleButton || !sourceFiltersNode) return;
+  const mql = window.matchMedia ? window.matchMedia("(max-width: 768px)") : null;
+  const startCollapsed = mql ? mql.matches : false;
+  applySourceFiltersCollapsed(startCollapsed);
+  sourceFiltersToggleButton.addEventListener("click", () => {
+    const collapsed = !sourceFiltersNode.classList.contains("is-collapsed");
+    applySourceFiltersCollapsed(collapsed);
+  });
+  if (mql) {
+    const mqlListener = (event) => {
+      // Auto-collapse when entering mobile, auto-expand when leaving.
+      applySourceFiltersCollapsed(event.matches);
+    };
+    if (typeof mql.addEventListener === "function") mql.addEventListener("change", mqlListener);
+    else if (typeof mql.addListener === "function") mql.addListener(mqlListener);
+  }
+  refreshSourceFiltersToggleSummary();
+}
+
+function applySourceFiltersCollapsed(collapsed) {
+  if (!sourceFiltersToggleButton || !sourceFiltersNode) return;
+  sourceFiltersNode.classList.toggle("is-collapsed", collapsed);
+  sourceFiltersToggleButton.classList.toggle("is-collapsed", collapsed);
+  sourceFiltersToggleButton.setAttribute("aria-expanded", collapsed ? "false" : "true");
+}
+
+function refreshSourceFiltersToggleSummary() {
+  if (!sourceFiltersToggleSummaryNode) return;
+  const total = allSources.length;
+  const selectedCount = appState.selectedSites.size;
+  const tagCount = appState.selectedSourceTags.size;
+  const parts = [`已选 ${selectedCount}/${total}`];
+  if (tagCount > 0) parts.push(`${tagCount} 个标签`);
+  sourceFiltersToggleSummaryNode.textContent = parts.join(" · ");
 }
 
 function renderWarnings(warnings) {
@@ -1729,12 +1773,26 @@ function startPollingTask(taskId) {
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "task fetch failed");
       const task = payload.task; upsertTask(task);
-      if (task.status === "completed") { stopPollingTask(taskId); setStatus(`下载完成：${task.site}/${task.book_id}`); } 
+      if (task.status === "completed") {
+        stopPollingTask(taskId);
+        const label = task.target === "shelf" ? "缓存完成" : "下载完成";
+        setStatus(`${label}：${task.site}/${task.book_id}`);
+        if (task.target === "shelf") refreshBookshelfAfterTask(task);
+      }
       else if (task.status === "failed") { stopPollingTask(taskId); setStatus(`下载失败：${task.error}`); }
     } catch (error) { stopPollingTask(taskId); setStatus(`读取任务状态失败：${error.message}`); }
   };
   void poll();
   appState.pollers.set(taskId, window.setInterval(poll, 1000));
+}
+
+function refreshBookshelfAfterTask(task) {
+  if (!appState.bookshelf.loaded) return;
+  if (task) {
+    const key = `${task.site || ""}::${task.book_id || ""}`;
+    if (!appState.bookshelf.booksByKey.has(key)) return;
+  }
+  void loadBookshelf(appState.bookshelf.parentId);
 }
 
 function stopPollingTask(taskId) {
