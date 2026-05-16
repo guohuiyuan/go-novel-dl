@@ -739,5 +739,28 @@ body.web-images-blurred .result-card:hover .result-cover {
 }
 .bookshelf-title-button:hover { color: var(--accent-strong); text-decoration: underline; }
 
+/* 阅读历史 */
+.history-list { display: grid; gap: 10px; }
+.history-card {
+  display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 12px; padding: 10px 12px;
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow);
+  transition: all 0.2s ease;
+}
+.history-card:hover { transform: translateY(-1px); box-shadow: var(--shadow-hover); border-color: var(--accent); }
+.history-cover-button {
+  display: block; width: 64px; aspect-ratio: 3 / 4; padding: 0; border: 0; border-radius: 6px;
+  overflow: hidden; cursor: pointer; background: transparent;
+}
+.history-cover { display: block; width: 100%; height: 100%; object-fit: cover; }
+.history-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.history-title { font-size: 14px; font-weight: 600; line-height: 1.35; color: #0f172a; word-break: break-word; }
+.history-author { color: var(--muted); font-size: 12px; }
+.history-meta { display: flex; flex-wrap: wrap; gap: 6px; }
+@media (max-width: 768px) {
+  .history-card { padding: 8px; gap: 10px; grid-template-columns: 52px minmax(0, 1fr); }
+  .history-cover-button { width: 52px; }
+  .history-title { font-size: 13px; }
+}
+
 .task-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .tasks-tools { display: inline-flex; gap: 10px; align-items: center; }

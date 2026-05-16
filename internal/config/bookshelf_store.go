@@ -13,25 +13,27 @@ import (
 // A folder has Kind="folder"; a book has Kind="book". Folders may contain other
 // folders or books via ParentID. ParentID == nil means the item lives at the root.
 type bookshelfItem struct {
-	ID                uint   `gorm:"primaryKey"`
-	Kind              string `gorm:"size:16;not null;index"`
-	ParentID          *uint  `gorm:"index"`
-	Name              string `gorm:"size:256"`
-	Sort              int    `gorm:"default:0;index"`
-	Site              string `gorm:"size:64;index:idx_bookshelf_site_book"`
-	BookID            string `gorm:"size:128;index:idx_bookshelf_site_book"`
-	Title             string `gorm:"size:256"`
-	Author            string `gorm:"size:128"`
-	CoverURL          string `gorm:"type:text"`
-	Description       string `gorm:"type:text"`
-	LatestChapter     string `gorm:"size:256"`
-	SourceURL         string `gorm:"type:text"`
-	TotalChapters     int    `gorm:"default:0"`
-	CachedChapters    int    `gorm:"default:0"`
-	LastReadChapterID string `gorm:"size:256"`
-	LastReadAt        *time.Time
-	AddedAt           time.Time `gorm:"autoCreateTime"`
-	UpdatedAt         time.Time `gorm:"autoUpdateTime"`
+	ID                   uint   `gorm:"primaryKey"`
+	Kind                 string `gorm:"size:16;not null;index"`
+	ParentID             *uint  `gorm:"index"`
+	Name                 string `gorm:"size:256"`
+	Sort                 int    `gorm:"default:0;index"`
+	Site                 string `gorm:"size:64;index:idx_bookshelf_site_book"`
+	BookID               string `gorm:"size:128;index:idx_bookshelf_site_book"`
+	Title                string `gorm:"size:256"`
+	Author               string `gorm:"size:128"`
+	CoverURL             string `gorm:"type:text"`
+	Description          string `gorm:"type:text"`
+	LatestChapter        string `gorm:"size:256"`
+	SourceURL            string `gorm:"type:text"`
+	TotalChapters        int    `gorm:"default:0"`
+	CachedChapters       int    `gorm:"default:0"`
+	LastReadChapterID    string `gorm:"size:256"`
+	LastReadChapterIndex int    `gorm:"default:0"`
+	LastReadChapterTitle string `gorm:"size:512"`
+	LastReadAt           *time.Time
+	AddedAt              time.Time `gorm:"autoCreateTime"`
+	UpdatedAt            time.Time `gorm:"autoUpdateTime"`
 }
 
 func (bookshelfItem) TableName() string {
@@ -46,26 +48,28 @@ const (
 
 // BookshelfItem is the JSON-serialisable view of a bookshelf entry.
 type BookshelfItem struct {
-	ID                uint       `json:"id"`
-	Kind              string     `json:"kind"`
-	ParentID          *uint      `json:"parent_id,omitempty"`
-	Name              string     `json:"name,omitempty"`
-	Sort              int        `json:"sort"`
-	Site              string     `json:"site,omitempty"`
-	BookID            string     `json:"book_id,omitempty"`
-	Title             string     `json:"title,omitempty"`
-	Author            string     `json:"author,omitempty"`
-	CoverURL          string     `json:"cover_url,omitempty"`
-	Description       string     `json:"description,omitempty"`
-	LatestChapter     string     `json:"latest_chapter,omitempty"`
-	SourceURL         string     `json:"source_url,omitempty"`
-	TotalChapters     int        `json:"total_chapters,omitempty"`
-	CachedChapters    int        `json:"cached_chapters,omitempty"`
-	LastReadChapterID string     `json:"last_read_chapter_id,omitempty"`
-	LastReadAt        *time.Time `json:"last_read_at,omitempty"`
-	AddedAt           time.Time  `json:"added_at"`
-	UpdatedAt         time.Time  `json:"updated_at"`
-	ChildCount        int        `json:"child_count,omitempty"`
+	ID                   uint       `json:"id"`
+	Kind                 string     `json:"kind"`
+	ParentID             *uint      `json:"parent_id,omitempty"`
+	Name                 string     `json:"name,omitempty"`
+	Sort                 int        `json:"sort"`
+	Site                 string     `json:"site,omitempty"`
+	BookID               string     `json:"book_id,omitempty"`
+	Title                string     `json:"title,omitempty"`
+	Author               string     `json:"author,omitempty"`
+	CoverURL             string     `json:"cover_url,omitempty"`
+	Description          string     `json:"description,omitempty"`
+	LatestChapter        string     `json:"latest_chapter,omitempty"`
+	SourceURL            string     `json:"source_url,omitempty"`
+	TotalChapters        int        `json:"total_chapters,omitempty"`
+	CachedChapters       int        `json:"cached_chapters,omitempty"`
+	LastReadChapterID    string     `json:"last_read_chapter_id,omitempty"`
+	LastReadChapterIndex int        `json:"last_read_chapter_index,omitempty"`
+	LastReadChapterTitle string     `json:"last_read_chapter_title,omitempty"`
+	LastReadAt           *time.Time `json:"last_read_at,omitempty"`
+	AddedAt              time.Time  `json:"added_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
+	ChildCount           int        `json:"child_count,omitempty"`
 }
 
 // BookshelfBookInput is the payload for adding a book to the bookshelf. Title is
@@ -86,19 +90,21 @@ type BookshelfBookInput struct {
 // BookshelfMutation describes a partial update against an existing row. Nil
 // fields are left untouched.
 type BookshelfMutation struct {
-	Name              *string
-	ParentID          *uint
-	ClearParent       bool
-	Title             *string
-	Author            *string
-	CoverURL          *string
-	Description       *string
-	LatestChapter     *string
-	SourceURL         *string
-	TotalChapters     *int
-	CachedChapters    *int
-	LastReadChapterID *string
-	LastReadAt        *time.Time
+	Name                 *string
+	ParentID             *uint
+	ClearParent          bool
+	Title                *string
+	Author               *string
+	CoverURL             *string
+	Description          *string
+	LatestChapter        *string
+	SourceURL            *string
+	TotalChapters        *int
+	CachedChapters       *int
+	LastReadChapterID    *string
+	LastReadChapterIndex *int
+	LastReadChapterTitle *string
+	LastReadAt           *time.Time
 }
 
 func ensureBookshelfTable(db *gorm.DB) error {
@@ -423,6 +429,16 @@ func UpdateBookshelfItem(id uint, patch BookshelfMutation) (BookshelfItem, error
 	if patch.LastReadChapterID != nil {
 		entry.LastReadChapterID = strings.TrimSpace(*patch.LastReadChapterID)
 	}
+	if patch.LastReadChapterIndex != nil {
+		value := *patch.LastReadChapterIndex
+		if value < 0 {
+			value = 0
+		}
+		entry.LastReadChapterIndex = value
+	}
+	if patch.LastReadChapterTitle != nil {
+		entry.LastReadChapterTitle = strings.TrimSpace(*patch.LastReadChapterTitle)
+	}
 	if patch.LastReadAt != nil {
 		stamp := *patch.LastReadAt
 		entry.LastReadAt = &stamp
@@ -461,6 +477,82 @@ func DeleteBookshelfItem(id uint) error {
 		return db.Where("id IN ?", ids).Delete(&bookshelfItem{}).Error
 	}
 	return db.Where("id = ?", entry.ID).Delete(&bookshelfItem{}).Error
+}
+
+// BookshelfProgressInput captures everything needed to record a reading
+// position. Title is optional (used purely for display in the history feed).
+type BookshelfProgressInput struct {
+	Site         string
+	BookID       string
+	ChapterID    string
+	ChapterIndex int
+	ChapterTitle string
+}
+
+// UpdateBookshelfProgress records the latest reading position for a book
+// identified by site/book_id. It is a no-op when the book is not on the shelf
+// (matches found=false). The returned bool indicates whether an existing row
+// was updated.
+func UpdateBookshelfProgress(input BookshelfProgressInput) (BookshelfItem, bool, error) {
+	site := strings.TrimSpace(input.Site)
+	bookID := strings.TrimSpace(input.BookID)
+	if site == "" || bookID == "" {
+		return BookshelfItem{}, false, fmt.Errorf("site and book_id are required")
+	}
+	db, err := bookshelfDB()
+	if err != nil {
+		return BookshelfItem{}, false, err
+	}
+	var entry bookshelfItem
+	err = db.Where("kind = ? AND site = ? AND book_id = ?", BookshelfItemKindBook, site, bookID).Take(&entry).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return BookshelfItem{}, false, nil
+		}
+		return BookshelfItem{}, false, err
+	}
+	index := input.ChapterIndex
+	if index < 0 {
+		index = 0
+	}
+	now := time.Now().UTC()
+	entry.LastReadChapterID = strings.TrimSpace(input.ChapterID)
+	entry.LastReadChapterIndex = index
+	entry.LastReadChapterTitle = strings.TrimSpace(input.ChapterTitle)
+	entry.LastReadAt = &now
+	if err := db.Save(&entry).Error; err != nil {
+		return BookshelfItem{}, false, err
+	}
+	return toBookshelfItem(entry), true, nil
+}
+
+// ListBookshelfHistory returns book entries that have a recorded last read
+// timestamp, ordered most-recent-first. The limit caps the slice length; pass
+// 0 or negative to apply a sensible default of 50.
+func ListBookshelfHistory(limit int) ([]BookshelfItem, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	db, err := bookshelfDB()
+	if err != nil {
+		return nil, err
+	}
+	var entries []bookshelfItem
+	if err := db.
+		Where("kind = ? AND last_read_at IS NOT NULL", BookshelfItemKindBook).
+		Order("last_read_at DESC").
+		Limit(limit).
+		Find(&entries).Error; err != nil {
+		return nil, err
+	}
+	items := make([]BookshelfItem, 0, len(entries))
+	for _, entry := range entries {
+		items = append(items, toBookshelfItem(entry))
+	}
+	return items, nil
 }
 
 // UpdateBookshelfCacheStats refreshes the cache progress columns for a book by
@@ -536,24 +628,26 @@ func collectDescendants(db *gorm.DB, rootID uint) ([]uint, error) {
 
 func toBookshelfItem(entry bookshelfItem) BookshelfItem {
 	return BookshelfItem{
-		ID:                entry.ID,
-		Kind:              entry.Kind,
-		ParentID:          entry.ParentID,
-		Name:              entry.Name,
-		Sort:              entry.Sort,
-		Site:              entry.Site,
-		BookID:            entry.BookID,
-		Title:             entry.Title,
-		Author:            entry.Author,
-		CoverURL:          entry.CoverURL,
-		Description:       entry.Description,
-		LatestChapter:     entry.LatestChapter,
-		SourceURL:         entry.SourceURL,
-		TotalChapters:     entry.TotalChapters,
-		CachedChapters:    entry.CachedChapters,
-		LastReadChapterID: entry.LastReadChapterID,
-		LastReadAt:        entry.LastReadAt,
-		AddedAt:           entry.AddedAt,
-		UpdatedAt:         entry.UpdatedAt,
+		ID:                   entry.ID,
+		Kind:                 entry.Kind,
+		ParentID:             entry.ParentID,
+		Name:                 entry.Name,
+		Sort:                 entry.Sort,
+		Site:                 entry.Site,
+		BookID:               entry.BookID,
+		Title:                entry.Title,
+		Author:               entry.Author,
+		CoverURL:             entry.CoverURL,
+		Description:          entry.Description,
+		LatestChapter:        entry.LatestChapter,
+		SourceURL:            entry.SourceURL,
+		TotalChapters:        entry.TotalChapters,
+		CachedChapters:       entry.CachedChapters,
+		LastReadChapterID:    entry.LastReadChapterID,
+		LastReadChapterIndex: entry.LastReadChapterIndex,
+		LastReadChapterTitle: entry.LastReadChapterTitle,
+		LastReadAt:           entry.LastReadAt,
+		AddedAt:              entry.AddedAt,
+		UpdatedAt:            entry.UpdatedAt,
 	}
 }

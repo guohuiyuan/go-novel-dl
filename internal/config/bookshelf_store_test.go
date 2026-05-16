@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestBookshelfFolderAndBookCRUD(t *testing.T) {
 	resetSiteCatalogForTest(t)
@@ -179,5 +182,98 @@ func TestBookshelfBreadcrumbAndMoveValidation(t *testing.T) {
 	}
 	if _, err := UpdateBookshelfItem(child.ID, BookshelfMutation{ParentID: &book.ID}); err == nil {
 		t.Fatalf("expected moving folder into a book to be rejected")
+	}
+}
+
+func TestBookshelfReadingProgressAndHistory(t *testing.T) {
+	resetSiteCatalogForTest(t)
+
+	bookA, err := AddBookshelfBook(BookshelfBookInput{Site: "esjzone", BookID: "alpha", Title: "Alpha"})
+	if err != nil {
+		t.Fatalf("add book A: %v", err)
+	}
+	bookB, err := AddBookshelfBook(BookshelfBookInput{Site: "esjzone", BookID: "beta", Title: "Beta"})
+	if err != nil {
+		t.Fatalf("add book B: %v", err)
+	}
+
+	// Updating progress for an unknown book is a silent no-op.
+	if _, found, err := UpdateBookshelfProgress(BookshelfProgressInput{Site: "esjzone", BookID: "missing", ChapterID: "1"}); err != nil {
+		t.Fatalf("progress for missing book should not error: %v", err)
+	} else if found {
+		t.Fatalf("expected found=false for missing book")
+	}
+
+	itemA, found, err := UpdateBookshelfProgress(BookshelfProgressInput{
+		Site:         "esjzone",
+		BookID:       "alpha",
+		ChapterID:    "ch-7",
+		ChapterIndex: 6,
+		ChapterTitle: " 第七章 ",
+	})
+	if err != nil || !found {
+		t.Fatalf("update progress A: err=%v found=%v", err, found)
+	}
+	if itemA.ID != bookA.ID {
+		t.Fatalf("expected progress to update book A, got id=%d", itemA.ID)
+	}
+	if itemA.LastReadChapterID != "ch-7" || itemA.LastReadChapterIndex != 6 {
+		t.Fatalf("unexpected progress: %+v", itemA)
+	}
+	if itemA.LastReadChapterTitle != "第七章" {
+		t.Fatalf("expected trimmed chapter title, got %q", itemA.LastReadChapterTitle)
+	}
+	if itemA.LastReadAt == nil {
+		t.Fatalf("expected last_read_at to be set")
+	}
+
+	// Make book B more recent.
+	time.Sleep(10 * time.Millisecond)
+	if _, _, err := UpdateBookshelfProgress(BookshelfProgressInput{
+		Site:         "esjzone",
+		BookID:       "beta",
+		ChapterID:    "b-3",
+		ChapterIndex: 2,
+		ChapterTitle: "卷一·第三章",
+	}); err != nil {
+		t.Fatalf("update progress B: %v", err)
+	}
+
+	history, err := ListBookshelfHistory(0)
+	if err != nil {
+		t.Fatalf("list history: %v", err)
+	}
+	if len(history) != 2 {
+		t.Fatalf("expected 2 history entries, got %d", len(history))
+	}
+	if history[0].ID != bookB.ID {
+		t.Fatalf("expected most recent first; head=%+v", history[0])
+	}
+	if history[1].ID != bookA.ID {
+		t.Fatalf("expected book A second; got %+v", history[1])
+	}
+
+	// Limit must cap the result set.
+	limited, err := ListBookshelfHistory(1)
+	if err != nil {
+		t.Fatalf("list history limited: %v", err)
+	}
+	if len(limited) != 1 || limited[0].ID != bookB.ID {
+		t.Fatalf("expected single most-recent entry, got %+v", limited)
+	}
+
+	// Books without progress should not appear in history.
+	silent, err := AddBookshelfBook(BookshelfBookInput{Site: "esjzone", BookID: "silent", Title: "Silent"})
+	if err != nil {
+		t.Fatalf("add silent book: %v", err)
+	}
+	historyAgain, err := ListBookshelfHistory(0)
+	if err != nil {
+		t.Fatalf("list history again: %v", err)
+	}
+	for _, item := range historyAgain {
+		if item.ID == silent.ID {
+			t.Fatalf("expected silent book to be excluded from history")
+		}
 	}
 }

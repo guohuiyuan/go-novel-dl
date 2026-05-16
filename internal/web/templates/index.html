@@ -33,6 +33,10 @@
         书架
         <span id="bookshelfTabCount" class="tab-count">0</span>
       </button>
+      <button type="button" id="historyTabButton" class="tab-button" data-tab="history">
+        阅读历史
+        <span id="historyTabCount" class="tab-count">0</span>
+      </button>
       <button type="button" id="tasksTabButton" class="tab-button" data-tab="tasks">
         下载任务
         <span id="taskTabCount" class="tab-count">0</span>
@@ -124,6 +128,24 @@
         <p id="bookshelfStatus" class="panel-hint">在搜索结果中点击「加入书架」即可把书放到这里管理。</p>
         <div id="bookshelf" class="results-grid">
           <div class="empty-state empty-state-compact">书架还是空的。</div>
+        </div>
+      </section>
+    </section>
+
+    <section id="historyTabPanel" class="tab-panel">
+      <section class="panel-card bookshelf-panel">
+        <div class="panel-header">
+          <div>
+            <h2>阅读历史</h2>
+            <p class="panel-hint">最近阅读过的小说会按时间倒序出现在这里，点击即可继续上次的章节。</p>
+          </div>
+          <div class="bookshelf-actions">
+            <button type="button" id="historyRefresh" class="tool-button is-ghost">刷新</button>
+          </div>
+        </div>
+        <p id="historyStatus" class="panel-hint">尚未读过任何小说。</p>
+        <div id="historyList" class="history-list">
+          <div class="empty-state empty-state-compact">读过的书会在这里显示。</div>
         </div>
       </section>
     </section>

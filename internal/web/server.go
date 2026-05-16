@@ -839,6 +839,55 @@ func registerBookshelfRoutes(group *gin.RouterGroup, service *Service) {
 		})
 		c.JSON(http.StatusAccepted, gin.H{"task": task})
 	})
+
+	group.POST("/api/bookshelf/progress", func(c *gin.Context) {
+		var body struct {
+			Site         string `json:"site"`
+			BookID       string `json:"book_id"`
+			ChapterID    string `json:"chapter_id"`
+			ChapterIndex int    `json:"chapter_index"`
+			ChapterTitle string `json:"chapter_title"`
+		}
+		if err := c.BindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+			return
+		}
+		if strings.TrimSpace(body.Site) == "" || strings.TrimSpace(body.BookID) == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "site and book_id are required"})
+			return
+		}
+		item, found, err := config.UpdateBookshelfProgress(config.BookshelfProgressInput{
+			Site:         body.Site,
+			BookID:       body.BookID,
+			ChapterID:    body.ChapterID,
+			ChapterIndex: body.ChapterIndex,
+			ChapterTitle: body.ChapterTitle,
+		})
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if !found {
+			c.JSON(http.StatusOK, gin.H{"updated": false})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"updated": true, "item": item})
+	})
+
+	group.GET("/api/bookshelf/history", func(c *gin.Context) {
+		limit := 0
+		if raw := strings.TrimSpace(c.Query("limit")); raw != "" {
+			if value, err := strconv.Atoi(raw); err == nil {
+				limit = value
+			}
+		}
+		items, err := config.ListBookshelfHistory(limit)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"items": items})
+	})
 }
 
 func looksLikeWebURL(raw string) bool {

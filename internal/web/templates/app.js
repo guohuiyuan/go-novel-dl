@@ -64,6 +64,18 @@ const appState = {
     loaded: false,
     booksByKey: new Map(),
   },
+  history: {
+    items: [],
+    loading: false,
+    loaded: false,
+  },
+  reader: {
+    site: "",
+    bookID: "",
+    title: "",
+    progressTimer: 0,
+    lastReportedChapterID: "",
+  },
   detailCache: new Map(),
   detailPending: new Map(),
   detailTimings: new Map(),
@@ -264,9 +276,15 @@ const tasksClearFinishedButton = document.getElementById("tasksClearFinished");
 const searchTabButton = document.getElementById("searchTabButton");
 const bookshelfTabButton = document.getElementById("bookshelfTabButton");
 const bookshelfTabCountNode = document.getElementById("bookshelfTabCount");
+const historyTabButton = document.getElementById("historyTabButton");
+const historyTabCountNode = document.getElementById("historyTabCount");
 const tasksTabButton = document.getElementById("tasksTabButton");
 const searchTabPanel = document.getElementById("searchTabPanel");
 const bookshelfTabPanel = document.getElementById("bookshelfTabPanel");
+const historyTabPanel = document.getElementById("historyTabPanel");
+const historyListNode = document.getElementById("historyList");
+const historyStatusNode = document.getElementById("historyStatus");
+const historyRefreshButton = document.getElementById("historyRefresh");
 const tasksTabPanel = document.getElementById("tasksTabPanel");
 const bookshelfNode = document.getElementById("bookshelf");
 const bookshelfBreadcrumbNode = document.getElementById("bookshelfBreadcrumb");
@@ -349,7 +367,10 @@ function bootstrap() {
 
   searchTabButton.addEventListener("click", () => activateTab("search"));
   if (bookshelfTabButton) bookshelfTabButton.addEventListener("click", () => activateTab("bookshelf"));
+  if (historyTabButton) historyTabButton.addEventListener("click", () => activateTab("history"));
   tasksTabButton.addEventListener("click", () => activateTab("tasks"));
+
+  if (historyRefreshButton) historyRefreshButton.addEventListener("click", () => void loadHistory());
 
   if (bookshelfNewFolderButton) bookshelfNewFolderButton.addEventListener("click", () => void createBookshelfFolderPrompt());
   if (bookshelfRefreshButton) bookshelfRefreshButton.addEventListener("click", () => void loadBookshelf(appState.bookshelf.parentId));
@@ -458,16 +479,21 @@ function bootstrap() {
 }
 
 function activateTab(tabName) {
-  if (tabName !== "search" && tabName !== "bookshelf" && tabName !== "tasks") tabName = "search";
+  if (tabName !== "search" && tabName !== "bookshelf" && tabName !== "history" && tabName !== "tasks") tabName = "search";
   appState.activeTab = tabName;
   searchTabButton.classList.toggle("is-active", tabName === "search");
   if (bookshelfTabButton) bookshelfTabButton.classList.toggle("is-active", tabName === "bookshelf");
+  if (historyTabButton) historyTabButton.classList.toggle("is-active", tabName === "history");
   tasksTabButton.classList.toggle("is-active", tabName === "tasks");
   searchTabPanel.classList.toggle("is-active", tabName === "search");
   if (bookshelfTabPanel) bookshelfTabPanel.classList.toggle("is-active", tabName === "bookshelf");
+  if (historyTabPanel) historyTabPanel.classList.toggle("is-active", tabName === "history");
   tasksTabPanel.classList.toggle("is-active", tabName === "tasks");
   if (tabName === "bookshelf" && !appState.bookshelf.loaded) {
     void loadBookshelf(appState.bookshelf.parentId);
+  }
+  if (tabName === "history" && !appState.history.loaded) {
+    void loadHistory();
   }
 }
 
@@ -1112,6 +1138,9 @@ async function openReaderFromDetail(result, variant, clickedChapter, chapterInde
     return;
   }
 
+  const detailTitle = displayDetailTitle(result, activeVariant, result && result.primary);
+  setupReaderTracker(activeVariant.site, activeVariant.book_id, detailTitle);
+
   try {
     const expectedTotal = Number(chapterPage && chapterPage.total) || fallbackChapters.length;
     if (expectedTotal > fallbackChapters.length) setStatus("正在加载完整章节目录，用于阅读器显示全书章节...");
@@ -1412,11 +1441,18 @@ async function loadChaptersSequential(indices, direction) {
 }
 
 function closeReader() {
+  flushProgressReport();
   readerOverlay.hidden = true;
   document.body.classList.remove("has-overlay");
   setReaderScrollLocked(false);
   readerState.canAutoLoad = false;
   readerState.token += 1;
+  if (appState.reader) {
+    appState.reader.site = "";
+    appState.reader.bookID = "";
+    appState.reader.title = "";
+    appState.reader.lastReportedChapterID = "";
+  }
 }
 
 function updateReaderTitle(index) {
@@ -1424,6 +1460,7 @@ function updateReaderTitle(index) {
   readerState.currentIndex = index;
   readerTitle.textContent = ch ? (ch.title || `第 ${index + 1} 章`) : "";
   readerProgress.textContent = `${index + 1} / ${readerState.chapters.length}`;
+  if (ch) scheduleProgressReport(ch, index);
 }
 
 async function appendChapter(idx) {
@@ -2246,6 +2283,177 @@ function renderBookshelf() {
   });
 }
 
+function setHistoryStatus(text) {
+  if (historyStatusNode) historyStatusNode.textContent = text;
+}
+
+async function loadHistory() {
+  if (!historyListNode) return;
+  const history = appState.history;
+  if (history.loading) return;
+  history.loading = true;
+  setHistoryStatus("正在加载阅读历史...");
+  try {
+    const response = await fetch(`${root}/api/bookshelf/history?limit=100`);
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "load history failed");
+    history.items = Array.isArray(payload.items) ? payload.items : [];
+    history.loaded = true;
+    renderHistory();
+    if (historyTabCountNode) historyTabCountNode.textContent = String(history.items.length);
+    if (history.items.length === 0) {
+      setHistoryStatus("尚未读过任何小说，先去书架点击书籍开始阅读吧。");
+    } else {
+      setHistoryStatus(`共 ${history.items.length} 条阅读记录。`);
+    }
+  } catch (error) {
+    setHistoryStatus(`加载阅读历史失败：${error.message}`);
+  } finally {
+    history.loading = false;
+  }
+}
+
+function renderHistory() {
+  if (!historyListNode) return;
+  historyListNode.innerHTML = "";
+  const items = appState.history.items;
+  if (!items.length) {
+    historyListNode.appendChild(createEmptyState("还没有阅读记录。", true));
+    return;
+  }
+  items.forEach((item) => historyListNode.appendChild(renderHistoryCard(item)));
+}
+
+function renderHistoryCard(item) {
+  const card = document.createElement("article");
+  card.className = "history-card";
+
+  const coverButton = document.createElement("button");
+  coverButton.type = "button";
+  coverButton.className = "history-cover-button";
+  coverButton.setAttribute("aria-label", `继续阅读《${item.title || item.book_id}》`);
+  coverButton.appendChild(createCoverImage(item.cover_url, item.title || "Cover", "history-cover"));
+  coverButton.addEventListener("click", () => void openHistoryReader(item));
+  card.appendChild(coverButton);
+
+  const body = document.createElement("div");
+  body.className = "history-body";
+
+  const title = document.createElement("h3");
+  title.className = "history-title";
+  const titleButton = document.createElement("button");
+  titleButton.type = "button";
+  titleButton.className = "bookshelf-title-button";
+  titleButton.textContent = item.title || item.book_id || "未命名";
+  titleButton.addEventListener("click", () => void openHistoryReader(item));
+  title.appendChild(titleButton);
+  body.appendChild(title);
+
+  const meta = document.createElement("div");
+  meta.className = "history-meta";
+  meta.appendChild(resultBadge(sourceLabel(item.site)));
+  if (item.last_read_chapter_title) {
+    meta.appendChild(resultBadge(`读到：${item.last_read_chapter_title}`));
+  } else if (item.last_read_chapter_id) {
+    meta.appendChild(resultBadge(`已读章节 ${item.last_read_chapter_index + 1 || ""}`.trim()));
+  }
+  if (item.total_chapters > 0) {
+    const idx = Math.max(0, item.last_read_chapter_index || 0);
+    const pct = Math.min(100, Math.round(((idx + 1) / item.total_chapters) * 100));
+    meta.appendChild(resultBadge(`${pct}% · ${idx + 1}/${item.total_chapters}`));
+  }
+  if (item.last_read_at) meta.appendChild(resultBadge(formatHistoryTimestamp(item.last_read_at)));
+  body.appendChild(meta);
+
+  if (item.author) {
+    const author = document.createElement("p");
+    author.className = "history-author";
+    author.textContent = `作者：${item.author}`;
+    body.appendChild(author);
+  }
+
+  card.appendChild(body);
+  return card;
+}
+
+function formatHistoryTimestamp(iso) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  const diffMs = Date.now() - date.getTime();
+  const diffMin = Math.round(diffMs / 60000);
+  if (diffMin < 1) return "刚刚";
+  if (diffMin < 60) return `${diffMin} 分钟前`;
+  const diffHour = Math.round(diffMin / 60);
+  if (diffHour < 24) return `${diffHour} 小时前`;
+  const diffDay = Math.round(diffHour / 24);
+  if (diffDay < 30) return `${diffDay} 天前`;
+  return date.toLocaleDateString();
+}
+
+async function openHistoryReader(item) {
+  // History items have the same shape as bookshelf items, so reuse the bookshelf flow.
+  await openBookshelfReader(item, null);
+}
+
+async function reportReadingProgress(payload) {
+  if (!payload || !payload.site || !payload.book_id) return;
+  try {
+    await fetch(`${root}/api/bookshelf/progress`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    // History tab cache becomes stale once any progress is recorded.
+    appState.history.loaded = false;
+  } catch (error) {
+    // Silent best-effort; progress can be re-tried on the next chapter change.
+    console.warn("report reading progress failed", error);
+  }
+}
+
+function scheduleProgressReport(chapter, index) {
+  const tracker = appState.reader;
+  if (!tracker || !tracker.site || !tracker.bookID) return;
+  const chapterID = String((chapter && (chapter.chapter_id || chapter.id)) || "").trim();
+  if (!chapterID) return;
+  if (chapterID === tracker.lastReportedChapterID) return;
+  tracker.lastReportedChapterID = chapterID;
+  if (tracker.progressTimer) window.clearTimeout(tracker.progressTimer);
+  const payload = {
+    site: tracker.site,
+    book_id: tracker.bookID,
+    chapter_id: chapterID,
+    chapter_index: Math.max(0, index || 0),
+    chapter_title: (chapter && chapter.title) || "",
+  };
+  tracker.progressTimer = window.setTimeout(() => {
+    tracker.progressTimer = 0;
+    void reportReadingProgress(payload);
+  }, 1500);
+}
+
+function flushProgressReport() {
+  const tracker = appState.reader;
+  if (!tracker) return;
+  if (tracker.progressTimer) {
+    window.clearTimeout(tracker.progressTimer);
+    tracker.progressTimer = 0;
+  }
+  if (!tracker.site || !tracker.bookID) return;
+  const idx = readerState.currentIndex;
+  const chapter = readerState.chapters[idx];
+  if (!chapter) return;
+  const chapterID = String(chapter.chapter_id || chapter.id || "").trim();
+  if (!chapterID) return;
+  void reportReadingProgress({
+    site: tracker.site,
+    book_id: tracker.bookID,
+    chapter_id: chapterID,
+    chapter_index: Math.max(0, idx || 0),
+    chapter_title: chapter.title || "",
+  });
+}
+
 function renderBookshelfFolderCard(item) {
   const card = document.createElement("article");
   card.className = "result-card bookshelf-card is-folder";
@@ -2501,11 +2709,51 @@ async function openBookshelfReader(item, button) {
     const initialChapters = Array.isArray(detail.book.chapters) ? detail.book.chapters : [];
     const chapters = await loadReaderCatalog(variant, detail.chapterPage, initialChapters);
     if (!chapters.length) throw new Error("没有可用的章节");
-    openReader(chapters, 0);
-    setStatus(`已打开《${item.title || item.book_id}》`);
+
+    setupReaderTracker(item.site, item.book_id, item.title);
+    const startIndex = resolveBookshelfStartIndex(chapters, item);
+    openReader(chapters, startIndex);
+    if (startIndex > 0) {
+      const startChapter = chapters[startIndex];
+      const label = (startChapter && startChapter.title) || `第 ${startIndex + 1} 章`;
+      setStatus(`已跳到《${item.title || item.book_id}》上次阅读位置：${label}`);
+    } else {
+      setStatus(`已打开《${item.title || item.book_id}》`);
+    }
   } catch (error) {
     setStatus(`加载阅读器失败：${error.message}`);
   } finally {
     if (button) { button.disabled = false; button.textContent = original; }
   }
+}
+
+function resolveBookshelfStartIndex(chapters, item) {
+  if (!Array.isArray(chapters) || chapters.length === 0) return 0;
+  const lastID = String((item && item.last_read_chapter_id) || "").trim();
+  if (lastID) {
+    for (let i = 0; i < chapters.length; i += 1) {
+      const ch = chapters[i];
+      const candidate = String((ch && (ch.chapter_id || ch.id)) || "").trim();
+      if (candidate && candidate === lastID) return i;
+    }
+  }
+  // Fall back to the stored index when chapter id lookup fails (e.g. catalog updated).
+  const idxHint = Number(item && item.last_read_chapter_index);
+  if (Number.isFinite(idxHint) && idxHint > 0) {
+    return Math.min(Math.max(0, Math.trunc(idxHint)), chapters.length - 1);
+  }
+  return 0;
+}
+
+function setupReaderTracker(site, bookID, title) {
+  const tracker = appState.reader;
+  if (!tracker) return;
+  if (tracker.progressTimer) {
+    window.clearTimeout(tracker.progressTimer);
+    tracker.progressTimer = 0;
+  }
+  tracker.site = String(site || "").trim();
+  tracker.bookID = String(bookID || "").trim();
+  tracker.title = String(title || "").trim();
+  tracker.lastReportedChapterID = "";
 }
