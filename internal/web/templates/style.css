@@ -505,10 +505,19 @@ body.web-images-blurred .result-card:hover .result-cover { transform: scale(1.07
   font-size: 13px; line-height: 1.4; padding: 6px 12px 6px 10px; border-radius: 8px;
   background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0;
   text-decoration: none; font-weight: 600; display: inline-flex; align-items: center; gap: 6px;
-  max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  max-width: 280px; min-width: 0; overflow: hidden; white-space: nowrap;
 }
-.task-file-chip::before { content: '📦'; font-size: 12px; }
+.task-file-chip::before { content: '📦'; font-size: 12px; flex: 0 0 auto; }
+.task-file-chip-name {
+  flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.task-file-chip-ext {
+  flex: 0 0 auto; color: var(--accent-deep); font-weight: 700;
+}
 .task-file-chip:hover { background: #d1fae5; border-color: var(--success); }
+@media (max-width: 768px) {
+  .task-file-chip { max-width: 100%; }
+}
 
 .task-messages { display: grid; gap: 4px; }
 .task-message { font-size: 12px; line-height: 1.5; color: var(--muted); padding-left: 10px; border-left: 2px solid #e2e8f0; }

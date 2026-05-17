@@ -369,6 +369,7 @@ const generalTimeoutNode = document.getElementById("generalTimeout");
 const generalRequestIntervalNode = document.getElementById("generalRequestInterval");
 const generalLocaleStyleNode = document.getElementById("generalLocaleStyle");
 const generalFormatsNode = document.getElementById("generalFormats");
+const generalFilenameTemplateNode = document.getElementById("generalFilenameTemplate");
 const generalAppendTimestampNode = document.getElementById("generalAppendTimestamp");
 const generalIncludePictureNode = document.getElementById("generalIncludePicture");
 const generalDisableCacheNode = document.getElementById("generalDisableCache");
@@ -2404,9 +2405,23 @@ function buildTaskCard(task) {
       const link = document.createElement("a");
       link.className = "task-file-chip";
       link.href = `${root}/api/download-file?path=${encodeURIComponent(p)}`;
-      link.textContent = p.split(/[/\\]/).pop();
       link.title = p;
       link.download = "";
+      const basename = p.split(/[/\\]/).pop() || p;
+      const dot = basename.lastIndexOf(".");
+      const hasExt = dot > 0 && dot < basename.length - 1;
+      const stem = hasExt ? basename.slice(0, dot) : basename;
+      const ext = hasExt ? basename.slice(dot) : "";
+      const nameSpan = document.createElement("span");
+      nameSpan.className = "task-file-chip-name";
+      nameSpan.textContent = stem;
+      link.appendChild(nameSpan);
+      if (ext) {
+        const extSpan = document.createElement("span");
+        extSpan.className = "task-file-chip-ext";
+        extSpan.textContent = ext;
+        link.appendChild(extSpan);
+      }
       files.appendChild(link);
     });
     card.appendChild(files);
@@ -2609,6 +2624,7 @@ async function saveGeneralConfig() {
     request_interval: Math.max(0, Number.parseFloat(generalRequestIntervalNode.value || "0.5") || 0.5),
     locale_style: (generalLocaleStyleNode.value || "simplified").trim(),
     formats: (generalFormatsNode.value || "txt,epub").split(",").map((item) => item.trim()).filter(Boolean),
+    filename_template: (generalFilenameTemplateNode && generalFilenameTemplateNode.value.trim()) || "{title}_{author}",
     append_timestamp: generalAppendTimestampNode.checked,
     include_picture: generalIncludePictureNode.checked,
     disable_cache: generalDisableCacheNode.checked,

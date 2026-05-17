@@ -245,6 +245,11 @@
               <input id="generalFormats" class="search-input" type="text" placeholder="txt,epub">
               <span class="field-help">常用值：txt,epub。</span>
             </label>
+            <label class="search-field" for="generalFilenameTemplate">
+              <span class="field-label">文件名模板</span>
+              <input id="generalFilenameTemplate" class="search-input" type="text" placeholder="{title}_{author}">
+              <span class="field-help">支持占位符：<code>{title}</code> 书名 · <code>{author}</code> 作者 · <code>{site}</code> 站点 · <code>{book_id}</code> 书 ID。例：<code>{title}-{author}（{site}）</code>。</span>
+            </label>
             <label class="site-config-check">
               <input id="generalAppendTimestamp" type="checkbox">
               <span>文件名追加时间戳</span>

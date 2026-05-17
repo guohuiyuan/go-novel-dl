@@ -122,7 +122,7 @@ func (s *Service) Export(book *model.Book, site string, cfg config.OutputConfig,
 			continue
 		}
 
-		filename := buildFilename(book, cfg, format)
+		filename := buildFilename(book, site, cfg, format)
 		path := filepath.Join(outputDir, sanitize(site), filename)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			return created, err
@@ -151,13 +151,19 @@ func (s *Service) Export(book *model.Book, site string, cfg config.OutputConfig,
 	return created, nil
 }
 
-func buildFilename(book *model.Book, cfg config.OutputConfig, format string) string {
+func buildFilename(book *model.Book, site string, cfg config.OutputConfig, format string) string {
 	name := cfg.FilenameTemplate
 	if strings.TrimSpace(name) == "" {
 		name = "{title}_{author}"
 	}
-	name = strings.ReplaceAll(name, "{title}", fallback(book.Title, book.ID))
+	bookID := ""
+	if book != nil {
+		bookID = book.ID
+	}
+	name = strings.ReplaceAll(name, "{title}", fallback(book.Title, bookID))
 	name = strings.ReplaceAll(name, "{author}", fallback(book.Author, "unknown"))
+	name = strings.ReplaceAll(name, "{site}", fallback(site, "site"))
+	name = strings.ReplaceAll(name, "{book_id}", fallback(bookID, "id"))
 	name = sanitize(name)
 	if cfg.AppendTimestamp {
 		name += "_" + time.Now().Format("20060102_150405")

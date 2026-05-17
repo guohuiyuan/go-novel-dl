@@ -47,24 +47,25 @@ type configKV struct {
 const generalConfigKey = "general_config"
 
 type GeneralConfigRecord struct {
-	RawDataDir      string   `json:"raw_data_dir"`
-	OutputDir       string   `json:"output_dir"`
-	CacheDir        string   `json:"cache_dir"`
-	RequestInterval float64  `json:"request_interval"`
-	Workers         int      `json:"workers"`
-	MaxConnections  int      `json:"max_connections"`
-	MaxRPS          float64  `json:"max_rps"`
-	RetryTimes      int      `json:"retry_times"`
-	BackoffFactor   float64  `json:"backoff_factor"`
-	Timeout         float64  `json:"timeout"`
-	DisableCache    bool     `json:"disable_cache"`
-	WebPageSize     int      `json:"web_page_size"`
-	CLIPageSize     int      `json:"cli_page_size"`
-	BlurWebImages   bool     `json:"blur_web_images"`
-	LocaleStyle     string   `json:"locale_style"`
-	Formats         []string `json:"formats"`
-	AppendTimestamp bool     `json:"append_timestamp"`
-	IncludePicture  bool     `json:"include_picture"`
+	RawDataDir       string   `json:"raw_data_dir"`
+	OutputDir        string   `json:"output_dir"`
+	CacheDir         string   `json:"cache_dir"`
+	RequestInterval  float64  `json:"request_interval"`
+	Workers          int      `json:"workers"`
+	MaxConnections   int      `json:"max_connections"`
+	MaxRPS           float64  `json:"max_rps"`
+	RetryTimes       int      `json:"retry_times"`
+	BackoffFactor    float64  `json:"backoff_factor"`
+	Timeout          float64  `json:"timeout"`
+	DisableCache     bool     `json:"disable_cache"`
+	WebPageSize      int      `json:"web_page_size"`
+	CLIPageSize      int      `json:"cli_page_size"`
+	BlurWebImages    bool     `json:"blur_web_images"`
+	LocaleStyle      string   `json:"locale_style"`
+	Formats          []string `json:"formats"`
+	AppendTimestamp  bool     `json:"append_timestamp"`
+	IncludePicture   bool     `json:"include_picture"`
+	FilenameTemplate string   `json:"filename_template"`
 }
 
 type SiteCatalogRecord struct {
@@ -622,29 +623,31 @@ func mergeGeneralConfig(cfg *Config) error {
 	cfg.General.Output.Formats = cloneStrings(record.Formats)
 	cfg.General.Output.AppendTimestamp = record.AppendTimestamp
 	cfg.General.Output.IncludePicture = record.IncludePicture
+	cfg.General.Output.FilenameTemplate = record.FilenameTemplate
 	return nil
 }
 
 func defaultGeneralRecord(general GeneralConfig) GeneralConfigRecord {
 	return GeneralConfigRecord{
-		RawDataDir:      general.RawDataDir,
-		OutputDir:       general.OutputDir,
-		CacheDir:        general.CacheDir,
-		RequestInterval: general.RequestInterval,
-		Workers:         general.Workers,
-		MaxConnections:  general.MaxConnections,
-		MaxRPS:          general.MaxRPS,
-		RetryTimes:      general.RetryTimes,
-		BackoffFactor:   general.BackoffFactor,
-		Timeout:         general.Timeout,
-		DisableCache:    general.DisableCache,
-		WebPageSize:     general.WebPageSize,
-		CLIPageSize:     general.CLIPageSize,
-		BlurWebImages:   general.BlurWebImages,
-		LocaleStyle:     general.LocaleStyle,
-		Formats:         cloneStrings(general.Output.Formats),
-		AppendTimestamp: general.Output.AppendTimestamp,
-		IncludePicture:  general.Output.IncludePicture,
+		RawDataDir:       general.RawDataDir,
+		OutputDir:        general.OutputDir,
+		CacheDir:         general.CacheDir,
+		RequestInterval:  general.RequestInterval,
+		Workers:          general.Workers,
+		MaxConnections:   general.MaxConnections,
+		MaxRPS:           general.MaxRPS,
+		RetryTimes:       general.RetryTimes,
+		BackoffFactor:    general.BackoffFactor,
+		Timeout:          general.Timeout,
+		DisableCache:     general.DisableCache,
+		WebPageSize:      general.WebPageSize,
+		CLIPageSize:      general.CLIPageSize,
+		BlurWebImages:    general.BlurWebImages,
+		LocaleStyle:      general.LocaleStyle,
+		Formats:          cloneStrings(general.Output.Formats),
+		AppendTimestamp:  general.Output.AppendTimestamp,
+		IncludePicture:   general.Output.IncludePicture,
+		FilenameTemplate: general.Output.FilenameTemplate,
 	}
 }
 
@@ -683,6 +686,9 @@ func normalizeGeneralRecord(record GeneralConfigRecord) GeneralConfigRecord {
 	}
 	if len(record.Formats) == 0 {
 		record.Formats = cloneStrings(defaults.Formats)
+	}
+	if strings.TrimSpace(record.FilenameTemplate) == "" {
+		record.FilenameTemplate = defaults.FilenameTemplate
 	}
 	return record
 }
