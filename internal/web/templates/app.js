@@ -336,7 +336,6 @@ const bookshelfNode = document.getElementById("bookshelf");
 const bookshelfBreadcrumbNode = document.getElementById("bookshelfBreadcrumb");
 const bookshelfStatusNode = document.getElementById("bookshelfStatus");
 const bookshelfNewFolderButton = document.getElementById("bookshelfNewFolder");
-const bookshelfRefreshButton = document.getElementById("bookshelfRefresh");
 const selectAllSourcesButton = document.getElementById("selectAllSources");
 const clearSourcesButton = document.getElementById("clearSources");
 const speedTestSourcesButton = document.getElementById("speedTestSources");
@@ -553,7 +552,8 @@ function activateTab(tabName) {
   if (bookshelfTabPanel) bookshelfTabPanel.classList.toggle("is-active", tabName === "bookshelf");
   if (historyTabPanel) historyTabPanel.classList.toggle("is-active", tabName === "history");
   tasksTabPanel.classList.toggle("is-active", tabName === "tasks");
-  if (tabName === "bookshelf" && !appState.bookshelf.loaded) {
+  if (tabName === "bookshelf" && !appState.bookshelf.loading) {
+    // 每次切到书架都自动刷新，确保任务/外部修改后内容始终最新
     void loadBookshelf(appState.bookshelf.parentId);
   }
   if (tabName === "history" && !appState.history.loaded) {
@@ -2886,6 +2886,8 @@ async function loadBookshelf(parentId) {
 function updateBookshelfFolderActions() {
   if (!bookshelfNewFolderButton) return;
   const insideFolder = Boolean(appState.bookshelf.parentId);
+  // 子目录里完全隐藏「新建文件夹」按钮：分类只能建在根目录
+  bookshelfNewFolderButton.hidden = insideFolder;
   bookshelfNewFolderButton.disabled = insideFolder;
   bookshelfNewFolderButton.title = insideFolder ? "分类只能建在书架根目录" : "";
 }
