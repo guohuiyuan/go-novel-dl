@@ -185,29 +185,23 @@
         <button type="button" id="closeSiteConfig" class="detail-close">关闭</button>
       </div>
 
-      <div class="settings-layout">
-        <section class="config-section-card">
-          <div class="config-section-head">
-            <h3>版本</h3>
-            <p class="config-section-desc">查看当前版本，并通过镜像检查 GitHub 上是否有新版本发布。</p>
+      <section class="version-bar" aria-label="版本">
+        <div class="version-bar-row">
+          <div class="version-bar-info">
+            <span class="version-label">版本</span>
+            <code id="versionCurrent" class="version-current">-</code>
+            <a id="versionRepoLink" class="version-link" target="_blank" rel="noopener noreferrer">GitHub</a>
           </div>
-          <div class="version-panel">
-            <div class="version-row">
-              <span class="version-label">当前版本</span>
-              <code id="versionCurrent" class="version-current">-</code>
-              <a id="versionRepoLink" class="version-link" target="_blank" rel="noopener noreferrer">仓库主页</a>
-            </div>
-            <div class="version-row version-controls">
-              <label class="search-field" for="versionMirror" style="margin: 0; flex: 1; min-width: 0;">
-                <span class="field-label">检查镜像</span>
-                <select id="versionMirror" class="search-input"></select>
-              </label>
-              <button type="button" id="versionCheckButton" class="search-button">检查更新</button>
-            </div>
-            <div id="versionResult" class="version-result" hidden></div>
+          <div class="version-bar-controls">
+            <label for="versionMirror" class="version-mirror-label">镜像</label>
+            <select id="versionMirror" class="search-input version-mirror-select"></select>
+            <button type="button" id="versionCheckButton" class="search-button is-compact">检查更新</button>
           </div>
-        </section>
+        </div>
+        <div id="versionResult" class="version-result" hidden></div>
+      </section>
 
+      <div class="settings-layout">
         <section class="config-section-card">
           <div class="config-section-head">
             <h3>全局配置</h3>

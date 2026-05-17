@@ -853,25 +853,46 @@ body.web-images-blurred .result-card:hover .result-cover {
 .task-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .tasks-tools { display: inline-flex; gap: 10px; align-items: center; }
 
-/* 版本检查面板 */
-.version-panel { display: grid; gap: 10px; }
-.version-row {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+/* 版本检查面板：紧凑横条 */
+.version-bar {
+  display: grid; gap: 8px;
+  border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 12px; margin-bottom: 12px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
 }
-.version-controls { gap: 12px; align-items: flex-end; }
-.version-label { font-size: 12px; color: var(--muted); font-weight: 700; }
+.version-bar-row {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+}
+.version-bar-info {
+  display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  flex: 1 1 auto; min-width: 0;
+}
+.version-bar-controls {
+  display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.version-label {
+  font-size: 12px; color: var(--muted); font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
 .version-current {
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace;
-  font-size: 14px; font-weight: 700; color: var(--accent-strong);
-  background: var(--accent-soft); padding: 4px 10px; border-radius: 999px;
+  font-size: 13px; font-weight: 700; color: var(--accent-strong);
+  background: var(--accent-soft); padding: 2px 10px; border-radius: 999px;
 }
 .version-link {
-  margin-left: auto; font-size: 12px; color: var(--accent-strong); text-decoration: none;
+  font-size: 12px; color: var(--accent-strong); text-decoration: none;
   border-bottom: 1px dashed var(--accent-soft);
 }
 .version-link:hover { border-bottom-color: var(--accent); }
+.version-mirror-label {
+  font-size: 12px; color: var(--muted); font-weight: 600;
+}
+.version-mirror-select {
+  width: auto; min-width: 200px; max-width: 260px; padding: 6px 8px; font-size: 13px;
+}
+.search-button.is-compact { padding: 6px 14px; font-size: 13px; }
 .version-result {
-  padding: 10px 12px; border-radius: 10px; font-size: 13px; line-height: 1.5;
+  padding: 8px 10px; border-radius: 8px; font-size: 13px; line-height: 1.5;
   border: 1px solid var(--line); background: #f8fafc; color: var(--text);
 }
 .version-result a { color: var(--accent-strong); text-decoration: underline; }
@@ -880,3 +901,7 @@ body.web-images-blurred .result-card:hover .result-cover {
 .version-result[data-kind="error"] { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
 .version-result[data-kind="info"] { background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8; }
 #versionCheckButton.is-loading { opacity: 0.7; cursor: progress; }
+@media (max-width: 640px) {
+  .version-bar-controls { width: 100%; }
+  .version-mirror-select { flex: 1 1 auto; min-width: 0; }
+}
