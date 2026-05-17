@@ -685,7 +685,8 @@ function renderSourceSpeedBadge(siteKey) {
     const elapsed = formatSpeedMs(entry.elapsedMs);
     const countText = Number.isFinite(entry.count) ? `· ${entry.count} 条` : "";
     badge.textContent = `${elapsed} ${countText}`.trim();
-    badge.title = `响应 ${entry.elapsedMs} ms，命中 ${entry.count} 条结果`;
+    const sampleNote = entry.samples > 1 ? `，已取 ${entry.samples} 次最优` : "";
+    badge.title = `响应 ${entry.elapsedMs} ms${sampleNote}，命中 ${entry.count} 条结果`;
     return badge;
   }
   badge.classList.add(entry.timedOut ? "is-timeout" : "is-error");
@@ -746,6 +747,7 @@ async function runSourceSpeedTest() {
         status: row.ok ? "ok" : "error",
         elapsedMs: Number(row.elapsed_ms) || 0,
         count: Number(row.count) || 0,
+        samples: Number(row.samples) || 0,
         error: row.error || "",
         timedOut: Boolean(row.timed_out),
       });

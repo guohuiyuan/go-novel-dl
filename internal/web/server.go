@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"io"
@@ -1723,6 +1724,7 @@ type sourceSpeedResult struct {
 	OK        bool   `json:"ok"`
 	ElapsedMs int64  `json:"elapsed_ms"`
 	Count     int    `json:"count"`
+	Samples   int    `json:"samples,omitempty"`
 	Error     string `json:"error,omitempty"`
 	TimedOut  bool   `json:"timed_out,omitempty"`
 }
@@ -1738,10 +1740,98 @@ const (
 	sourceSpeedDefaultTimeout     = 8 * time.Second
 	sourceSpeedMaxTimeout         = 30 * time.Second
 	sourceSpeedSearchResultsLimit = 1
+
+	// sourceSpeedFastSampleCutoff is the threshold below which the first
+	// sample is trusted as-is. Sites slower than this earn a second probe so
+	// that one-off network jitter does not dominate the reported latency.
+	sourceSpeedFastSampleCutoff = 800 * time.Millisecond
+
+	// sourceSpeedMaxParallelism caps how many sites are probed simultaneously.
+	// With ~13 default sources and slower mirrors, an uncapped fan-out makes
+	// every probe fight for the same bandwidth and skews the wall-clock
+	// numbers upward. 8 keeps the test fast while leaving headroom.
+	sourceSpeedMaxParallelism = 8
 )
 
-// runSourceSpeedTest fans out a one-shot Search call per site and reports the
-// elapsed time, returning a stable shape regardless of partial failures.
+// siteSearcher is the minimum surface required by the speed probe. The
+// production site.Site interface satisfies this; tests inject lightweight
+// fakes without depending on the full Site contract.
+type siteSearcher interface {
+	Search(ctx context.Context, keyword string, limit int) ([]model.SearchResult, error)
+}
+
+// speedProbe is the outcome of timing a single search call (possibly twice).
+type speedProbe struct {
+	Elapsed  time.Duration
+	Count    int
+	Samples  int
+	TimedOut bool
+	Err      error
+}
+
+// runSpeedProbe times one or two Search invocations against searcher and
+// returns the best (minimum) elapsed time. A second sample is only taken when
+// the first one succeeded but exceeded sourceSpeedFastSampleCutoff, so that
+// slow-but-working mirrors don't get penalised for a single noisy first byte.
+// Failed first probes are reported immediately; we never retry a failure.
+func runSpeedProbe(parent context.Context, searcher siteSearcher, keyword string, timeout time.Duration) speedProbe {
+	if timeout <= 0 {
+		timeout = sourceSpeedDefaultTimeout
+	}
+
+	first := timedSearch(parent, searcher, keyword, timeout)
+	probe := speedProbe{Elapsed: first.elapsed, Count: first.count, Samples: 1}
+	if first.err != nil {
+		probe.Err = first.err
+		probe.TimedOut = first.timedOut
+		return probe
+	}
+
+	if first.elapsed < sourceSpeedFastSampleCutoff {
+		return probe
+	}
+
+	// Slow but successful → a second probe usually amortises DNS / TLS warmup.
+	second := timedSearch(parent, searcher, keyword, timeout)
+	probe.Samples = 2
+	if second.err == nil && second.elapsed < probe.Elapsed {
+		probe.Elapsed = second.elapsed
+		probe.Count = second.count
+	}
+	return probe
+}
+
+type timedSearchOutcome struct {
+	elapsed  time.Duration
+	count    int
+	err      error
+	timedOut bool
+}
+
+// timedSearch issues a single bounded search and records elapsed wall time.
+// timedOut is only set when our own deadline fired — a cancellation flowing in
+// from the parent context (e.g. the HTTP request was abandoned) is not
+// reported as a site-level timeout.
+func timedSearch(parent context.Context, searcher siteSearcher, keyword string, timeout time.Duration) timedSearchOutcome {
+	ctx, cancel := context.WithTimeout(parent, timeout)
+	defer cancel()
+
+	start := time.Now()
+	items, err := searcher.Search(ctx, keyword, sourceSpeedSearchResultsLimit)
+	elapsed := time.Since(start)
+
+	out := timedSearchOutcome{elapsed: elapsed, count: len(items), err: err}
+	if err != nil && parent.Err() == nil {
+		if errors.Is(err, context.DeadlineExceeded) || ctx.Err() == context.DeadlineExceeded {
+			out.timedOut = true
+		}
+	}
+	return out
+}
+
+// runSourceSpeedTest fans out probes across the requested sites with a
+// concurrency cap, so that simultaneous probes do not starve each other for
+// bandwidth or sockets. The returned slice preserves the input order.
 func (s *Service) runSourceSpeedTest(parent context.Context, req sourceSpeedRequest) sourceSpeedResponse {
 	keyword := strings.TrimSpace(req.Keyword)
 	if keyword == "" {
@@ -1768,13 +1858,21 @@ func (s *Service) runSourceSpeedTest(parent context.Context, req sourceSpeedRequ
 		timeout = sourceSpeedMaxTimeout
 	}
 
+	parallelism := sourceSpeedMaxParallelism
+	if parallelism > len(sites) {
+		parallelism = len(sites)
+	}
+
 	results := make([]sourceSpeedResult, len(sites))
+	sem := make(chan struct{}, parallelism)
 	var wg sync.WaitGroup
 	for idx, siteKey := range sites {
 		idx, siteKey := idx, siteKey
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 			results[idx] = s.measureSiteSpeed(parent, siteKey, keyword, timeout)
 		}()
 	}
@@ -1795,20 +1893,15 @@ func (s *Service) measureSiteSpeed(parent context.Context, siteKey, keyword stri
 		return out
 	}
 
-	ctx, cancel := context.WithTimeout(parent, timeout)
-	defer cancel()
-
-	start := time.Now()
-	items, err := client.Search(ctx, keyword, sourceSpeedSearchResultsLimit)
-	out.ElapsedMs = time.Since(start).Milliseconds()
-	if err != nil {
-		out.Error = err.Error()
-		if ctx.Err() != nil {
-			out.TimedOut = true
-		}
+	probe := runSpeedProbe(parent, client, keyword, timeout)
+	out.ElapsedMs = probe.Elapsed.Milliseconds()
+	out.Samples = probe.Samples
+	if probe.Err != nil {
+		out.Error = probe.Err.Error()
+		out.TimedOut = probe.TimedOut
 		return out
 	}
 	out.OK = true
-	out.Count = len(items)
+	out.Count = probe.Count
 	return out
 }
