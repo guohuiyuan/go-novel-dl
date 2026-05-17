@@ -129,7 +129,7 @@ var siteMetadata = map[string]SiteMetadata{
 		Tags:  []string{"英文", "原创", "免费", "轻小说", "成人向", "NSFW"},
 	},
 	"novelpia": {
-		Title: "ノベルピア",
+		Title: "Novelpia",
 		Tags:  []string{"英文", "原创", "免费", "轻小说", "成人向", "NSFW"},
 	},
 	"ruochu": {

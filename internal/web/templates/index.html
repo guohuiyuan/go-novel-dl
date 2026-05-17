@@ -340,9 +340,20 @@
   <div id="readerOverlay" class="reader-overlay" hidden>
     <div class="reader-topbar">
       <button type="button" id="readerCloseButton" class="detail-close">← 返回</button>
+      <button type="button" id="readerDetailButton" class="reader-nav-btn">详情</button>
+      <button type="button" id="readerCatalogButton" class="reader-nav-btn" aria-expanded="false">目录</button>
       <span id="readerTitle" class="reader-title"></span>
       <span id="readerProgress" class="reader-progress"></span>
       <div class="reader-bg-picker" id="readerBgPicker"></div>
+    </div>
+    <div id="readerCatalogPanel" class="reader-catalog-panel" hidden>
+      <section class="reader-catalog-card" aria-label="章节目录">
+        <div class="reader-catalog-head">
+          <strong>章节目录</strong>
+          <button type="button" id="readerCatalogCloseButton" class="detail-close">关闭</button>
+        </div>
+        <div id="readerCatalogList" class="reader-catalog-list"></div>
+      </section>
     </div>
     <div id="readerBody" class="reader-body">
       <div id="readerContent" class="reader-content"></div>

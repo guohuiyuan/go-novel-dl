@@ -991,12 +991,15 @@ function renderDetail(result, variant, detail, loading, errorMessage) {
   downloadButton.type = "button";
   downloadButton.className = "download-button";
   downloadButton.textContent = "下载";
-  downloadButton.title = "下载到本地，同时加入书架";
-  downloadButton.addEventListener("click", () => {
-    void addCurrentDetailToBookshelf(result, activeVariant, detail, null, { silent: true });
-    void startDownloadTask({ site: activeVariant.site, book_id: activeVariant.book_id }, downloadButton);
-  });
+  downloadButton.addEventListener("click", () => void startDownloadTask({ site: activeVariant.site, book_id: activeVariant.book_id }, downloadButton));
   actions.appendChild(downloadButton);
+
+  const addShelfButton = document.createElement("button");
+  addShelfButton.type = "button";
+  addShelfButton.className = "tool-button";
+  addShelfButton.textContent = "加入书架";
+  addShelfButton.addEventListener("click", () => void addCurrentDetailToBookshelf(result, activeVariant, detail, addShelfButton));
+  actions.appendChild(addShelfButton);
 
   summary.appendChild(actions);
 
@@ -1338,6 +1341,11 @@ function isActiveDetailRequest(result, variant, chapterPage, chapterPageSize) {
 // ===== Chapter Reader =====
 const readerOverlay = document.getElementById("readerOverlay");
 const readerCloseButton = document.getElementById("readerCloseButton");
+const readerDetailButton = document.getElementById("readerDetailButton");
+const readerCatalogButton = document.getElementById("readerCatalogButton");
+const readerCatalogCloseButton = document.getElementById("readerCatalogCloseButton");
+const readerCatalogPanel = document.getElementById("readerCatalogPanel");
+const readerCatalogList = document.getElementById("readerCatalogList");
 const readerTitle = document.getElementById("readerTitle");
 const readerContent = document.getElementById("readerContent");
 const readerBody = document.getElementById("readerBody");
@@ -1355,6 +1363,7 @@ function openReader(chapters, index) {
   readerState.canAutoLoad = false;
   const token = ++readerState.token;
   readerOverlay.hidden = false;
+  hideReaderCatalog();
 
   document.body.classList.add("has-overlay");
   readerContent.innerHTML = "";
@@ -1442,6 +1451,7 @@ async function loadChaptersSequential(indices, direction) {
 
 function closeReader() {
   flushProgressReport();
+  hideReaderCatalog();
   readerOverlay.hidden = true;
   document.body.classList.remove("has-overlay");
   setReaderScrollLocked(false);
@@ -1460,7 +1470,60 @@ function updateReaderTitle(index) {
   readerState.currentIndex = index;
   readerTitle.textContent = ch ? (ch.title || `第 ${index + 1} 章`) : "";
   readerProgress.textContent = `${index + 1} / ${readerState.chapters.length}`;
+  renderReaderCatalogActive(index);
   if (ch) scheduleProgressReport(ch, index);
+}
+
+function openReaderDetail() {
+  const result = appState.detailResult;
+  const variant = appState.activeDetailVariant || (result && result.primary);
+  closeReader();
+  if (result && variant) openDetail(result, variant);
+}
+
+function toggleReaderCatalog() {
+  if (!readerCatalogPanel || !readerCatalogButton) return;
+  if (readerCatalogPanel.hidden) showReaderCatalog();
+  else hideReaderCatalog();
+}
+
+function showReaderCatalog() {
+  if (!readerCatalogPanel || !readerCatalogList || !readerCatalogButton) return;
+  renderReaderCatalog();
+  readerCatalogPanel.hidden = false;
+  readerCatalogButton.setAttribute("aria-expanded", "true");
+}
+
+function hideReaderCatalog() {
+  if (readerCatalogPanel) readerCatalogPanel.hidden = true;
+  if (readerCatalogButton) readerCatalogButton.setAttribute("aria-expanded", "false");
+}
+
+function renderReaderCatalog() {
+  if (!readerCatalogList) return;
+  readerCatalogList.innerHTML = "";
+  readerState.chapters.forEach((chapter, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "reader-catalog-item";
+    if (index === readerState.currentIndex) button.classList.add("is-active");
+    button.textContent = `${index + 1}. ${chapter.title || `第 ${index + 1} 章`}`;
+    button.addEventListener("click", () => jumpReaderToChapter(index));
+    readerCatalogList.appendChild(button);
+  });
+}
+
+function renderReaderCatalogActive(index) {
+  if (!readerCatalogList || !readerCatalogPanel || readerCatalogPanel.hidden) return;
+  const nodes = readerCatalogList.querySelectorAll(".reader-catalog-item");
+  nodes.forEach((node, idx) => node.classList.toggle("is-active", idx === index));
+}
+
+function jumpReaderToChapter(index) {
+  if (!readerState.chapters.length) return;
+  const next = Math.min(Math.max(0, index), readerState.chapters.length - 1);
+  hideReaderCatalog();
+  openReader(readerState.chapters, next);
 }
 
 async function appendChapter(idx) {
@@ -1630,6 +1693,9 @@ function preloadCache(centerIndex, radius = 2) {
 }
 
 readerCloseButton.addEventListener("click", closeReader);
+if (readerDetailButton) readerDetailButton.addEventListener("click", openReaderDetail);
+if (readerCatalogButton) readerCatalogButton.addEventListener("click", toggleReaderCatalog);
+if (readerCatalogCloseButton) readerCatalogCloseButton.addEventListener("click", hideReaderCatalog);
 
 readerBody.addEventListener("scroll", () => {
   if (!readerState.canAutoLoad) return;
@@ -2218,6 +2284,7 @@ async function loadBookshelf(parentId) {
     shelf.items = Array.isArray(payload.items) ? payload.items : [];
     shelf.breadcrumb = Array.isArray(payload.breadcrumb) ? payload.breadcrumb : [];
     shelf.loaded = true;
+    updateBookshelfFolderActions();
     rebuildBookshelfIndex();
     renderBookshelf();
     renderBookshelfBreadcrumb();
@@ -2228,6 +2295,13 @@ async function loadBookshelf(parentId) {
   } finally {
     shelf.loading = false;
   }
+}
+
+function updateBookshelfFolderActions() {
+  if (!bookshelfNewFolderButton) return;
+  const insideFolder = Boolean(appState.bookshelf.parentId);
+  bookshelfNewFolderButton.disabled = insideFolder;
+  bookshelfNewFolderButton.title = insideFolder ? "分类只能建在书架根目录" : "";
 }
 
 function rebuildBookshelfIndex() {
@@ -2571,6 +2645,10 @@ function renderBookshelfBookCard(item) {
 }
 
 async function createBookshelfFolderPrompt() {
+  if (appState.bookshelf.parentId) {
+    setBookshelfStatus("分类只能建在书架根目录。");
+    return;
+  }
   const name = window.prompt("文件夹名称");
   if (!name || !name.trim()) return;
   try {

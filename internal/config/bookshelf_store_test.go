@@ -109,18 +109,18 @@ func TestBookshelfFolderAndBookCRUD(t *testing.T) {
 		t.Fatalf("expected stats persisted, got total=%d cached=%d", cached.TotalChapters, cached.CachedChapters)
 	}
 
-	// Folder delete cascades to children.
-	subfolder, err := CreateBookshelfFolder(&folder.ID, "子目录")
-	if err != nil {
-		t.Fatalf("create subfolder: %v", err)
+	if _, err := CreateBookshelfFolder(&folder.ID, "子目录"); err == nil {
+		t.Fatalf("expected nested folder creation to be rejected")
 	}
-	if _, err := AddBookshelfBook(BookshelfBookInput{
-		ParentID: &subfolder.ID,
+
+	folderBook, err := AddBookshelfBook(BookshelfBookInput{
+		ParentID: &folder.ID,
 		Site:     "esjzone",
 		BookID:   "another",
 		Title:    "Another",
-	}); err != nil {
-		t.Fatalf("add book to subfolder: %v", err)
+	})
+	if err != nil {
+		t.Fatalf("add book to folder: %v", err)
 	}
 	if err := DeleteBookshelfItem(folder.ID); err != nil {
 		t.Fatalf("delete folder cascade: %v", err)
@@ -129,48 +129,42 @@ func TestBookshelfFolderAndBookCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list root after delete: %v", err)
 	}
-	// The originally-rooted book remains, the deleted folder and subfolder + their book are gone.
 	if len(all) != 1 || all[0].ID != book.ID {
 		t.Fatalf("expected only the rooted book to survive cascade, got %+v", all)
 	}
-	if _, err := GetBookshelfItem(subfolder.ID); err == nil {
-		t.Fatalf("expected subfolder to be cascade-deleted")
+	if _, err := GetBookshelfItem(folderBook.ID); err == nil {
+		t.Fatalf("expected folder book to be cascade-deleted")
 	}
 }
 
-func TestBookshelfBreadcrumbAndMoveValidation(t *testing.T) {
+func TestBookshelfSingleLevelFolderValidation(t *testing.T) {
 	resetSiteCatalogForTest(t)
 
 	root, err := CreateBookshelfFolder(nil, "root")
 	if err != nil {
 		t.Fatalf("create root folder: %v", err)
 	}
-	child, err := CreateBookshelfFolder(&root.ID, "child")
+	another, err := CreateBookshelfFolder(nil, "another")
 	if err != nil {
-		t.Fatalf("create child folder: %v", err)
-	}
-	leaf, err := CreateBookshelfFolder(&child.ID, "leaf")
-	if err != nil {
-		t.Fatalf("create leaf folder: %v", err)
+		t.Fatalf("create another folder: %v", err)
 	}
 
-	breadcrumb, err := BookshelfBreadcrumb(leaf.ID)
+	breadcrumb, err := BookshelfBreadcrumb(root.ID)
 	if err != nil {
 		t.Fatalf("breadcrumb: %v", err)
 	}
-	if len(breadcrumb) != 3 || breadcrumb[0].ID != root.ID || breadcrumb[2].ID != leaf.ID {
-		t.Fatalf("expected breadcrumb root->child->leaf, got %+v", breadcrumb)
+	if len(breadcrumb) != 1 || breadcrumb[0].ID != root.ID {
+		t.Fatalf("expected single root breadcrumb, got %+v", breadcrumb)
 	}
 
-	// Moving root into its descendant should fail.
-	if _, err := UpdateBookshelfItem(root.ID, BookshelfMutation{ParentID: &leaf.ID}); err == nil {
-		t.Fatalf("expected moving folder into its descendant to be rejected")
+	if _, err := CreateBookshelfFolder(&root.ID, "child"); err == nil {
+		t.Fatalf("expected creating nested folder to be rejected")
 	}
-	// Moving folder into itself should also fail.
-	if _, err := UpdateBookshelfItem(child.ID, BookshelfMutation{ParentID: &child.ID}); err == nil {
-		t.Fatalf("expected moving folder into itself to be rejected")
+
+	if _, err := UpdateBookshelfItem(another.ID, BookshelfMutation{ParentID: &root.ID}); err == nil {
+		t.Fatalf("expected moving folder into another folder to be rejected")
 	}
-	// Moving a folder into a book is not allowed (parent must be folder).
+
 	book, err := AddBookshelfBook(BookshelfBookInput{
 		ParentID: &root.ID,
 		Site:     "esjzone",
@@ -180,7 +174,7 @@ func TestBookshelfBreadcrumbAndMoveValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create book: %v", err)
 	}
-	if _, err := UpdateBookshelfItem(child.ID, BookshelfMutation{ParentID: &book.ID}); err == nil {
+	if _, err := UpdateBookshelfItem(another.ID, BookshelfMutation{ParentID: &book.ID}); err == nil {
 		t.Fatalf("expected moving folder into a book to be rejected")
 	}
 }

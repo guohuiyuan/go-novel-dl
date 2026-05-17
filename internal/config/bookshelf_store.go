@@ -270,9 +270,7 @@ func CreateBookshelfFolder(parentID *uint, name string) (BookshelfItem, error) {
 		return BookshelfItem{}, err
 	}
 	if parentID != nil {
-		if err := requireFolderParent(db, *parentID); err != nil {
-			return BookshelfItem{}, err
-		}
+		return BookshelfItem{}, fmt.Errorf("folder can only be created at bookshelf root")
 	}
 	entry := bookshelfItem{
 		Kind:     BookshelfItemKindFolder,
@@ -383,13 +381,11 @@ func UpdateBookshelfItem(id uint, patch BookshelfMutation) (BookshelfItem, error
 		if *patch.ParentID == entry.ID {
 			return BookshelfItem{}, fmt.Errorf("cannot move an item into itself")
 		}
+		if entry.Kind == BookshelfItemKindFolder {
+			return BookshelfItem{}, fmt.Errorf("folder can only live at bookshelf root")
+		}
 		if err := requireFolderParent(db, *patch.ParentID); err != nil {
 			return BookshelfItem{}, err
-		}
-		if entry.Kind == BookshelfItemKindFolder {
-			if err := ensureNotInSubtree(db, entry.ID, *patch.ParentID); err != nil {
-				return BookshelfItem{}, err
-			}
 		}
 		parent := *patch.ParentID
 		entry.ParentID = &parent
