@@ -50,9 +50,28 @@ type DownloadTask struct {
 	UpdatedAt         time.Time             `json:"updated_at"`
 	FinishedAt        *time.Time            `json:"finished_at,omitempty"`
 	StartTime         time.Time             `json:"start_time,omitempty"`
-	lastProgressAt    time.Time             `json:"-"`
-	smoothedRate      float64               `json:"-"`
+	rateSamples       []rateSample          `json:"-"`
 }
+
+// rateSample is one (timestamp, completed_chapters) observation that the
+// sliding-window estimator keeps.
+type rateSample struct {
+	at   time.Time
+	done int
+}
+
+const (
+	// rateWindowDuration is the rolling window used to estimate the current
+	// download rate. Long enough to absorb chapter-to-chapter jitter (rate
+	// limits, occasional 502s, slow chapters), short enough to react when the
+	// site genuinely speeds up or slows down. 30s mirrors what aria2c, wget
+	// and most browser progress bars use.
+	rateWindowDuration = 30 * time.Second
+
+	// rateMaxSamples bounds memory for very chatty progress reporters. A
+	// task that emits 10/s for 30 minutes won't grow this slice unboundedly.
+	rateMaxSamples = 256
+)
 
 // DownloadTaskOptions describes optional fields when creating a download task.
 type DownloadTaskOptions struct {
@@ -218,8 +237,9 @@ func (s *DownloadTaskStore) MarkRunning(id string, siteKey string, bookID string
 		if task.StartTime.IsZero() {
 			task.StartTime = now
 		}
-		task.lastProgressAt = now
-		task.smoothedRate = 0
+		task.rateSamples = nil
+		task.Speed = 0
+		task.ETA = ""
 		appendTaskMessage(task, "info", fmt.Sprintf("开始下载（%d章）", total))
 	})
 }
@@ -233,7 +253,6 @@ func (s *DownloadTaskStore) MarkLoadingChapters(id string, siteKey string, bookI
 		task.BookID = bookID
 		if task.StartTime.IsZero() {
 			task.StartTime = now
-			task.lastProgressAt = now
 		}
 		appendTaskMessage(task, "info", "正在加载章节列表...")
 	})
@@ -243,7 +262,6 @@ func (s *DownloadTaskStore) MarkProgress(id string, done int, total int, chapter
 	s.update(id, func(task *DownloadTask) {
 		task.Status = "running"
 		task.Phase = "downloading"
-		previousDone := task.CompletedChapters
 		task.CompletedChapters = done
 		if total > 0 {
 			task.TotalChapters = total
@@ -251,53 +269,27 @@ func (s *DownloadTaskStore) MarkProgress(id string, done int, total int, chapter
 		task.CurrentChapter = strings.TrimSpace(chapterTitle)
 
 		now := time.Now().UTC()
-		if done > 0 && !task.StartTime.IsZero() {
-			elapsed := now.Sub(task.StartTime).Seconds()
-			if elapsed < 1e-6 {
-				elapsed = 1e-6
-			}
-			avgRate := float64(done) / elapsed
-			deltaChapters := done - previousDone
-			if deltaChapters > 0 {
-				if !task.lastProgressAt.IsZero() {
-					deltaSeconds := now.Sub(task.lastProgressAt).Seconds()
-					if deltaSeconds >= 0.8 {
-						instantRate := float64(deltaChapters) / deltaSeconds
-						if instantRate > 0 && isFiniteFloat(instantRate) {
-							candidateRate := 0.6*avgRate + 0.4*instantRate
-							if task.smoothedRate <= 0 || !isFiniteFloat(task.smoothedRate) {
-								task.smoothedRate = candidateRate
-							} else {
-								lower := task.smoothedRate * 0.75
-								upper := task.smoothedRate * 1.35
-								if candidateRate < lower {
-									candidateRate = lower
-								}
-								if candidateRate > upper {
-									candidateRate = upper
-								}
-								task.smoothedRate = 0.85*task.smoothedRate + 0.15*candidateRate
-							}
-						}
-					}
-				}
-				task.lastProgressAt = now
-			}
+		samples, rate := updateRateWindow(task.rateSamples, now, done, rateWindowDuration, rateMaxSamples)
+		task.rateSamples = samples
 
-			if task.smoothedRate <= 0 || !isFiniteFloat(task.smoothedRate) {
-				task.smoothedRate = avgRate
+		if rate > 0 && isFiniteFloat(rate) {
+			task.Speed = rate
+			remaining := task.TotalChapters - done
+			if remaining < 0 {
+				remaining = 0
 			}
-
-			if task.smoothedRate > 0 && isFiniteFloat(task.smoothedRate) {
-				remaining := task.TotalChapters - done
-				etaSeconds := float64(remaining) / task.smoothedRate
-				if etaSeconds < 0 || !isFiniteFloat(etaSeconds) {
-					task.ETA = ""
-				} else {
-					task.ETA = formatETADuration(time.Duration(etaSeconds) * time.Second)
-				}
-				task.Speed = task.smoothedRate
+			etaSeconds := float64(remaining) / rate
+			if etaSeconds >= 0 && isFiniteFloat(etaSeconds) {
+				task.ETA = formatETADuration(time.Duration(etaSeconds * float64(time.Second)))
+			} else {
+				task.ETA = ""
 			}
+		} else {
+			// Not enough recent data (just started, stalled, or no forward
+			// motion within the window). Surface no estimate rather than a
+			// stale or made-up one.
+			task.Speed = 0
+			task.ETA = ""
 		}
 
 		message := fmt.Sprintf("已处理章节 %d/%d", done, task.TotalChapters)
@@ -306,6 +298,64 @@ func (s *DownloadTaskStore) MarkProgress(id string, done int, total int, chapter
 		}
 		appendTaskMessage(task, "progress", message)
 	})
+}
+
+// updateRateWindow appends the latest progress observation, evicts samples
+// older than windowDuration (always keeping the newest), and returns the
+// chapter-per-second rate inferred from the remaining buffer.
+//
+// The estimate is the slope between the oldest in-window sample and the
+// newest one — a true windowed rate, not an EMA. When the window contains
+// less than two samples, or no forward motion, the function returns rate=0
+// so callers can hide the ETA instead of fabricating one.
+func updateRateWindow(samples []rateSample, now time.Time, done int, windowDuration time.Duration, maxSamples int) ([]rateSample, float64) {
+	if len(samples) > 0 {
+		last := samples[len(samples)-1]
+		if done < last.done {
+			// Backwards motion is treated as a hard reset (re-run, retry).
+			samples = samples[:0]
+		} else if done == last.done && !now.After(last.at) {
+			// Duplicate event with no forward progress; reuse buffer.
+			return samples, computeWindowedRate(samples)
+		}
+	}
+	samples = append(samples, rateSample{at: now, done: done})
+
+	cutoff := now.Add(-windowDuration)
+	drop := 0
+	// Always keep the newest sample so the buffer never empties; that way the
+	// next progress event can immediately compute a fresh rate.
+	for drop < len(samples)-1 && samples[drop].at.Before(cutoff) {
+		drop++
+	}
+	if drop > 0 {
+		samples = samples[drop:]
+	}
+	if maxSamples > 0 && len(samples) > maxSamples {
+		samples = samples[len(samples)-maxSamples:]
+	}
+	return samples, computeWindowedRate(samples)
+}
+
+func computeWindowedRate(samples []rateSample) float64 {
+	if len(samples) < 2 {
+		return 0
+	}
+	first := samples[0]
+	last := samples[len(samples)-1]
+	dt := last.at.Sub(first.at).Seconds()
+	if dt <= 0 {
+		return 0
+	}
+	delta := last.done - first.done
+	if delta <= 0 {
+		return 0
+	}
+	rate := float64(delta) / dt
+	if !isFiniteFloat(rate) || rate <= 0 {
+		return 0
+	}
+	return rate
 }
 
 func formatETADuration(d time.Duration) string {
