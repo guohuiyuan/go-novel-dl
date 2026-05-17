@@ -2300,72 +2300,130 @@ function renderTasks() {
   if (!tasks.length) return tasksNode.appendChild(createEmptyState("还没有下载任务。", true));
 
   tasks.forEach((task) => {
-    const card = document.createElement("article"); card.className = `task-card is-${task.status}`;
-    const head = document.createElement("div"); head.className = "task-head";
-    const title = document.createElement("div"); title.className = "task-title"; title.textContent = task.title || `${sourceLabel(task.site)}/${task.book_id}`;
-    const badgeNode = document.createElement("span"); badgeNode.className = `task-status status-${task.status}`; badgeNode.textContent = formatTaskStatus(task);
-    head.appendChild(title); head.appendChild(badgeNode); card.appendChild(head);
-
-    const meta = document.createElement("div"); meta.className = "task-meta";
-    const details = [taskTargetLabel(task)];
-    details.push(`来源：${sourceLabel(task.site)}`);
-    details.push(`ID：${task.book_id}`);
-    if (task.eta) details.push(`剩余：${task.eta}`);
-    const current = task.current_chapter ? ` · ${task.current_chapter}` : "";
-    meta.textContent = details.join(" · ") + current;
-    card.appendChild(meta);
-
-    if (task.total_chapters > 0) {
-      const view = document.createElement("div"); view.className = "inline-progress";
-      view.innerHTML = `
-        <div class="inline-progress-head"><span>${formatTaskStatus(task)}</span><span>${taskProgressPercent(task)}%</span></div>
-        <div class="task-progress-bar"><div class="task-progress-fill" style="width:${taskProgressPercent(task)}%"></div></div>
-        <div class="inline-progress-meta">${details.join(" · ")}${current}</div>
-      `;
-      card.appendChild(view);
-    }
-
-    if (task.current_chapter) {
-      const current = document.createElement("div"); current.className = "task-current"; current.textContent = `当前章节：${task.current_chapter}`; card.appendChild(current);
-    }
-
-    if (task.error) {
-      const error = document.createElement("div"); error.className = "task-error"; error.textContent = task.error; card.appendChild(error);
-    }
-
-    if (Array.isArray(task.exported) && task.exported.length) {
-      const exported = document.createElement("ul"); exported.className = "file-list";
-      task.exported.forEach((path) => {
-        const item = document.createElement("li"); const link = document.createElement("a");
-        link.className = "file-download-link"; link.href = `${root}/api/download-file?path=${encodeURIComponent(path)}`;
-        link.textContent = path.split(/[/\\]/).pop(); link.title = path; link.download = "";
-        item.appendChild(link); exported.appendChild(item);
-      });
-      card.appendChild(exported);
-    }
-
-    if (Array.isArray(task.messages) && task.messages.length) {
-      const messages = document.createElement("div"); messages.className = "task-messages";
-      task.messages.slice(-4).forEach((msg) => {
-        const item = document.createElement("div"); item.className = `task-message level-${msg.level}`; item.textContent = msg.text; messages.appendChild(item);
-      });
-      card.appendChild(messages);
-    }
-
-    const actions = document.createElement("div");
-    actions.className = "task-actions";
-    if (task.status === "completed" || task.status === "failed") {
-      const deleteButton = document.createElement("button");
-      deleteButton.type = "button";
-      deleteButton.className = "tool-button is-ghost";
-      deleteButton.textContent = "删除任务";
-      deleteButton.addEventListener("click", () => void deleteTask(task.id));
-      actions.appendChild(deleteButton);
-    }
-    if (actions.childElementCount > 0) card.appendChild(actions);
-
-    tasksNode.appendChild(card);
+    tasksNode.appendChild(buildTaskCard(task));
   });
+}
+
+function buildTaskCard(task) {
+  const card = document.createElement("article");
+  card.className = `task-card is-${task.status}`;
+
+  const hasProgress = (task.total_chapters || 0) > 0;
+  const percent = taskProgressPercent(task);
+  const statusText = formatTaskStatus(task);
+  const statusLabel = hasProgress && task.status === "running"
+    ? `${statusText} · ${percent}%`
+    : statusText;
+
+  // Head: title (left) + status pill + action (right)
+  const head = document.createElement("div");
+  head.className = "task-head";
+  const title = document.createElement("div");
+  title.className = "task-title";
+  title.textContent = task.title || `${sourceLabel(task.site)}/${task.book_id}`;
+  head.appendChild(title);
+
+  const headRight = document.createElement("div");
+  headRight.className = "task-head-right";
+  const badge = document.createElement("span");
+  badge.className = `task-status status-${task.status}`;
+  badge.textContent = statusLabel;
+  headRight.appendChild(badge);
+  if (task.status === "completed" || task.status === "failed") {
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.className = "task-delete-btn";
+    delBtn.setAttribute("aria-label", "删除任务");
+    delBtn.title = "删除任务";
+    delBtn.textContent = "✕";
+    delBtn.addEventListener("click", () => void deleteTask(task.id));
+    headRight.appendChild(delBtn);
+  }
+  head.appendChild(headRight);
+  card.appendChild(head);
+
+  // Meta chips
+  const chips = document.createElement("div");
+  chips.className = "task-chips";
+  const sourceChip = document.createElement("span");
+  sourceChip.className = "task-chip task-chip-source";
+  sourceChip.textContent = sourceLabel(task.site);
+  chips.appendChild(sourceChip);
+  const targetChip = document.createElement("span");
+  targetChip.className = "task-chip";
+  targetChip.textContent = taskTargetLabel(task);
+  chips.appendChild(targetChip);
+  if (task.eta) {
+    const etaChip = document.createElement("span");
+    etaChip.className = "task-chip task-chip-eta";
+    etaChip.textContent = `剩余 ${task.eta}`;
+    chips.appendChild(etaChip);
+  }
+  if (task.current_chapter) {
+    const curChip = document.createElement("span");
+    curChip.className = "task-chip task-chip-current";
+    curChip.textContent = task.current_chapter;
+    curChip.title = task.current_chapter;
+    chips.appendChild(curChip);
+  }
+  card.appendChild(chips);
+
+  // Progress bar
+  if (hasProgress) {
+    const wrap = document.createElement("div");
+    wrap.className = "task-progress-row";
+    const bar = document.createElement("div");
+    bar.className = "task-progress-bar";
+    const fill = document.createElement("div");
+    fill.className = "task-progress-fill";
+    fill.style.width = `${percent}%`;
+    bar.appendChild(fill);
+    wrap.appendChild(bar);
+    const count = document.createElement("span");
+    count.className = "task-progress-count";
+    count.textContent = `${task.completed_chapters || 0} / ${task.total_chapters}`;
+    wrap.appendChild(count);
+    card.appendChild(wrap);
+  }
+
+  // Error
+  if (task.error) {
+    const error = document.createElement("div");
+    error.className = "task-error";
+    error.textContent = task.error;
+    card.appendChild(error);
+  }
+
+  // Exported files as chips
+  if (Array.isArray(task.exported) && task.exported.length) {
+    const files = document.createElement("div");
+    files.className = "task-files";
+    task.exported.forEach((p) => {
+      const link = document.createElement("a");
+      link.className = "task-file-chip";
+      link.href = `${root}/api/download-file?path=${encodeURIComponent(p)}`;
+      link.textContent = p.split(/[/\\]/).pop();
+      link.title = p;
+      link.download = "";
+      files.appendChild(link);
+    });
+    card.appendChild(files);
+  }
+
+  // Messages: last 2 only
+  if (Array.isArray(task.messages) && task.messages.length) {
+    const messages = document.createElement("div");
+    messages.className = "task-messages";
+    task.messages.slice(-2).forEach((msg) => {
+      const item = document.createElement("div");
+      item.className = `task-message level-${msg.level}`;
+      item.textContent = msg.text;
+      messages.appendChild(item);
+    });
+    card.appendChild(messages);
+  }
+
+  return card;
 }
 
 function formatTaskStatus(task) {

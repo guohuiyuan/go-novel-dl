@@ -477,22 +477,104 @@ body.web-images-blurred .result-card:hover .result-cover {
 .result-title-link:hover { color: var(--accent); text-decoration: underline; }
 .result-author, .result-source, .result-extra { font-size: 11px; color: var(--muted); }
 
-.task-card { 
-  padding: 14px; background: #fff; border-radius: 12px;
-  border-left: 4px solid var(--accent); transition: all 0.2s ease;
+/* 下载任务卡片 */
+.task-list { display: grid; gap: 8px; }
+.task-card {
+  padding: 10px 12px; background: #fff; border-radius: 10px;
+  border-left: 3px solid var(--accent);
+  display: grid; gap: 6px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 .task-card:hover { transform: translateY(-1px); box-shadow: var(--shadow-hover); }
-.task-title { font-weight: 700; font-size: 14px; color: #1e293b; margin-bottom: 4px; }
-.status-running { background: #eff6ff; color: #2563eb; }
-.status-completed { background: #ecfdf5; color: #10b981; border-left-color: #10b981; }
-.status-failed { background: #fef2f2; color: #ef4444; border-left-color: #ef4444; }
-.status-queued { background: #fdf4ff; color: #d946ef; border-left-color: #d946ef; }
+.task-card.is-completed { border-left-color: var(--success); }
+.task-card.is-failed { border-left-color: var(--error); }
+.task-card.is-queued { border-left-color: #d946ef; }
 
-.task-progress { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
-.task-progress-bar { width: 100%; height: 6px; border-radius: 999px; background: #f1f5f9; overflow: hidden; }
+.task-head {
+  display: flex; align-items: center; gap: 10px;
+  margin: 0; flex-wrap: nowrap;
+}
+.task-title {
+  flex: 1 1 auto; min-width: 0;
+  font-weight: 700; font-size: 13px; color: #1e293b; line-height: 1.35;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  margin: 0;
+}
+.task-head-right { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.task-delete-btn {
+  width: 22px; height: 22px; border-radius: 6px;
+  background: transparent; color: var(--muted); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 13px; line-height: 1;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.task-delete-btn:hover { background: #fee2e2; color: var(--error); }
+
+/* 状态徽章 */
+.task-status {
+  font-weight: 700; font-size: 11px; padding: 2px 8px; border-radius: 999px;
+  white-space: nowrap;
+}
+.status-running { background: #eff6ff; color: #2563eb; }
+.status-completed { background: #ecfdf5; color: #10b981; }
+.status-failed { background: #fef2f2; color: #ef4444; }
+.status-queued { background: #fdf4ff; color: #d946ef; }
+
+/* meta chips */
+.task-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.task-chip {
+  font-size: 11px; line-height: 1.6;
+  padding: 1px 8px; border-radius: 999px;
+  background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0;
+  max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.task-chip-source { background: var(--accent-soft); color: var(--accent-strong); border-color: transparent; }
+.task-chip-eta { background: #fff7ed; color: #c2410c; border-color: #fed7aa; }
+.task-chip-current { background: #f0f9ff; color: #0369a1; border-color: #bae6fd; max-width: 320px; }
+
+/* progress */
+.task-progress-row {
+  display: flex; align-items: center; gap: 8px;
+}
+.task-progress-bar {
+  flex: 1 1 auto; height: 5px; border-radius: 999px; background: #f1f5f9; overflow: hidden;
+}
 .task-progress-fill { height: 100%; border-radius: 999px; background: var(--accent); transition: width 0.4s ease; }
+.task-progress-count {
+  flex: 0 0 auto; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace;
+}
 .task-card.is-completed .task-progress-fill { background: var(--success); }
 .task-card.is-failed .task-progress-fill { background: var(--error); }
+
+/* error */
+.task-error {
+  font-size: 12px; line-height: 1.45;
+  padding: 6px 8px; border-radius: 6px;
+  background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca;
+}
+
+/* file chips */
+.task-files { display: flex; flex-wrap: wrap; gap: 4px; }
+.task-file-chip {
+  font-size: 12px; line-height: 1.4;
+  padding: 3px 10px 3px 8px; border-radius: 8px;
+  background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0;
+  text-decoration: none; font-weight: 600;
+  display: inline-flex; align-items: center; gap: 5px;
+  max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.task-file-chip::before { content: '📦'; font-size: 11px; }
+.task-file-chip:hover { background: #d1fae5; border-color: var(--success); }
+
+/* messages */
+.task-messages { display: grid; gap: 2px; }
+.task-message {
+  font-size: 11px; line-height: 1.45; color: var(--muted);
+  padding-left: 8px; border-left: 2px solid #e2e8f0;
+}
+.task-message.level-error { color: var(--error); border-left-color: #fca5a5; }
+.task-message.level-warning { color: #c2410c; border-left-color: #fed7aa; }
 .inline-progress {
   display: grid; gap: 6px; margin-top: 10px; padding: 10px;
   border: 1px solid var(--line); border-radius: 10px; background: rgba(248, 250, 252, 0.88);
