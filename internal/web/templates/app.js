@@ -2332,6 +2332,19 @@ function buildTaskCard(task) {
   badge.className = `task-status status-${task.status}`;
   badge.textContent = statusLabel;
   headRight.appendChild(badge);
+  if (taskCanReExport(task)) {
+    const exportBtn = document.createElement("button");
+    exportBtn.type = "button";
+    exportBtn.className = "task-export-btn";
+    exportBtn.setAttribute("aria-label", "重新导出");
+    exportBtn.title = "重新导出（可改格式）";
+    exportBtn.textContent = "📤";
+    exportBtn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openExportFormatPicker(task, exportBtn);
+    });
+    headRight.appendChild(exportBtn);
+  }
   if (task.status === "completed" || task.status === "failed") {
     const delBtn = document.createElement("button");
     delBtn.type = "button";
@@ -2460,6 +2473,138 @@ function taskProgressPercent(task) {
 function taskTargetLabel(task) {
   if (task.target === "export" || task.target === "browser") return "导出本地文件";
   return "下载到服务器本地";
+}
+
+const SUPPORTED_EXPORT_FORMATS = ["txt", "epub", "html"];
+
+function taskCanReExport(task) {
+  if (!task || !task.site || !task.book_id) return false;
+  // 进行中的任务不允许重新导出，避免和当前作业冲突
+  if (task.status === "running") return false;
+  return task.status === "completed" || task.status === "failed" || task.status === "queued";
+}
+
+function defaultExportFormatsFor(task) {
+  if (Array.isArray(task && task.formats) && task.formats.length) {
+    const cleaned = task.formats.map((f) => String(f).toLowerCase().trim()).filter((f) => SUPPORTED_EXPORT_FORMATS.includes(f));
+    if (cleaned.length) return cleaned;
+  }
+  const general = appState.generalConfig && Array.isArray(appState.generalConfig.formats) ? appState.generalConfig.formats : [];
+  const fromGeneral = general.map((f) => String(f).toLowerCase().trim()).filter((f) => SUPPORTED_EXPORT_FORMATS.includes(f));
+  if (fromGeneral.length) return fromGeneral;
+  return ["txt", "epub"];
+}
+
+let activeExportPicker = null;
+
+function closeExportFormatPicker() {
+  if (!activeExportPicker) return;
+  const { node, onDocClick, onKey } = activeExportPicker;
+  document.removeEventListener("click", onDocClick, true);
+  document.removeEventListener("keydown", onKey, true);
+  if (node && node.parentNode) node.parentNode.removeChild(node);
+  activeExportPicker = null;
+}
+
+function openExportFormatPicker(task, anchor) {
+  closeExportFormatPicker();
+  if (!task || !anchor) return;
+
+  const node = document.createElement("div");
+  node.className = "export-format-picker";
+  node.setAttribute("role", "dialog");
+  node.setAttribute("aria-label", "选择导出格式");
+
+  const heading = document.createElement("h4");
+  heading.textContent = "选择导出格式";
+  node.appendChild(heading);
+
+  const opts = document.createElement("div");
+  opts.className = "export-format-picker-options";
+  const initial = new Set(defaultExportFormatsFor(task));
+  const checkboxes = SUPPORTED_EXPORT_FORMATS.map((fmt) => {
+    const label = document.createElement("label");
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.value = fmt;
+    cb.checked = initial.has(fmt);
+    const text = document.createElement("span");
+    text.textContent = fmt.toUpperCase();
+    label.appendChild(cb);
+    label.appendChild(text);
+    opts.appendChild(label);
+    return cb;
+  });
+  node.appendChild(opts);
+
+  const hint = document.createElement("p");
+  hint.className = "export-format-picker-hint";
+  hint.textContent = "将创建新任务，复用已下载的章节。";
+  node.appendChild(hint);
+
+  const actions = document.createElement("div");
+  actions.className = "export-format-picker-actions";
+
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "page-button";
+  cancel.textContent = "取消";
+  cancel.addEventListener("click", closeExportFormatPicker);
+  actions.appendChild(cancel);
+
+  const confirm = document.createElement("button");
+  confirm.type = "button";
+  confirm.className = "search-button is-compact";
+  confirm.textContent = "导出";
+  confirm.addEventListener("click", () => {
+    const selected = checkboxes.filter((cb) => cb.checked).map((cb) => cb.value);
+    if (!selected.length) {
+      setStatus("请至少选择一种导出格式。");
+      return;
+    }
+    confirm.disabled = true;
+    confirm.textContent = "提交中…";
+    void startDownloadTask({ site: task.site, book_id: task.book_id }, confirm, {
+      target: "export",
+      formats: selected,
+    }).finally(() => {
+      closeExportFormatPicker();
+    });
+  });
+  actions.appendChild(confirm);
+  node.appendChild(actions);
+
+  document.body.appendChild(node);
+
+  // Position popover next to the anchor button (fixed positioning).
+  const rect = anchor.getBoundingClientRect();
+  const pickerWidth = node.offsetWidth || 240;
+  const pickerHeight = node.offsetHeight || 160;
+  const margin = 8;
+  let left = Math.min(window.innerWidth - pickerWidth - margin, Math.max(margin, rect.right - pickerWidth));
+  let top = rect.bottom + 6;
+  if (top + pickerHeight + margin > window.innerHeight) {
+    top = Math.max(margin, rect.top - pickerHeight - 6);
+  }
+  node.style.position = "fixed";
+  node.style.left = `${left}px`;
+  node.style.top = `${top}px`;
+
+  // Close on outside click / Escape.
+  const onDocClick = (event) => {
+    if (node.contains(event.target) || anchor.contains(event.target)) return;
+    closeExportFormatPicker();
+  };
+  const onKey = (event) => {
+    if (event.key === "Escape") closeExportFormatPicker();
+  };
+  // Defer so the click that opened it doesn't close it.
+  setTimeout(() => {
+    document.addEventListener("click", onDocClick, true);
+    document.addEventListener("keydown", onKey, true);
+  }, 0);
+
+  activeExportPicker = { node, onDocClick, onKey };
 }
 
 function createInlineTaskView() {
