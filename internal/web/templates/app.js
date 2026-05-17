@@ -2161,7 +2161,8 @@ async function clearFinishedTasks() {
 
 function renderTasks() {
   const tasks = Array.from(appState.tasks.values()).sort((l, r) => new Date(r.updated_at).getTime() - new Date(l.updated_at).getTime());
-  taskCountNode.textContent = String(tasks.length); taskTabCountNode.textContent = String(tasks.length);
+  if (taskCountNode) taskCountNode.textContent = String(tasks.length);
+  if (taskTabCountNode) taskTabCountNode.textContent = String(tasks.length);
   tasksNode.innerHTML = "";
 
   if (!tasks.length) return tasksNode.appendChild(createEmptyState("还没有下载任务。", true));
@@ -2632,27 +2633,30 @@ function renderHistory() {
 
 function renderHistoryCard(item) {
   const card = document.createElement("article");
-  card.className = "history-card";
+  card.className = "history-card is-clickable";
+  card.setAttribute("role", "button");
+  card.setAttribute("tabindex", "0");
+  card.setAttribute("aria-label", `继续阅读《${item.title || item.book_id}》`);
+  const open = () => void openHistoryReader(item);
+  card.addEventListener("click", open);
+  card.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      open();
+    }
+  });
 
-  const coverButton = document.createElement("button");
-  coverButton.type = "button";
-  coverButton.className = "history-cover-button";
-  coverButton.setAttribute("aria-label", `继续阅读《${item.title || item.book_id}》`);
-  coverButton.appendChild(createCoverImage(item.cover_url, item.title || "Cover", "history-cover"));
-  coverButton.addEventListener("click", () => void openHistoryReader(item));
-  card.appendChild(coverButton);
+  const coverWrap = document.createElement("div");
+  coverWrap.className = "history-cover-wrap";
+  coverWrap.appendChild(createCoverImage(item.cover_url, item.title || "Cover", "history-cover"));
+  card.appendChild(coverWrap);
 
   const body = document.createElement("div");
   body.className = "history-body";
 
   const title = document.createElement("h3");
   title.className = "history-title";
-  const titleButton = document.createElement("button");
-  titleButton.type = "button";
-  titleButton.className = "bookshelf-title-button";
-  titleButton.textContent = item.title || item.book_id || "未命名";
-  titleButton.addEventListener("click", () => void openHistoryReader(item));
-  title.appendChild(titleButton);
+  title.textContent = item.title || item.book_id || "未命名";
   body.appendChild(title);
 
   const meta = document.createElement("div");

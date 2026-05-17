@@ -794,9 +794,13 @@ body.web-images-blurred .result-card:hover .result-cover {
   transition: all 0.2s ease;
 }
 .history-card:hover { transform: translateY(-1px); box-shadow: var(--shadow-hover); border-color: var(--accent); }
-.history-cover-button {
-  display: block; width: 64px; aspect-ratio: 3 / 4; padding: 0; border: 0; border-radius: 6px;
-  overflow: hidden; cursor: pointer; background: transparent;
+.history-card.is-clickable { cursor: pointer; }
+.history-card.is-clickable:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+.history-cover-wrap {
+  display: block; width: 64px; aspect-ratio: 3 / 4; border-radius: 6px;
+  overflow: hidden;
 }
 .history-cover { display: block; width: 100%; height: 100%; object-fit: cover; }
 .history-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
@@ -805,7 +809,7 @@ body.web-images-blurred .result-card:hover .result-cover {
 .history-meta { display: flex; flex-wrap: wrap; gap: 6px; }
 @media (max-width: 768px) {
   .history-card { padding: 8px; gap: 10px; grid-template-columns: 52px minmax(0, 1fr); }
-  .history-cover-button { width: 52px; }
+  .history-cover-wrap { width: 52px; }
   .history-title { font-size: 13px; }
 }
 

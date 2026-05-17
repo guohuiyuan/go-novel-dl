@@ -16,21 +16,21 @@ import (
 
 func TestHybridSearchUsesDefaultAvailableSourcesAndGroupsVariants(t *testing.T) {
 	registry := site.NewRegistry()
-	registry.Register("ruochu", func(cfg config.ResolvedSiteConfig) site.Site {
-		return fakeSearchSite{
-			key:         "ruochu",
-			displayName: "Ruochu",
-			results: []model.SearchResult{
-				{Site: "ruochu", BookID: "100", Title: "Three Body", Author: "Liu", Description: "Sci-fi"},
-			},
-		}
-	})
 	registry.Register("sfacg", func(cfg config.ResolvedSiteConfig) site.Site {
 		return fakeSearchSite{
 			key:         "sfacg",
 			displayName: "SFACG",
 			results: []model.SearchResult{
-				{Site: "sfacg", BookID: "200", Title: "Three Body", Author: "Liu", Description: "Mirror source"},
+				{Site: "sfacg", BookID: "100", Title: "Three Body", Author: "Liu", Description: "Primary source"},
+			},
+		}
+	})
+	registry.Register("ciweimao", func(cfg config.ResolvedSiteConfig) site.Site {
+		return fakeSearchSite{
+			key:         "ciweimao",
+			displayName: "Ciweimao",
+			results: []model.SearchResult{
+				{Site: "ciweimao", BookID: "200", Title: "Three Body", Author: "Liu", Description: "Mirror source"},
 			},
 		}
 	})
@@ -59,8 +59,8 @@ func TestHybridSearchUsesDefaultAvailableSourcesAndGroupsVariants(t *testing.T) 
 	}
 
 	result := response.Results[0]
-	if result.PreferredSite != "ruochu" {
-		t.Fatalf("expected ruochu to be preferred, got %s", result.PreferredSite)
+	if result.PreferredSite != "sfacg" {
+		t.Fatalf("expected sfacg to be preferred (lower default rank), got %s", result.PreferredSite)
 	}
 	if result.SourceCount != 2 {
 		t.Fatalf("expected 2 grouped variants, got %d", result.SourceCount)
@@ -273,10 +273,10 @@ func TestHybridSearchReturnsWhenOverallLimitIsReached(t *testing.T) {
 
 func TestRuntimeExposesDownloadSourcesSeparatelyFromSearchSources(t *testing.T) {
 	registry := site.NewRegistry()
-	registry.Register("ruochu", func(cfg config.ResolvedSiteConfig) site.Site {
+	registry.Register("sfacg", func(cfg config.ResolvedSiteConfig) site.Site {
 		return fakeSearchSite{
-			key:         "ruochu",
-			displayName: "Ruochu",
+			key:         "sfacg",
+			displayName: "SFACG",
 		}
 	})
 	registry.Register("westnovel", func(cfg config.ResolvedSiteConfig) site.Site {
@@ -295,13 +295,13 @@ func TestRuntimeExposesDownloadSourcesSeparatelyFromSearchSources(t *testing.T) 
 	allDownload := runtime.AllDownloadSites()
 	allSearch := runtime.AllSearchSites()
 
-	if len(defaultDownload) != 1 || defaultDownload[0] != "ruochu" {
+	if len(defaultDownload) != 1 || defaultDownload[0] != "sfacg" {
 		t.Fatalf("expected only current default source in default download list, got %v", defaultDownload)
 	}
 	if len(allDownload) != 2 {
 		t.Fatalf("expected all download sources to include both sites, got %v", allDownload)
 	}
-	if len(allSearch) != 1 || allSearch[0] != "ruochu" {
+	if len(allSearch) != 1 || allSearch[0] != "sfacg" {
 		t.Fatalf("expected only searchable site in allSearch, got %v", allSearch)
 	}
 }
