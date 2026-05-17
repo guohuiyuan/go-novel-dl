@@ -79,6 +79,11 @@ const appState = {
     site: "",
     bookID: "",
     title: "",
+    author: "",
+    coverURL: "",
+    description: "",
+    latestChapter: "",
+    sourceURL: "",
     localOnly: false,
     progressTimer: 0,
     lastReportedChapterID: "",
@@ -1190,7 +1195,14 @@ async function openReaderFromDetail(result, variant, clickedChapter, chapterInde
   }
 
   const detailTitle = displayDetailTitle(result, activeVariant, result && result.primary);
-  setupReaderTracker(activeVariant.site, activeVariant.book_id, detailTitle);
+  const detailBook = (result && result.primary) || activeVariant || {};
+  setupReaderTracker(activeVariant.site, activeVariant.book_id, detailTitle, {
+    author: displayDetailAuthor(result, activeVariant, detailBook),
+    coverURL: (detailBook.cover_url) || (result && result.cover_url) || "",
+    description: (detailBook.description) || (result && result.description) || "",
+    latestChapter: (result && result.latest_chapter) || (detailBook.latest_chapter) || "",
+    sourceURL: displayDetailURL(result, activeVariant, detailBook),
+  });
 
   try {
     const expectedTotal = Number(chapterPage && chapterPage.total) || fallbackChapters.length;
@@ -1509,6 +1521,11 @@ function closeReader() {
     appState.reader.site = "";
     appState.reader.bookID = "";
     appState.reader.title = "";
+    appState.reader.author = "";
+    appState.reader.coverURL = "";
+    appState.reader.description = "";
+    appState.reader.latestChapter = "";
+    appState.reader.sourceURL = "";
     appState.reader.localOnly = false;
     appState.reader.lastReportedChapterID = "";
   }
@@ -2573,6 +2590,22 @@ async function reportReadingProgress(payload) {
   }
 }
 
+function buildProgressPayload(tracker, chapter, index) {
+  return {
+    site: tracker.site,
+    book_id: tracker.bookID,
+    chapter_id: String((chapter && (chapter.chapter_id || chapter.id)) || "").trim(),
+    chapter_index: Math.max(0, index || 0),
+    chapter_title: (chapter && chapter.title) || "",
+    title: tracker.title || "",
+    author: tracker.author || "",
+    cover_url: tracker.coverURL || "",
+    description: tracker.description || "",
+    latest_chapter: tracker.latestChapter || "",
+    source_url: tracker.sourceURL || "",
+  };
+}
+
 function scheduleProgressReport(chapter, index) {
   const tracker = appState.reader;
   if (!tracker || !tracker.site || !tracker.bookID) return;
@@ -2581,13 +2614,7 @@ function scheduleProgressReport(chapter, index) {
   if (chapterID === tracker.lastReportedChapterID) return;
   tracker.lastReportedChapterID = chapterID;
   if (tracker.progressTimer) window.clearTimeout(tracker.progressTimer);
-  const payload = {
-    site: tracker.site,
-    book_id: tracker.bookID,
-    chapter_id: chapterID,
-    chapter_index: Math.max(0, index || 0),
-    chapter_title: (chapter && chapter.title) || "",
-  };
+  const payload = buildProgressPayload(tracker, chapter, index);
   tracker.progressTimer = window.setTimeout(() => {
     tracker.progressTimer = 0;
     void reportReadingProgress(payload);
@@ -2607,13 +2634,7 @@ function flushProgressReport() {
   if (!chapter) return;
   const chapterID = String(chapter.chapter_id || chapter.id || "").trim();
   if (!chapterID) return;
-  void reportReadingProgress({
-    site: tracker.site,
-    book_id: tracker.bookID,
-    chapter_id: chapterID,
-    chapter_index: Math.max(0, idx || 0),
-    chapter_title: chapter.title || "",
-  });
+  void reportReadingProgress(buildProgressPayload(tracker, chapter, idx));
 }
 
 function renderBookshelfFolderCard(item) {
@@ -2868,7 +2889,14 @@ async function openBookshelfReader(item, button) {
     const chapters = await loadReaderCatalog(variant, detail.chapterPage, initialChapters);
     if (!chapters.length) throw new Error("没有可用的章节");
 
-    setupReaderTracker(item.site, item.book_id, item.title, true);
+    setupReaderTracker(item.site, item.book_id, item.title, {
+      localOnly: true,
+      author: item.author || "",
+      coverURL: item.cover_url || "",
+      description: item.description || "",
+      latestChapter: item.latest_chapter || "",
+      sourceURL: item.source_url || "",
+    });
     const startIndex = resolveBookshelfStartIndex(chapters, item);
     openReader(chapters, startIndex);
     if (startIndex > 0) {
@@ -2903,16 +2931,22 @@ function resolveBookshelfStartIndex(chapters, item) {
   return 0;
 }
 
-function setupReaderTracker(site, bookID, title, localOnly = false) {
+function setupReaderTracker(site, bookID, title, options = {}) {
   const tracker = appState.reader;
   if (!tracker) return;
   if (tracker.progressTimer) {
     window.clearTimeout(tracker.progressTimer);
     tracker.progressTimer = 0;
   }
+  const opts = (options && typeof options === "object" && !Array.isArray(options)) ? options : { localOnly: Boolean(options) };
   tracker.site = String(site || "").trim();
   tracker.bookID = String(bookID || "").trim();
   tracker.title = String(title || "").trim();
-  tracker.localOnly = Boolean(localOnly);
+  tracker.author = String(opts.author || "").trim();
+  tracker.coverURL = String(opts.coverURL || opts.cover_url || "").trim();
+  tracker.description = String(opts.description || "").trim();
+  tracker.latestChapter = String(opts.latestChapter || opts.latest_chapter || "").trim();
+  tracker.sourceURL = String(opts.sourceURL || opts.source_url || "").trim();
+  tracker.localOnly = Boolean(opts.localOnly);
   tracker.lastReportedChapterID = "";
 }

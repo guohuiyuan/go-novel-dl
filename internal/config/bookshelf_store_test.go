@@ -191,11 +191,40 @@ func TestBookshelfReadingProgressAndHistory(t *testing.T) {
 		t.Fatalf("add book B: %v", err)
 	}
 
-	// Updating progress for an unknown book is a silent no-op.
-	if _, found, err := UpdateBookshelfProgress(BookshelfProgressInput{Site: "esjzone", BookID: "missing", ChapterID: "1"}); err != nil {
+	// Updating progress for an unknown book materialises an implicit history
+	// row so the reading-history feed can pick it up even when the book has
+	// never been added to the shelf.
+	implicit, found, err := UpdateBookshelfProgress(BookshelfProgressInput{
+		Site:         "esjzone",
+		BookID:       "missing",
+		ChapterID:    "ch-1",
+		ChapterIndex: 0,
+		ChapterTitle: "第一章",
+		Title:        "Missing Book",
+		Author:       "Anon",
+	})
+	if err != nil {
 		t.Fatalf("progress for missing book should not error: %v", err)
-	} else if found {
-		t.Fatalf("expected found=false for missing book")
+	}
+	if found {
+		t.Fatalf("expected found=false when creating an implicit row")
+	}
+	if !implicit.Implicit {
+		t.Fatalf("expected the new row to be marked implicit, got %+v", implicit)
+	}
+	if implicit.Title != "Missing Book" || implicit.Author != "Anon" {
+		t.Fatalf("implicit row should carry submitted metadata, got %+v", implicit)
+	}
+
+	// Implicit rows must stay out of bookshelf listings.
+	rootItems, err := ListBookshelfItems(nil)
+	if err != nil {
+		t.Fatalf("list root after implicit progress: %v", err)
+	}
+	for _, item := range rootItems {
+		if item.ID == implicit.ID {
+			t.Fatalf("implicit row leaked into bookshelf listing: %+v", item)
+		}
 	}
 
 	itemA, found, err := UpdateBookshelfProgress(BookshelfProgressInput{
@@ -237,14 +266,18 @@ func TestBookshelfReadingProgressAndHistory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list history: %v", err)
 	}
-	if len(history) != 2 {
-		t.Fatalf("expected 2 history entries, got %d", len(history))
+	// Expect three entries: implicit row, book A, book B (most-recent first).
+	if len(history) != 3 {
+		t.Fatalf("expected 3 history entries, got %d", len(history))
 	}
 	if history[0].ID != bookB.ID {
 		t.Fatalf("expected most recent first; head=%+v", history[0])
 	}
 	if history[1].ID != bookA.ID {
 		t.Fatalf("expected book A second; got %+v", history[1])
+	}
+	if history[2].ID != implicit.ID || !history[2].Implicit {
+		t.Fatalf("expected implicit row last; got %+v", history[2])
 	}
 
 	// Limit must cap the result set.
@@ -254,6 +287,22 @@ func TestBookshelfReadingProgressAndHistory(t *testing.T) {
 	}
 	if len(limited) != 1 || limited[0].ID != bookB.ID {
 		t.Fatalf("expected single most-recent entry, got %+v", limited)
+	}
+
+	// Promoting an implicit row by adding it to the shelf should clear the
+	// implicit flag and keep the existing progress intact.
+	promoted, err := AddBookshelfBook(BookshelfBookInput{Site: "esjzone", BookID: "missing", Title: "Missing Book"})
+	if err != nil {
+		t.Fatalf("promote implicit row: %v", err)
+	}
+	if promoted.ID != implicit.ID {
+		t.Fatalf("expected promotion to reuse the implicit row, got id=%d", promoted.ID)
+	}
+	if promoted.Implicit {
+		t.Fatalf("expected implicit flag to be cleared after promotion: %+v", promoted)
+	}
+	if promoted.LastReadChapterID != "ch-1" {
+		t.Fatalf("expected reading progress preserved on promotion: %+v", promoted)
 	}
 
 	// Books without progress should not appear in history.
@@ -269,5 +318,35 @@ func TestBookshelfReadingProgressAndHistory(t *testing.T) {
 		if item.ID == silent.ID {
 			t.Fatalf("expected silent book to be excluded from history")
 		}
+	}
+
+	// Removing a book that already has reading progress should demote the row
+	// to implicit history rather than wiping it.
+	if err := DeleteBookshelfItem(bookB.ID); err != nil {
+		t.Fatalf("delete book with progress: %v", err)
+	}
+	demoted, err := GetBookshelfItem(bookB.ID)
+	if err != nil {
+		t.Fatalf("expected demoted row to remain accessible: %v", err)
+	}
+	if !demoted.Implicit {
+		t.Fatalf("expected demoted row to be marked implicit, got %+v", demoted)
+	}
+	rootAfterRemove, err := ListBookshelfItems(nil)
+	if err != nil {
+		t.Fatalf("list root after demote: %v", err)
+	}
+	for _, item := range rootAfterRemove {
+		if item.ID == bookB.ID {
+			t.Fatalf("demoted row leaked back into bookshelf listing: %+v", item)
+		}
+	}
+
+	// A book without any progress should still be deleted outright.
+	if err := DeleteBookshelfItem(silent.ID); err != nil {
+		t.Fatalf("delete silent book: %v", err)
+	}
+	if _, err := GetBookshelfItem(silent.ID); err == nil {
+		t.Fatalf("expected silent book to be deleted")
 	}
 }

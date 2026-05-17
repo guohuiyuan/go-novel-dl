@@ -32,6 +32,7 @@ type bookshelfItem struct {
 	LastReadChapterIndex int    `gorm:"default:0"`
 	LastReadChapterTitle string `gorm:"size:512"`
 	LastReadAt           *time.Time
+	Implicit             bool      `gorm:"default:false;index"`
 	AddedAt              time.Time `gorm:"autoCreateTime"`
 	UpdatedAt            time.Time `gorm:"autoUpdateTime"`
 }
@@ -67,6 +68,7 @@ type BookshelfItem struct {
 	LastReadChapterIndex int        `json:"last_read_chapter_index,omitempty"`
 	LastReadChapterTitle string     `json:"last_read_chapter_title,omitempty"`
 	LastReadAt           *time.Time `json:"last_read_at,omitempty"`
+	Implicit             bool       `json:"implicit,omitempty"`
 	AddedAt              time.Time  `json:"added_at"`
 	UpdatedAt            time.Time  `json:"updated_at"`
 	ChildCount           int        `json:"child_count,omitempty"`
@@ -135,7 +137,7 @@ func ListBookshelfItems(parentID *uint) ([]BookshelfItem, error) {
 		return nil, err
 	}
 	var entries []bookshelfItem
-	query := db.Order("kind asc, sort asc, added_at asc")
+	query := db.Order("kind asc, sort asc, added_at asc").Where("implicit = ?", false)
 	if parentID == nil {
 		query = query.Where("parent_id IS NULL")
 	} else {
@@ -178,7 +180,7 @@ func bookshelfChildCounts(db *gorm.DB, parentIDs []uint) (map[uint]int, error) {
 	var rows []row
 	if err := db.Model(&bookshelfItem{}).
 		Select("parent_id AS parent_id, COUNT(*) AS total").
-		Where("parent_id IN ?", parentIDs).
+		Where("parent_id IN ? AND implicit = ?", parentIDs, false).
 		Group("parent_id").
 		Scan(&rows).Error; err != nil {
 		return nil, err
@@ -218,7 +220,7 @@ func FindBookshelfBook(siteKey, bookID string) (BookshelfItem, bool, error) {
 		return BookshelfItem{}, false, err
 	}
 	var entry bookshelfItem
-	err = db.Where("kind = ? AND site = ? AND book_id = ?", BookshelfItemKindBook, siteKey, bookID).
+	err = db.Where("kind = ? AND site = ? AND book_id = ? AND implicit = ?", BookshelfItemKindBook, siteKey, bookID, false).
 		Take(&entry).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -306,6 +308,9 @@ func AddBookshelfBook(input BookshelfBookInput) (BookshelfItem, error) {
 	err = db.Where("kind = ? AND site = ? AND book_id = ?", BookshelfItemKindBook, site, bookID).
 		Take(&existing).Error
 	if err == nil {
+		if existing.Implicit {
+			existing.Implicit = false
+		}
 		if input.ParentID != nil {
 			existing.ParentID = input.ParentID
 		}
@@ -446,8 +451,10 @@ func UpdateBookshelfItem(id uint, patch BookshelfMutation) (BookshelfItem, error
 	return toBookshelfItem(entry), nil
 }
 
-// DeleteBookshelfItem removes an entry. Folders are deleted recursively along
-// with all descendants.
+// DeleteBookshelfItem removes a bookshelf entry. Book rows that already have
+// reading progress recorded are demoted to implicit history rows instead of
+// being deleted, so the history view keeps them. Folder deletion still
+// cascades, but the same demotion rule applies to every book underneath.
 func DeleteBookshelfItem(id uint) error {
 	if id == 0 {
 		return fmt.Errorf("bookshelf id is required")
@@ -465,30 +472,67 @@ func DeleteBookshelfItem(id uint) error {
 		if err != nil {
 			return err
 		}
-		ids := make([]uint, 0, len(descendants)+1)
+		descIDs := make([]uint, 0, len(descendants))
 		for _, d := range descendants {
-			ids = append(ids, d)
+			descIDs = append(descIDs, d)
 		}
-		ids = append(ids, entry.ID)
-		return db.Where("id IN ?", ids).Delete(&bookshelfItem{}).Error
+		return db.Transaction(func(tx *gorm.DB) error {
+			if len(descIDs) > 0 {
+				var rows []bookshelfItem
+				if err := tx.Where("id IN ?", descIDs).Find(&rows).Error; err != nil {
+					return err
+				}
+				toDelete := make([]uint, 0, len(rows))
+				for _, row := range rows {
+					if row.Kind == BookshelfItemKindBook && row.LastReadAt != nil {
+						row.Implicit = true
+						row.ParentID = nil
+						if err := tx.Save(&row).Error; err != nil {
+							return err
+						}
+						continue
+					}
+					toDelete = append(toDelete, row.ID)
+				}
+				if len(toDelete) > 0 {
+					if err := tx.Where("id IN ?", toDelete).Delete(&bookshelfItem{}).Error; err != nil {
+						return err
+					}
+				}
+			}
+			return tx.Where("id = ?", entry.ID).Delete(&bookshelfItem{}).Error
+		})
+	}
+	if entry.LastReadAt != nil {
+		entry.Implicit = true
+		entry.ParentID = nil
+		return db.Save(&entry).Error
 	}
 	return db.Where("id = ?", entry.ID).Delete(&bookshelfItem{}).Error
 }
 
 // BookshelfProgressInput captures everything needed to record a reading
-// position. Title is optional (used purely for display in the history feed).
+// position. Title/Author and friends are optional snapshots used when a brand
+// new implicit (history-only) row needs to be materialised.
 type BookshelfProgressInput struct {
-	Site         string
-	BookID       string
-	ChapterID    string
-	ChapterIndex int
-	ChapterTitle string
+	Site          string
+	BookID        string
+	ChapterID     string
+	ChapterIndex  int
+	ChapterTitle  string
+	Title         string
+	Author        string
+	CoverURL      string
+	Description   string
+	LatestChapter string
+	SourceURL     string
 }
 
 // UpdateBookshelfProgress records the latest reading position for a book
-// identified by site/book_id. It is a no-op when the book is not on the shelf
-// (matches found=false). The returned bool indicates whether an existing row
-// was updated.
+// identified by site/book_id. When no row exists yet, an implicit row is
+// materialised so the history view can pick it up without forcing the book to
+// be added to the bookshelf. The returned bool indicates whether an existing
+// row was updated (true) or a brand-new implicit row was created (false).
 func UpdateBookshelfProgress(input BookshelfProgressInput) (BookshelfItem, bool, error) {
 	site := strings.TrimSpace(input.Site)
 	bookID := strings.TrimSpace(input.BookID)
@@ -499,27 +543,71 @@ func UpdateBookshelfProgress(input BookshelfProgressInput) (BookshelfItem, bool,
 	if err != nil {
 		return BookshelfItem{}, false, err
 	}
-	var entry bookshelfItem
-	err = db.Where("kind = ? AND site = ? AND book_id = ?", BookshelfItemKindBook, site, bookID).Take(&entry).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return BookshelfItem{}, false, nil
-		}
-		return BookshelfItem{}, false, err
-	}
 	index := input.ChapterIndex
 	if index < 0 {
 		index = 0
 	}
 	now := time.Now().UTC()
-	entry.LastReadChapterID = strings.TrimSpace(input.ChapterID)
-	entry.LastReadChapterIndex = index
-	entry.LastReadChapterTitle = strings.TrimSpace(input.ChapterTitle)
-	entry.LastReadAt = &now
-	if err := db.Save(&entry).Error; err != nil {
+
+	var entry bookshelfItem
+	err = db.Where("kind = ? AND site = ? AND book_id = ?", BookshelfItemKindBook, site, bookID).Take(&entry).Error
+	if err == nil {
+		entry.LastReadChapterID = strings.TrimSpace(input.ChapterID)
+		entry.LastReadChapterIndex = index
+		entry.LastReadChapterTitle = strings.TrimSpace(input.ChapterTitle)
+		entry.LastReadAt = &now
+		if value := strings.TrimSpace(input.Title); value != "" && entry.Title == "" {
+			entry.Title = value
+		}
+		if value := strings.TrimSpace(input.Author); value != "" && entry.Author == "" {
+			entry.Author = value
+		}
+		if value := strings.TrimSpace(input.CoverURL); value != "" && entry.CoverURL == "" {
+			entry.CoverURL = value
+		}
+		if value := strings.TrimSpace(input.Description); value != "" && entry.Description == "" {
+			entry.Description = value
+		}
+		if value := strings.TrimSpace(input.LatestChapter); value != "" {
+			entry.LatestChapter = value
+		}
+		if value := strings.TrimSpace(input.SourceURL); value != "" && entry.SourceURL == "" {
+			entry.SourceURL = value
+		}
+		if err := db.Save(&entry).Error; err != nil {
+			return BookshelfItem{}, false, err
+		}
+		return toBookshelfItem(entry), true, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return BookshelfItem{}, false, err
 	}
-	return toBookshelfItem(entry), true, nil
+
+	title := strings.TrimSpace(input.Title)
+	if title == "" {
+		title = bookID
+	}
+	created := bookshelfItem{
+		Kind:                 BookshelfItemKindBook,
+		ParentID:             nil,
+		Site:                 site,
+		BookID:               bookID,
+		Title:                title,
+		Author:               strings.TrimSpace(input.Author),
+		CoverURL:             strings.TrimSpace(input.CoverURL),
+		Description:          strings.TrimSpace(input.Description),
+		LatestChapter:        strings.TrimSpace(input.LatestChapter),
+		SourceURL:            strings.TrimSpace(input.SourceURL),
+		LastReadChapterID:    strings.TrimSpace(input.ChapterID),
+		LastReadChapterIndex: index,
+		LastReadChapterTitle: strings.TrimSpace(input.ChapterTitle),
+		LastReadAt:           &now,
+		Implicit:             true,
+	}
+	if err := db.Create(&created).Error; err != nil {
+		return BookshelfItem{}, false, err
+	}
+	return toBookshelfItem(created), false, nil
 }
 
 // ListBookshelfHistory returns book entries that have a recorded last read
@@ -643,6 +731,7 @@ func toBookshelfItem(entry bookshelfItem) BookshelfItem {
 		LastReadChapterIndex: entry.LastReadChapterIndex,
 		LastReadChapterTitle: entry.LastReadChapterTitle,
 		LastReadAt:           entry.LastReadAt,
+		Implicit:             entry.Implicit,
 		AddedAt:              entry.AddedAt,
 		UpdatedAt:            entry.UpdatedAt,
 	}

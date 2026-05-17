@@ -874,11 +874,17 @@ func registerBookshelfRoutes(group *gin.RouterGroup, service *Service) {
 
 	group.POST("/api/bookshelf/progress", func(c *gin.Context) {
 		var body struct {
-			Site         string `json:"site"`
-			BookID       string `json:"book_id"`
-			ChapterID    string `json:"chapter_id"`
-			ChapterIndex int    `json:"chapter_index"`
-			ChapterTitle string `json:"chapter_title"`
+			Site          string `json:"site"`
+			BookID        string `json:"book_id"`
+			ChapterID     string `json:"chapter_id"`
+			ChapterIndex  int    `json:"chapter_index"`
+			ChapterTitle  string `json:"chapter_title"`
+			Title         string `json:"title"`
+			Author        string `json:"author"`
+			CoverURL      string `json:"cover_url"`
+			Description   string `json:"description"`
+			LatestChapter string `json:"latest_chapter"`
+			SourceURL     string `json:"source_url"`
 		}
 		if err := c.BindJSON(&body); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
@@ -888,19 +894,21 @@ func registerBookshelfRoutes(group *gin.RouterGroup, service *Service) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "site and book_id are required"})
 			return
 		}
-		item, found, err := config.UpdateBookshelfProgress(config.BookshelfProgressInput{
-			Site:         body.Site,
-			BookID:       body.BookID,
-			ChapterID:    body.ChapterID,
-			ChapterIndex: body.ChapterIndex,
-			ChapterTitle: body.ChapterTitle,
+		item, _, err := config.UpdateBookshelfProgress(config.BookshelfProgressInput{
+			Site:          body.Site,
+			BookID:        body.BookID,
+			ChapterID:     body.ChapterID,
+			ChapterIndex:  body.ChapterIndex,
+			ChapterTitle:  body.ChapterTitle,
+			Title:         body.Title,
+			Author:        body.Author,
+			CoverURL:      body.CoverURL,
+			Description:   body.Description,
+			LatestChapter: body.LatestChapter,
+			SourceURL:     body.SourceURL,
 		})
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-		if !found {
-			c.JSON(http.StatusOK, gin.H{"updated": false})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"updated": true, "item": item})
@@ -1047,20 +1055,52 @@ func (s *Service) startDownloadTask(taskID string, req downloadRequest) {
 
 func (s *Service) startExportTask(taskID string, req downloadRequest) {
 	go func() {
+		defer func() {
+			_ = s.reloadRuntime()
+		}()
+
+		s.Tasks.MarkLoadingChapters(taskID, req.Site, req.BookID)
+
 		runtime := s.newTaskRuntime(taskID)
-		book, _, err := runtime.Library.LoadBook(req.Site, req.BookID, "")
-		if err != nil {
-			s.Tasks.MarkFailed(taskID, fmt.Errorf("book has not been downloaded to server local storage"))
-			return
-		}
-		total := len(book.Chapters)
-		s.Tasks.MarkExporting(taskID, 0, total)
-		exported, err := runtime.Export(req.Site, []model.BookRef{{BookID: req.BookID}}, "", req.Formats)
+		results, err := runtime.Download(context.Background(), req.Site, []model.BookRef{{
+			BookID: req.BookID,
+		}}, req.Formats, false)
 		if err != nil {
 			s.Tasks.MarkFailed(taskID, err)
 			return
 		}
-		s.Tasks.MarkCompleted(taskID, book.Title, exported)
+		if len(results) == 0 {
+			s.Tasks.MarkFailed(taskID, fmt.Errorf("export returned no result"))
+			return
+		}
+
+		exported := make([]string, 0)
+		title := results[0].Book.Title
+		totalChapters := 0
+		cachedChapters := 0
+		for _, result := range results {
+			exported = append(exported, result.Exported...)
+			if result.Book == nil {
+				continue
+			}
+			if strings.TrimSpace(title) == "" {
+				title = result.Book.Title
+			}
+			if chCount := len(result.Book.Chapters); chCount > totalChapters {
+				totalChapters = chCount
+			}
+			for _, chapter := range result.Book.Chapters {
+				if chapter.Downloaded || strings.TrimSpace(chapter.Content) != "" {
+					cachedChapters++
+				}
+			}
+		}
+		if totalChapters > 0 {
+			if err := config.UpdateBookshelfCacheStats(req.Site, req.BookID, totalChapters, cachedChapters); err != nil {
+				fmt.Printf("warn: update bookshelf cache stats failed: %v\n", err)
+			}
+		}
+		s.Tasks.MarkCompleted(taskID, title, exported)
 	}()
 }
 
