@@ -427,7 +427,6 @@ function bootstrap() {
   if (historyRefreshButton) historyRefreshButton.addEventListener("click", () => void loadHistory());
 
   if (bookshelfNewFolderButton) bookshelfNewFolderButton.addEventListener("click", () => void createBookshelfFolderPrompt());
-  if (bookshelfRefreshButton) bookshelfRefreshButton.addEventListener("click", () => void loadBookshelf(appState.bookshelf.parentId));
   if (bookshelfBreadcrumbNode) {
     bookshelfBreadcrumbNode.addEventListener("click", (event) => {
       const target = event.target.closest("[data-parent-id]");
