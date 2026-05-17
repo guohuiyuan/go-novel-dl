@@ -485,6 +485,18 @@ func newRouter(service *Service) *gin.Engine {
 			return
 		}
 
+		if queryBool(c.Query("local")) {
+			book, err := service.localBookDetail(siteKey, bookID)
+			if err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "book has not been downloaded to server local storage"})
+				return
+			}
+			chapterPage := queryPositiveInt(c, "chapter_page", 1)
+			chapterPageSize := queryPositiveInt(c, "chapter_page_size", defaultWebChapterPageSize)
+			c.JSON(http.StatusOK, paginateBookDetail(book, chapterPage, chapterPageSize))
+			return
+		}
+
 		ctx, cancel := context.WithTimeout(c.Request.Context(), detailTimeoutForSite(siteKey))
 		defer cancel()
 
@@ -576,13 +588,10 @@ func newRouter(service *Service) *gin.Engine {
 			return
 		}
 
-		target := strings.TrimSpace(strings.ToLower(req.Target))
-		if target != DownloadTaskTargetShelf {
-			target = DownloadTaskTargetBrowser
-		}
+		target := normalizeWebTaskTarget(req.Target)
 		req.Target = target
 		formats := append([]string(nil), req.Formats...)
-		if target == DownloadTaskTargetShelf {
+		if target == DownloadTaskTargetLocal || target == DownloadTaskTargetShelf {
 			formats = nil
 		}
 
@@ -590,7 +599,11 @@ func newRouter(service *Service) *gin.Engine {
 			Target:  target,
 			Formats: formats,
 		})
-		service.startDownloadTask(task.ID, req)
+		if target == DownloadTaskTargetExport || target == DownloadTaskTargetBrowser {
+			service.startExportTask(task.ID, req)
+		} else {
+			service.startDownloadTask(task.ID, req)
+		}
 
 		c.JSON(http.StatusAccepted, gin.H{
 			"task": task,
@@ -653,6 +666,16 @@ func newRouter(service *Service) *gin.Engine {
 		defer cancel()
 
 		ch := model.Chapter{ID: chapterID, Title: chapterTitle, URL: chapterURL}
+		if queryBool(c.Query("local")) {
+			result, ok := service.lookupChapterInLibrary(siteKey, bookID, ch)
+			if !ok {
+				c.JSON(http.StatusNotFound, gin.H{"error": "chapter has not been downloaded to server local storage"})
+				return
+			}
+			resolved := service.Config.ResolveSiteConfig(siteKey)
+			c.JSON(http.StatusOK, gin.H{"chapter": normalizeChapterForWeb(result, resolved.General.LocaleStyle)})
+			return
+		}
 
 		result, err := service.chapterContent(ctx, siteKey, bookID, ch)
 		if err != nil {
@@ -690,6 +713,15 @@ func parseBookshelfID(raw string) (uint, bool) {
 		return 0, false
 	}
 	return uint(value), true
+}
+
+func normalizeWebTaskTarget(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case DownloadTaskTargetExport, DownloadTaskTargetBrowser:
+		return DownloadTaskTargetExport
+	default:
+		return DownloadTaskTargetLocal
+	}
 }
 
 func registerBookshelfRoutes(group *gin.RouterGroup, service *Service) {
@@ -830,12 +862,12 @@ func registerBookshelfRoutes(group *gin.RouterGroup, service *Service) {
 			return
 		}
 		task := service.Tasks.Create(item.Site, item.BookID, DownloadTaskOptions{
-			Target: DownloadTaskTargetShelf,
+			Target: DownloadTaskTargetLocal,
 		})
 		service.startDownloadTask(task.ID, downloadRequest{
 			Site:   item.Site,
 			BookID: item.BookID,
-			Target: DownloadTaskTargetShelf,
+			Target: DownloadTaskTargetLocal,
 		})
 		c.JSON(http.StatusAccepted, gin.H{"task": task})
 	})
@@ -968,7 +1000,7 @@ func (s *Service) startDownloadTask(taskID string, req downloadRequest) {
 		s.Tasks.MarkLoadingChapters(taskID, req.Site, req.BookID)
 
 		target := strings.TrimSpace(strings.ToLower(req.Target))
-		skipExport := target == DownloadTaskTargetShelf
+		skipExport := target == DownloadTaskTargetLocal || target == DownloadTaskTargetShelf
 
 		runtime := s.newTaskRuntime(taskID)
 		results, err := runtime.Download(context.Background(), req.Site, []model.BookRef{{
@@ -985,10 +1017,6 @@ func (s *Service) startDownloadTask(taskID string, req downloadRequest) {
 
 		exported := make([]string, 0)
 		title := results[0].Book.Title
-		coverURL := ""
-		description := ""
-		sourceURL := ""
-		author := ""
 		totalChapters := 0
 		cachedChapters := 0
 		for _, result := range results {
@@ -998,18 +1026,6 @@ func (s *Service) startDownloadTask(taskID string, req downloadRequest) {
 			}
 			if strings.TrimSpace(title) == "" {
 				title = result.Book.Title
-			}
-			if coverURL == "" {
-				coverURL = result.Book.CoverURL
-			}
-			if description == "" {
-				description = result.Book.Description
-			}
-			if sourceURL == "" {
-				sourceURL = result.Book.SourceURL
-			}
-			if author == "" {
-				author = result.Book.Author
 			}
 			if chCount := len(result.Book.Chapters); chCount > totalChapters {
 				totalChapters = chCount
@@ -1025,21 +1041,26 @@ func (s *Service) startDownloadTask(taskID string, req downloadRequest) {
 				fmt.Printf("warn: update bookshelf cache stats failed: %v\n", err)
 			}
 		}
-		if target == DownloadTaskTargetShelf {
-			_, err := config.AddBookshelfBook(config.BookshelfBookInput{
-				Site:        req.Site,
-				BookID:      req.BookID,
-				Title:       title,
-				Author:      author,
-				CoverURL:    coverURL,
-				Description: description,
-				SourceURL:   sourceURL,
-			})
-			if err != nil {
-				fmt.Printf("warn: add bookshelf book after cache failed: %v\n", err)
-			}
-		}
 		s.Tasks.MarkCompleted(taskID, title, exported)
+	}()
+}
+
+func (s *Service) startExportTask(taskID string, req downloadRequest) {
+	go func() {
+		runtime := s.newTaskRuntime(taskID)
+		book, _, err := runtime.Library.LoadBook(req.Site, req.BookID, "")
+		if err != nil {
+			s.Tasks.MarkFailed(taskID, fmt.Errorf("book has not been downloaded to server local storage"))
+			return
+		}
+		total := len(book.Chapters)
+		s.Tasks.MarkExporting(taskID, 0, total)
+		exported, err := runtime.Export(req.Site, []model.BookRef{{BookID: req.BookID}}, "", req.Formats)
+		if err != nil {
+			s.Tasks.MarkFailed(taskID, err)
+			return
+		}
+		s.Tasks.MarkCompleted(taskID, book.Title, exported)
 	}()
 }
 
@@ -1051,6 +1072,18 @@ func (s *Service) newTaskRuntime(taskID string) *app.Runtime {
 		taskID: taskID,
 	}
 	return runtime
+}
+
+func (s *Service) localBookDetail(siteKey, bookID string) (*model.Book, error) {
+	if s.Runtime == nil || s.Runtime.Library == nil {
+		return nil, fmt.Errorf("local library is not available")
+	}
+	book, _, err := s.Runtime.Library.LoadBook(siteKey, bookID, "")
+	if err != nil {
+		return nil, err
+	}
+	resolved := s.Config.ResolveSiteConfig(siteKey)
+	return textconv.NormalizeBookLocale(book, resolved.General.LocaleStyle), nil
 }
 
 func (s *Service) bookDetail(ctx context.Context, siteKey, bookID string) (*model.Book, error) {
@@ -1501,6 +1534,15 @@ func queryPositiveInt(c *gin.Context, key string, fallback int) int {
 		return fallback
 	}
 	return value
+}
+
+func queryBool(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "true", "yes", "y", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 func webPageSizeFromConfig(cfg *config.Config) int {

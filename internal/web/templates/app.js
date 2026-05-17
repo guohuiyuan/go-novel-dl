@@ -41,6 +41,11 @@ const DEFAULT_COVER_SRC = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent
 </svg>
 `)}`;
 
+const SEARCH_SOURCE_STATE_KEY = "novel-dl-search-source-state";
+const sourceKeySet = new Set(allSources.map((source) => source.key).filter(Boolean));
+const sourceTagSet = new Set(allSources.flatMap((source) => (Array.isArray(source.tags) ? source.tags : []).map((tag) => `${tag || ""}`.trim()).filter(Boolean)));
+const initialSearchSourceState = loadSearchSourceState();
+
 const appState = {
   activeTab: "search",
   page: 1,
@@ -51,11 +56,12 @@ const appState = {
   totalExact: true,
   hasPrev: false,
   hasNext: false,
-  selectedSites: new Set(defaultSources.map((source) => source.key)),
-  selectedSourceTags: new Set(),
+  selectedSites: new Set(initialSearchSourceState.sites),
+  selectedSourceTags: new Set(initialSearchSourceState.tags),
   tasks: new Map(),
   tasksLoaded: false,
   pollers: new Map(),
+  inlineTaskViews: new Map(),
   bookshelf: {
     parentId: null,
     items: [],
@@ -73,6 +79,7 @@ const appState = {
     site: "",
     bookID: "",
     title: "",
+    localOnly: false,
     progressTimer: 0,
     lastReportedChapterID: "",
   },
@@ -93,6 +100,33 @@ const appState = {
   paramSupports: [],
   generalConfig: initialGeneralConfig,
 };
+
+function loadSearchSourceState() {
+  const fallback = {
+    sites: defaultSources.map((source) => source.key).filter((key) => sourceKeySet.has(key)),
+    tags: [],
+  };
+  try {
+    const raw = window.localStorage.getItem(SEARCH_SOURCE_STATE_KEY);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    const sites = Array.isArray(parsed.sites) ? parsed.sites.filter((key) => sourceKeySet.has(key)) : [];
+    const tags = Array.isArray(parsed.tags) ? parsed.tags.filter((tag) => sourceTagSet.has(tag)) : [];
+    return { sites: sites.length ? sites : fallback.sites, tags };
+  } catch (_) {
+    return fallback;
+  }
+}
+
+function saveSearchSourceState() {
+  try {
+    window.localStorage.setItem(SEARCH_SOURCE_STATE_KEY, JSON.stringify({
+      sites: Array.from(appState.selectedSites),
+      tags: Array.from(appState.selectedSourceTags),
+    }));
+  } catch (_) {
+  }
+}
 
 function renderSiteWarnings() {
   if (!siteWarningPanel) return;
@@ -391,6 +425,7 @@ function bootstrap() {
     const visibleSources = filteredSources();
     if (!visibleSources.length) return setStatus("当前标签筛选下没有可选择的渠道。");
     visibleSources.forEach((source) => appState.selectedSites.add(source.key));
+    saveSearchSourceState();
     renderSourceSelector();
     setStatus(appState.selectedSourceTags.size > 0 ? `已选中当前筛选范围内的 ${visibleSources.length} 个渠道。` : `已选中全部 ${appState.selectedSites.size} 个渠道。`);
   });
@@ -399,6 +434,7 @@ function bootstrap() {
     const visibleSources = filteredSources();
     if (!visibleSources.length) return setStatus("当前标签筛选下没有可清空的渠道。");
     visibleSources.forEach((source) => appState.selectedSites.delete(source.key));
+    saveSearchSourceState();
     renderSourceSelector();
     setStatus(appState.selectedSourceTags.size > 0 ? `已清空当前筛选范围内的 ${visibleSources.length} 个渠道选择。` : "已清空渠道选择。");
   });
@@ -406,6 +442,7 @@ function bootstrap() {
   clearTagFiltersButton.addEventListener("click", () => {
     if (appState.selectedSourceTags.size === 0) return;
     appState.selectedSourceTags = new Set();
+    saveSearchSourceState();
     renderSourceTagFilters();
     renderSourceSelector();
     setStatus("已清空渠道标签筛选。");
@@ -599,6 +636,7 @@ function renderSourceSelector() {
 function toggleSource(siteKey) {
   if (appState.selectedSites.has(siteKey)) appState.selectedSites.delete(siteKey);
   else appState.selectedSites.add(siteKey);
+  saveSearchSourceState();
   renderSourceSelector();
 }
 
@@ -637,6 +675,7 @@ function toggleSourceTag(tagText) {
   if (appState.selectedSourceTags.has(tagText)) appState.selectedSourceTags.delete(tagText);
   else appState.selectedSourceTags.add(tagText);
   const removedCount = pruneSelectedSitesByVisibleSources();
+  saveSearchSourceState();
   renderSourceTagFilters();
   renderSourceSelector();
 
@@ -888,12 +927,13 @@ async function loadDetail(result, variant, cacheKey, chapterPage = 1, chapterPag
   }
 }
 
-async function fetchBookDetail(variant, chapterPage = 1, chapterPageSize = normalizedChapterPageSize()) {
+async function fetchBookDetail(variant, chapterPage = 1, chapterPageSize = normalizedChapterPageSize(), options = {}) {
   const url = new URL(`${window.location.origin}${root}/api/books/detail`);
   url.searchParams.set("site", variant.site);
   url.searchParams.set("book_id", variant.book_id);
   url.searchParams.set("chapter_page", String(chapterPage));
   url.searchParams.set("chapter_page_size", String(chapterPageSize));
+  if (options.local || variant.local) url.searchParams.set("local", "1");
   const payload = await fetchJSONWithTimeout(
     url.toString(),
     {},
@@ -990,9 +1030,17 @@ function renderDetail(result, variant, detail, loading, errorMessage) {
   const downloadButton = document.createElement("button");
   downloadButton.type = "button";
   downloadButton.className = "download-button";
-  downloadButton.textContent = "下载";
+  downloadButton.textContent = "下载到本地";
   downloadButton.addEventListener("click", () => void startDownloadTask({ site: activeVariant.site, book_id: activeVariant.book_id }, downloadButton));
   actions.appendChild(downloadButton);
+
+  const exportButton = document.createElement("button");
+  exportButton.type = "button";
+  exportButton.className = "tool-button";
+  exportButton.textContent = "导出";
+  exportButton.title = "导出已下载到服务器本地的文件";
+  exportButton.addEventListener("click", () => void startDownloadTask({ site: activeVariant.site, book_id: activeVariant.book_id }, exportButton, { target: "export" }));
+  actions.appendChild(exportButton);
 
   const addShelfButton = document.createElement("button");
   addShelfButton.type = "button";
@@ -1217,7 +1265,7 @@ async function fetchDetailPageForCatalog(variant, chapterPage, chapterPageSize) 
   if (cached) return cached;
   let pending = appState.detailPending.get(cacheKey);
   if (!pending) {
-    pending = fetchBookDetail(variant, chapterPage, chapterPageSize).then((detail) => {
+    pending = fetchBookDetail(variant, chapterPage, chapterPageSize, { local: Boolean(variant.local) }).then((detail) => {
       if (detail && detail.book) appState.detailCache.set(cacheKey, detail);
       return detail;
     }).finally(() => {
@@ -1461,6 +1509,7 @@ function closeReader() {
     appState.reader.site = "";
     appState.reader.bookID = "";
     appState.reader.title = "";
+    appState.reader.localOnly = false;
     appState.reader.lastReportedChapterID = "";
   }
 }
@@ -1600,6 +1649,7 @@ async function fetchChapterContentText(site, bookID, ch) {
   url.searchParams.set("site", site); url.searchParams.set("book_id", bookID);
   url.searchParams.set("chapter_id", ch.id || ""); url.searchParams.set("title", ch.title || "");
   url.searchParams.set("url", ch.url || "");
+  if (appState.reader && appState.reader.localOnly) url.searchParams.set("local", "1");
   const data = await fetchJSONWithTimeout(
     url.toString(),
     {},
@@ -1838,9 +1888,9 @@ async function startDownloadTask(target, button, options = {}) {
   const bookID = target.book_id || (target.primary && target.primary.book_id);
   if (!site || !bookID) return setStatus("下载目标缺失。");
 
-  const taskTarget = options.target === "shelf" ? "shelf" : "browser";
+  const taskTarget = options.target === "export" ? "export" : "local";
   const originalText = button ? button.textContent : "";
-  if (button) { button.disabled = true; button.textContent = taskTarget === "shelf" ? "正在缓存..." : "正在创建..."; }
+  if (button) { button.disabled = true; button.textContent = taskTarget === "export" ? "正在导出..." : "正在下载..."; }
 
   try {
     const body = { site, book_id: bookID, target: taskTarget };
@@ -1852,10 +1902,12 @@ async function startDownloadTask(target, button, options = {}) {
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "download failed");
 
-    upsertTask(payload.task); startPollingTask(payload.task.id);
+    if (options.inlineView) appState.inlineTaskViews.set(payload.task.id, options.inlineView);
+    upsertTask(payload.task);
+    startPollingTask(payload.task.id);
     if (!options.keepDetailOpen) closeDetail();
-    activateTab("tasks");
-    const label = taskTarget === "shelf" ? "缓存" : "下载";
+    if (!options.noActivate) activateTab("tasks");
+    const label = taskTarget === "export" ? "导出" : "下载";
     setStatus(`已创建${label}任务：${payload.task.site}/${payload.task.book_id}`);
   } catch (error) { setStatus(`创建任务失败：${error.message}`); }
   finally { if (button) { button.disabled = false; button.textContent = originalText; } }
@@ -1871,11 +1923,11 @@ function startPollingTask(taskId) {
       const task = payload.task; upsertTask(task);
       if (task.status === "completed") {
         stopPollingTask(taskId);
-        const label = task.target === "shelf" ? "缓存完成" : "下载完成";
+        const label = task.target === "export" || task.target === "browser" ? "导出完成" : "下载完成";
         setStatus(`${label}：${task.site}/${task.book_id}`);
-        if (task.target === "shelf") refreshBookshelfAfterTask(task);
+        if (task.target === "local" || task.target === "shelf") refreshBookshelfAfterTask(task);
       }
-      else if (task.status === "failed") { stopPollingTask(taskId); setStatus(`下载失败：${task.error}`); }
+      else if (task.status === "failed") { stopPollingTask(taskId); setStatus(`任务失败：${task.error}`); }
     } catch (error) { stopPollingTask(taskId); setStatus(`读取任务状态失败：${error.message}`); }
   };
   void poll();
@@ -1898,7 +1950,24 @@ function stopPollingTask(taskId) {
 
 function upsertTask(task) {
   appState.tasks.set(task.id, task);
+  updateInlineTaskViews(task);
   renderTasks();
+}
+
+function updateInlineTaskViews(task) {
+  const view = appState.inlineTaskViews.get(task.id);
+  if (!view) return;
+  const details = [`来源：${sourceLabel(task.site)}`, `ID：${task.book_id}`];
+  if (task.eta) details.push(`剩余：${task.eta}`);
+  const current = task.current_chapter ? ` · ${task.current_chapter}` : "";
+  view.innerHTML = `
+    <div class="inline-progress-head"><span>${formatTaskStatus(task)}</span><span>${taskProgressPercent(task)}%</span></div>
+    <div class="task-progress-bar"><div class="task-progress-fill" style="width:${taskProgressPercent(task)}%"></div></div>
+    <div class="inline-progress-meta">${details.join(" · ")}${current}</div>
+  `;
+  if (task.status === "completed" || task.status === "failed") {
+    window.setTimeout(() => appState.inlineTaskViews.delete(task.id), 3000);
+  }
 }
 
 async function hydrateTasksFromServer() {
@@ -1961,20 +2030,22 @@ function renderTasks() {
     head.appendChild(title); head.appendChild(badgeNode); card.appendChild(head);
 
     const meta = document.createElement("div"); meta.className = "task-meta";
-    const targetLabel = task.target === "shelf" ? "缓存到书架" : "下载到本地";
-    meta.textContent = `${task.site}/${task.book_id} · ${targetLabel}`;
+    const details = [taskTargetLabel(task)];
+    details.push(`来源：${sourceLabel(task.site)}`);
+    details.push(`ID：${task.book_id}`);
+    if (task.eta) details.push(`剩余：${task.eta}`);
+    const current = task.current_chapter ? ` · ${task.current_chapter}` : "";
+    meta.textContent = details.join(" · ") + current;
     card.appendChild(meta);
 
     if (task.total_chapters > 0) {
-      const progressWrap = document.createElement("div"); progressWrap.className = "task-progress";
-      const progressBar = document.createElement("div"); progressBar.className = "task-progress-bar";
-      const progressFill = document.createElement("div"); progressFill.className = "task-progress-fill";
-      progressFill.style.width = `${taskProgressPercent(task)}%`;
-      progressBar.appendChild(progressFill); progressWrap.appendChild(progressBar);
-
-      const progressText = document.createElement("div"); progressText.className = "task-progress-text";
-      progressText.textContent = `${task.completed_chapters}/${task.total_chapters}` + (task.eta ? ` (剩余时间: ${task.eta})` : "");
-      progressWrap.appendChild(progressText); card.appendChild(progressWrap);
+      const view = document.createElement("div"); view.className = "inline-progress";
+      view.innerHTML = `
+        <div class="inline-progress-head"><span>${formatTaskStatus(task)}</span><span>${taskProgressPercent(task)}%</span></div>
+        <div class="task-progress-bar"><div class="task-progress-fill" style="width:${taskProgressPercent(task)}%"></div></div>
+        <div class="inline-progress-meta">${details.join(" · ")}${current}</div>
+      `;
+      card.appendChild(view);
     }
 
     if (task.current_chapter) {
@@ -2024,6 +2095,7 @@ function formatTaskStatus(task) {
   if (task.status === "completed") return "已完成";
   if (task.status === "failed") return "失败";
   if (task.phase === "exporting") return "导出中";
+  if (task.phase === "saving") return "保存中";
   if (task.phase === "loading_chapters") return "加载章节中";
   if (task.status === "running") return "下载中";
   return "排队中";
@@ -2031,6 +2103,22 @@ function formatTaskStatus(task) {
 
 function taskProgressPercent(task) {
   return !task.total_chapters ? 0 : Math.min(100, Math.round((task.completed_chapters / task.total_chapters) * 100));
+}
+
+function taskTargetLabel(task) {
+  if (task.target === "export" || task.target === "browser") return "导出本地文件";
+  return "下载到服务器本地";
+}
+
+function createInlineTaskView() {
+  const node = document.createElement("div");
+  node.className = "inline-progress";
+  node.innerHTML = `
+    <div class="inline-progress-head"><span>正在排队</span><span>0%</span></div>
+    <div class="task-progress-bar"><div class="task-progress-fill" style="width:0%"></div></div>
+    <div class="inline-progress-meta">任务创建中...</div>
+  `;
+  return node;
 }
 
 function createCoverImage(src, alt, className) {
@@ -2062,8 +2150,8 @@ function displayDetailAuthor(result, variant, book) { return (book && book.autho
 function displayDetailDescription(result, book) { return (book && book.description) || result.description || "暂无简介。"; }
 function sourceLabel(siteKey) { return sourceLabelMap.get(siteKey) || siteKey || "未知来源"; }
 function detailKey(variant) { return `${variant.site}/${variant.book_id}`; }
-function detailRequestKey(variant, chapterPage = 1, chapterPageSize = normalizedChapterPageSize()) { return `${detailKey(variant)}?chapter_page=${chapterPage}&chapter_page_size=${chapterPageSize}`; }
-function readerCatalogKey(variant) { return `${detailKey(variant)}?reader_catalog=all`; }
+function detailRequestKey(variant, chapterPage = 1, chapterPageSize = normalizedChapterPageSize()) { return `${detailKey(variant)}?chapter_page=${chapterPage}&chapter_page_size=${chapterPageSize}${variant && variant.local ? "&local=1" : ""}`; }
+function readerCatalogKey(variant) { return `${detailKey(variant)}?reader_catalog=all${variant && variant.local ? "&local=1" : ""}`; }
 function totalLabel(total, exact) { return exact ? `${total}` : `${total}+`; }
 
 async function loadSiteConfigs() {
@@ -2606,11 +2694,11 @@ function renderBookshelfBookCard(item) {
   meta.className = "result-meta";
   meta.appendChild(resultBadge(sourceLabel(item.site)));
   if (item.cached_chapters > 0 && item.total_chapters > 0) {
-    meta.appendChild(resultBadge(`已缓存 ${item.cached_chapters}/${item.total_chapters} 章`));
+    meta.appendChild(resultBadge(`已下载 ${item.cached_chapters}/${item.total_chapters} 章`));
   } else if (item.total_chapters > 0) {
     meta.appendChild(resultBadge(`${item.total_chapters} 章`));
   } else {
-    meta.appendChild(resultBadge("尚未缓存"));
+    meta.appendChild(resultBadge("尚未下载"));
   }
   if (item.latest_chapter) meta.appendChild(resultBadge(item.latest_chapter));
   body.appendChild(meta);
@@ -2618,19 +2706,19 @@ function renderBookshelfBookCard(item) {
   const actions = document.createElement("div");
   actions.className = "bookshelf-actions-row";
 
-  const cacheButton = document.createElement("button");
-  cacheButton.type = "button";
-  cacheButton.className = "tool-button is-ghost";
-  cacheButton.textContent = "缓存全部";
-  cacheButton.addEventListener("click", () => void cacheBookshelfBook(item, cacheButton));
-  actions.appendChild(cacheButton);
-
   const downloadButton = document.createElement("button");
   downloadButton.type = "button";
   downloadButton.className = "tool-button is-ghost";
   downloadButton.textContent = "下载";
   downloadButton.addEventListener("click", () => void startDownloadTask({ site: item.site, book_id: item.book_id }, downloadButton));
   actions.appendChild(downloadButton);
+
+  const exportButton = document.createElement("button");
+  exportButton.type = "button";
+  exportButton.className = "tool-button is-ghost";
+  exportButton.textContent = "导出";
+  exportButton.addEventListener("click", () => void startDownloadTask({ site: item.site, book_id: item.book_id }, exportButton, { target: "export" }));
+  actions.appendChild(exportButton);
 
   const deleteButton = document.createElement("button");
   deleteButton.type = "button";
@@ -2690,7 +2778,7 @@ async function removeBookshelfItem(item) {
   const labelName = item.kind === "folder" ? (item.name || `文件夹 #${item.id}`) : (item.title || item.book_id || `条目 #${item.id}`);
   const message = item.kind === "folder"
     ? `确认删除文件夹「${labelName}」及其下全部内容？`
-    : `确认从书架移除「${labelName}」？`;
+    : `确认从书架移除「${labelName}」？本地已下载内容会保留。`;
   if (!window.confirm(message)) return;
   try {
     const response = await fetch(`${root}/api/bookshelf/items/${item.id}`, { method: "DELETE" });
@@ -2701,24 +2789,6 @@ async function removeBookshelfItem(item) {
     await loadBookshelf(appState.bookshelf.parentId);
   } catch (error) {
     setBookshelfStatus(`删除失败：${error.message}`);
-  }
-}
-
-async function cacheBookshelfBook(item, button) {
-  const original = button ? button.textContent : "";
-  if (button) { button.disabled = true; button.textContent = "正在排队..."; }
-  try {
-    const response = await fetch(`${root}/api/bookshelf/items/${item.id}/cache`, { method: "POST" });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || "cache task failed");
-    upsertTask(payload.task);
-    startPollingTask(payload.task.id);
-    activateTab("tasks");
-    setStatus(`已开始缓存：${payload.task.site}/${payload.task.book_id}`);
-  } catch (error) {
-    setBookshelfStatus(`缓存失败：${error.message}`);
-  } finally {
-    if (button) { button.disabled = false; button.textContent = original; }
   }
 }
 
@@ -2745,7 +2815,8 @@ async function addCurrentDetailToBookshelf(result, variant, detail, button, opti
   };
 
   const original = button ? button.textContent : "";
-  if (button) { button.disabled = true; button.textContent = "已加入"; }
+  const progressView = !silent ? createInlineTaskView() : null;
+  if (button) { button.disabled = true; button.textContent = "加入中..."; }
   try {
     const response = await fetch(`${root}/api/bookshelf/books`, {
       method: "POST",
@@ -2755,7 +2826,16 @@ async function addCurrentDetailToBookshelf(result, variant, detail, button, opti
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "add bookshelf failed");
     appState.bookshelf.loaded = false;
-    if (!silent) setStatus(`已加入书架：${data.item.title || data.item.book_id}`);
+    if (progressView && button && button.parentElement && button.parentElement.parentElement) {
+      button.parentElement.parentElement.insertBefore(progressView, button.parentElement.nextSibling);
+    }
+    if (!silent) setStatus(`已加入书架，开始下载到服务器本地：${data.item.title || data.item.book_id}`);
+    await startDownloadTask({ site, book_id: bookID }, null, {
+      inlineView: progressView,
+      keepDetailOpen: true,
+      noActivate: true,
+    });
+    if (button) { button.disabled = false; button.textContent = original; }
   } catch (error) {
     if (!silent) setStatus(`加入书架失败：${error.message}`);
     if (button) { button.disabled = false; button.textContent = original; }
@@ -2767,7 +2847,7 @@ async function openBookshelfReader(item, button) {
   if (button) { button.disabled = true; button.textContent = "加载中..."; }
   try {
     if (!item.site || !item.book_id) throw new Error("缺少站点或 book_id");
-    const variant = { site: item.site, book_id: item.book_id, title: item.title, author: item.author, url: item.source_url };
+    const variant = { site: item.site, book_id: item.book_id, title: item.title, author: item.author, url: item.source_url, local: true };
     const synthetic = {
       title: item.title,
       author: item.author,
@@ -2782,13 +2862,13 @@ async function openBookshelfReader(item, button) {
     appState.detailResult = synthetic;
     appState.activeDetailVariant = variant;
     setStatus(`正在打开《${item.title || item.book_id}》...`);
-    const detail = await fetchBookDetail(variant, 1, normalizedChapterPageSize());
+    const detail = await fetchBookDetail(variant, 1, normalizedChapterPageSize(), { local: true });
     if (!detail || !detail.book) throw new Error("未返回详情数据");
     const initialChapters = Array.isArray(detail.book.chapters) ? detail.book.chapters : [];
     const chapters = await loadReaderCatalog(variant, detail.chapterPage, initialChapters);
     if (!chapters.length) throw new Error("没有可用的章节");
 
-    setupReaderTracker(item.site, item.book_id, item.title);
+    setupReaderTracker(item.site, item.book_id, item.title, true);
     const startIndex = resolveBookshelfStartIndex(chapters, item);
     openReader(chapters, startIndex);
     if (startIndex > 0) {
@@ -2799,7 +2879,7 @@ async function openBookshelfReader(item, button) {
       setStatus(`已打开《${item.title || item.book_id}》`);
     }
   } catch (error) {
-    setStatus(`加载阅读器失败：${error.message}`);
+    setStatus(`加载本地阅读器失败：${error.message}。请先点击下载到本地。`);
   } finally {
     if (button) { button.disabled = false; button.textContent = original; }
   }
@@ -2823,7 +2903,7 @@ function resolveBookshelfStartIndex(chapters, item) {
   return 0;
 }
 
-function setupReaderTracker(site, bookID, title) {
+function setupReaderTracker(site, bookID, title, localOnly = false) {
   const tracker = appState.reader;
   if (!tracker) return;
   if (tracker.progressTimer) {
@@ -2833,5 +2913,6 @@ function setupReaderTracker(site, bookID, title) {
   tracker.site = String(site || "").trim();
   tracker.bookID = String(bookID || "").trim();
   tracker.title = String(title || "").trim();
+  tracker.localOnly = Boolean(localOnly);
   tracker.lastReportedChapterID = "";
 }

@@ -440,6 +440,12 @@ body.web-images-blurred .result-card:hover .result-cover {
 .task-progress-fill { height: 100%; border-radius: 999px; background: var(--accent); transition: width 0.4s ease; }
 .task-card.is-completed .task-progress-fill { background: var(--success); }
 .task-card.is-failed .task-progress-fill { background: var(--error); }
+.inline-progress {
+  display: grid; gap: 6px; margin-top: 10px; padding: 10px;
+  border: 1px solid var(--line); border-radius: 10px; background: rgba(248, 250, 252, 0.88);
+}
+.inline-progress-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; font-weight: 700; color: var(--accent-deep); }
+.inline-progress-meta { color: var(--muted); font-size: 12px; line-height: 1.4; }
 
 .file-list { margin: 10px 0 0; padding: 10px; background: #f8fafc; border-radius: 6px; color: var(--info); border: 1px solid #e2e8f0; }    
 .file-download-link { color: var(--accent-deep); text-decoration: none; font-weight: 600; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; }

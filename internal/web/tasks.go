@@ -19,10 +19,12 @@ type DownloadTaskMessage struct {
 	Text  string    `json:"text"`
 }
 
-// DownloadTaskTarget controls how a task's output is delivered. browser ->
-// generates files for browser download (default); shelf -> only caches the raw
-// data into the local library so the in-app reader can use it.
+// DownloadTaskTarget controls how a task's output is delivered. local writes
+// the book into the server-side library; export reads the local library and
+// generates downloadable files. browser/shelf are kept as legacy aliases.
 const (
+	DownloadTaskTargetLocal   = "local"
+	DownloadTaskTargetExport  = "export"
 	DownloadTaskTargetBrowser = "browser"
 	DownloadTaskTargetShelf   = "shelf"
 )
@@ -327,6 +329,11 @@ func (s *DownloadTaskStore) MarkExporting(id string, done int, total int) {
 	s.update(id, func(task *DownloadTask) {
 		task.Status = "running"
 		task.Phase = "exporting"
+		message := "章节抓取完成，正在导出"
+		if task.Target == DownloadTaskTargetLocal || task.Target == DownloadTaskTargetShelf {
+			task.Phase = "saving"
+			message = "章节下载完成，正在保存到服务器本地"
+		}
 		if total <= 0 {
 			total = task.TotalChapters
 		}
@@ -342,7 +349,7 @@ func (s *DownloadTaskStore) MarkExporting(id string, done int, total int) {
 		}
 		task.CompletedChapters = done
 		task.CurrentChapter = ""
-		appendTaskMessage(task, "info", "章节抓取完成，正在导出")
+		appendTaskMessage(task, "info", message)
 	})
 }
 
@@ -361,7 +368,11 @@ func (s *DownloadTaskStore) MarkCompleted(id string, title string, exported []st
 			task.Title = title
 		}
 		task.Exported = append([]string(nil), exported...)
-		appendTaskMessage(task, "success", fmt.Sprintf("导出完成（%d个文件）", len(exported)))
+		if len(exported) > 0 || task.Target == DownloadTaskTargetExport || task.Target == DownloadTaskTargetBrowser {
+			appendTaskMessage(task, "success", fmt.Sprintf("导出完成（%d个文件）", len(exported)))
+		} else {
+			appendTaskMessage(task, "success", "下载完成，已保存到服务器本地")
+		}
 		if hasEPUBExport(exported) {
 			elapsed := now.Sub(task.StartTime)
 			if task.StartTime.IsZero() || elapsed < 0 {
