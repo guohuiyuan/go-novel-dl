@@ -9,12 +9,23 @@
   <link rel="stylesheet" href="{{ .Root }}/style.css">
 </head>
 <body>
-  <button id="openGeneralConfig" class="settings-float" aria-label="设置中心">
-    <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="12" cy="12" r="3"></circle>
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-    </svg>
-  </button>
+  <nav class="right-rail" aria-label="次级导航">
+    <button type="button" id="historyRailButton" class="right-rail-btn" data-tab="history" aria-label="阅读历史">
+      <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M3 12a9 9 0 1 0 3-6.7"></path>
+        <path d="M3 4v5h5"></path>
+        <path d="M12 7v5l3 2"></path>
+      </svg>
+      <span class="right-rail-label">历史</span>
+    </button>
+    <button type="button" id="openGeneralConfig" class="right-rail-btn" aria-label="设置中心">
+      <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="3"></circle>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+      </svg>
+      <span class="right-rail-label">设置</span>
+    </button>
+  </nav>
 
   <div class="page-shell">
     <header class="hero">
@@ -31,9 +42,6 @@
       </button>
       <button type="button" id="bookshelfTabButton" class="tab-button" data-tab="bookshelf">
         书架
-      </button>
-      <button type="button" id="historyTabButton" class="tab-button" data-tab="history">
-        阅读历史
       </button>
       <button type="button" id="tasksTabButton" class="tab-button" data-tab="tasks">
         下载任务
@@ -178,6 +186,28 @@
       </div>
 
       <div class="settings-layout">
+        <section class="config-section-card">
+          <div class="config-section-head">
+            <h3>版本</h3>
+            <p class="config-section-desc">查看当前版本，并通过镜像检查 GitHub 上是否有新版本发布。</p>
+          </div>
+          <div class="version-panel">
+            <div class="version-row">
+              <span class="version-label">当前版本</span>
+              <code id="versionCurrent" class="version-current">-</code>
+              <a id="versionRepoLink" class="version-link" target="_blank" rel="noopener noreferrer">仓库主页</a>
+            </div>
+            <div class="version-row version-controls">
+              <label class="search-field" for="versionMirror" style="margin: 0; flex: 1; min-width: 0;">
+                <span class="field-label">检查镜像</span>
+                <select id="versionMirror" class="search-input"></select>
+              </label>
+              <button type="button" id="versionCheckButton" class="search-button">检查更新</button>
+            </div>
+            <div id="versionResult" class="version-result" hidden></div>
+          </div>
+        </section>
+
         <section class="config-section-card">
           <div class="config-section-head">
             <h3>全局配置</h3>
@@ -373,6 +403,7 @@
       siteWarnings: {{ toJSON .SiteWarnings }},
       siteStats: {{ toJSON .SiteStats }},
       generalConfig: {{ toJSON .GeneralConfig }},
+      version: {{ toJSON .Version }},
       pageSize: {{ toJSON .PageSize }}
     };
   </script>

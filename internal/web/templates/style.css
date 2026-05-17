@@ -56,31 +56,68 @@ button { border: 0; outline: none; }
   padding: 16px 0 24px;
 }
 
-.settings-float {
+/* 右侧侧边栏：阅读历史 + 设置 */
+.right-rail {
   position: fixed;
-  top: 16px;
+  top: 50%;
   right: 16px;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 80;
+}
+.right-rail-btn {
+  width: 56px;
+  min-height: 56px;
+  border-radius: 16px;
   border: 1px solid var(--line);
   background: #ffffff;
   color: var(--accent);
   display: inline-flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 2px;
   cursor: pointer;
-  z-index: 80;
   box-shadow: var(--shadow);
-  transition: transform 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, color 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+  padding: 6px 4px;
 }
-
-.settings-float:hover {
-  transform: translateY(-2px) rotate(30deg);
+.right-rail-btn:hover {
+  transform: translateY(-2px);
   box-shadow: var(--shadow-hover);
   color: var(--accent-strong);
 }
-body.has-overlay .settings-float { display: none; }
+.right-rail-btn.is-active {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  border-color: var(--accent);
+}
+.right-rail-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.right-rail-label {
+  font-size: 11px;
+  line-height: 1.1;
+  font-weight: 600;
+  color: inherit;
+}
+body.has-overlay .right-rail { display: none; }
+
+@media (max-width: 768px) {
+  .right-rail {
+    top: auto;
+    bottom: 80px;
+    right: 12px;
+    transform: none;
+    flex-direction: row;
+    gap: 8px;
+  }
+  .right-rail-btn { width: 48px; min-height: 48px; border-radius: 12px; padding: 4px; }
+  .right-rail-label { font-size: 10px; }
+}
 
 .panel-card, .status-card, .warning-item, .task-card, .result-card, 
 .detail-section, .chapter-item, .chapter-volume, .detail-source-button, .source-option {
@@ -815,3 +852,31 @@ body.web-images-blurred .result-card:hover .result-cover {
 
 .task-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .tasks-tools { display: inline-flex; gap: 10px; align-items: center; }
+
+/* 版本检查面板 */
+.version-panel { display: grid; gap: 10px; }
+.version-row {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+}
+.version-controls { gap: 12px; align-items: flex-end; }
+.version-label { font-size: 12px; color: var(--muted); font-weight: 700; }
+.version-current {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace;
+  font-size: 14px; font-weight: 700; color: var(--accent-strong);
+  background: var(--accent-soft); padding: 4px 10px; border-radius: 999px;
+}
+.version-link {
+  margin-left: auto; font-size: 12px; color: var(--accent-strong); text-decoration: none;
+  border-bottom: 1px dashed var(--accent-soft);
+}
+.version-link:hover { border-bottom-color: var(--accent); }
+.version-result {
+  padding: 10px 12px; border-radius: 10px; font-size: 13px; line-height: 1.5;
+  border: 1px solid var(--line); background: #f8fafc; color: var(--text);
+}
+.version-result a { color: var(--accent-strong); text-decoration: underline; }
+.version-result[data-kind="ok"] { background: #ecfdf5; border-color: #a7f3d0; color: #047857; }
+.version-result[data-kind="warning"] { background: #fffbeb; border-color: #fcd34d; color: #92400e; }
+.version-result[data-kind="error"] { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
+.version-result[data-kind="info"] { background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8; }
+#versionCheckButton.is-loading { opacity: 0.7; cursor: progress; }

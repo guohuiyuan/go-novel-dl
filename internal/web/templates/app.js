@@ -4,6 +4,7 @@ const allSources = window.__NOVEL_DL__.allSources || [];
 const configurableSiteKeys = ["novalpie", "esjzone"];
 const defaultPageSize = window.__NOVEL_DL__.pageSize || 50;
 const initialGeneralConfig = window.__NOVEL_DL__.generalConfig || {};
+const versionInfo = window.__NOVEL_DL__.version || { current: "", repo: "", mirrors: [] };
 const sourceLabelMap = new Map(
   allSources.map((source) => [source.key, source.display_name || source.key]),
 );
@@ -321,7 +322,7 @@ const tasksClearFinishedButton = document.getElementById("tasksClearFinished");
 const searchTabButton = document.getElementById("searchTabButton");
 const bookshelfTabButton = document.getElementById("bookshelfTabButton");
 const bookshelfTabCountNode = document.getElementById("bookshelfTabCount");
-const historyTabButton = document.getElementById("historyTabButton");
+const historyTabButton = document.getElementById("historyRailButton");
 const historyTabCountNode = document.getElementById("historyTabCount");
 const tasksTabButton = document.getElementById("tasksTabButton");
 const searchTabPanel = document.getElementById("searchTabPanel");
@@ -378,6 +379,12 @@ const generalCLIPageSizeNode = document.getElementById("generalCLIPageSize");
 const generalRawDataDirNode = document.getElementById("generalRawDataDir");
 const generalCacheDirNode = document.getElementById("generalCacheDir");
 const generalOutputDirNode = document.getElementById("generalOutputDir");
+
+const versionCurrentNode = document.getElementById("versionCurrent");
+const versionRepoLinkNode = document.getElementById("versionRepoLink");
+const versionMirrorNode = document.getElementById("versionMirror");
+const versionCheckButton = document.getElementById("versionCheckButton");
+const versionResultNode = document.getElementById("versionResult");
 
 const backToTopButton = document.getElementById("backToTop");
 
@@ -455,6 +462,8 @@ function bootstrap() {
   if (speedTestSourcesButton) {
     speedTestSourcesButton.addEventListener("click", () => void runSourceSpeedTest());
   }
+
+  setupVersionPanel();
 
   clearTagFiltersButton.addEventListener("click", () => {
     if (appState.selectedSourceTags.size === 0) return;
@@ -763,6 +772,129 @@ function summarizeSpeedResults(results) {
   const slowest = ok.reduce((worst, row) => (worst && worst.elapsed_ms >= row.elapsed_ms ? worst : row));
   const failNote = fail > 0 ? `，失败 ${fail}` : "";
   return `测速完成：成功 ${ok.length}${failNote}。最快 ${fastest.site} ${formatSpeedMs(fastest.elapsed_ms)}，最慢 ${slowest.site} ${formatSpeedMs(slowest.elapsed_ms)}。`;
+}
+
+// -----------------------------------------------------------------------------
+// 版本检查
+// -----------------------------------------------------------------------------
+
+function setupVersionPanel() {
+  if (versionCurrentNode) {
+    versionCurrentNode.textContent = versionInfo.current ? `v${versionInfo.current}` : "未知";
+  }
+  if (versionRepoLinkNode && versionInfo.repo) {
+    versionRepoLinkNode.href = `https://github.com/${versionInfo.repo}`;
+  } else if (versionRepoLinkNode) {
+    versionRepoLinkNode.hidden = true;
+  }
+  if (versionMirrorNode) {
+    versionMirrorNode.innerHTML = "";
+    const mirrors = Array.isArray(versionInfo.mirrors) ? versionInfo.mirrors : [];
+    const auto = document.createElement("option");
+    auto.value = "";
+    auto.textContent = "自动（并发尝试所有镜像）";
+    versionMirrorNode.appendChild(auto);
+    mirrors.forEach((mirror) => {
+      const opt = document.createElement("option");
+      opt.value = mirror.key;
+      opt.textContent = mirror.label || mirror.key;
+      versionMirrorNode.appendChild(opt);
+    });
+  }
+  if (versionCheckButton) {
+    versionCheckButton.addEventListener("click", () => void runVersionCheck());
+  }
+}
+
+async function runVersionCheck() {
+  if (!versionCheckButton) return;
+  const mirror = versionMirrorNode ? versionMirrorNode.value : "";
+  versionCheckButton.disabled = true;
+  versionCheckButton.classList.add("is-loading");
+  setVersionResult({ kind: "info", text: "正在检查最新版本..." });
+  try {
+    const response = await fetch(`${root}/api/version/check`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mirror }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.error || `version check failed (${response.status})`);
+    }
+    if (payload.error) {
+      setVersionResult({ kind: "error", text: `检查失败：${payload.error}` });
+      return;
+    }
+    renderVersionResult(payload);
+  } catch (error) {
+    setVersionResult({ kind: "error", text: `检查失败：${error.message}` });
+  } finally {
+    versionCheckButton.disabled = false;
+    versionCheckButton.classList.remove("is-loading");
+  }
+}
+
+function renderVersionResult(payload) {
+  const current = (payload.current || "").replace(/^v/, "");
+  const latest = (payload.latest || "").replace(/^v/, "");
+  if (!latest) {
+    setVersionResult({ kind: "info", text: "未获取到最新版本号。" });
+    return;
+  }
+  const cmp = compareSemver(latest, current);
+  const mirrorTag = payload.mirror_used ? ` · 镜像 ${payload.mirror_used}` : "";
+  const releaseLink = payload.html_url
+    ? `<a href="${payload.html_url}" target="_blank" rel="noopener noreferrer">查看 Release</a>`
+    : "";
+  const publishedAt = payload.published_at ? `（发布于 ${formatDate(payload.published_at)}）` : "";
+
+  if (cmp > 0) {
+    setVersionResult({
+      kind: "warning",
+      html: `<strong>有新版本：v${latest}</strong>${publishedAt}<br>当前 v${current}${mirrorTag}<br>${releaseLink}`,
+    });
+  } else if (cmp === 0) {
+    setVersionResult({
+      kind: "ok",
+      html: `已是最新版本 <strong>v${current}</strong>${mirrorTag}<br>${releaseLink}`,
+    });
+  } else {
+    setVersionResult({
+      kind: "info",
+      html: `当前 v${current} 高于 GitHub 最新发布 v${latest}${mirrorTag}<br>${releaseLink}`,
+    });
+  }
+}
+
+function setVersionResult(opts) {
+  if (!versionResultNode) return;
+  versionResultNode.hidden = false;
+  versionResultNode.dataset.kind = opts.kind || "info";
+  if (opts.html) {
+    versionResultNode.innerHTML = opts.html;
+  } else {
+    versionResultNode.textContent = opts.text || "";
+  }
+}
+
+function compareSemver(a, b) {
+  const pa = (a || "").split(/[.+-]/).map((part) => Number.parseInt(part, 10));
+  const pb = (b || "").split(/[.+-]/).map((part) => Number.parseInt(part, 10));
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i += 1) {
+    const ai = Number.isFinite(pa[i]) ? pa[i] : 0;
+    const bi = Number.isFinite(pb[i]) ? pb[i] : 0;
+    if (ai > bi) return 1;
+    if (ai < bi) return -1;
+  }
+  return 0;
+}
+
+function formatDate(iso) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString();
 }
 
 function toggleSource(siteKey) {

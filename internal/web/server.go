@@ -361,6 +361,7 @@ func newRouter(service *Service) *gin.Engine {
 			"SiteWarnings":   service.SiteWarnings,
 			"SiteStats":      service.SiteStats,
 			"GeneralConfig":  service.GeneralConfig,
+			"Version":        currentVersionInfo(),
 		})
 	})
 	group.GET("/style.css", func(c *gin.Context) {
@@ -382,7 +383,24 @@ func newRouter(service *Service) *gin.Engine {
 			"site_warnings":   service.SiteWarnings,
 			"site_stats":      service.SiteStats,
 			"general_config":  service.GeneralConfig,
+			"version":         currentVersionInfo(),
 		})
+	})
+	group.GET("/api/version", func(c *gin.Context) {
+		c.JSON(http.StatusOK, currentVersionInfo())
+	})
+	group.POST("/api/version/check", func(c *gin.Context) {
+		var req struct {
+			Mirror string `json:"mirror"`
+		}
+		if c.Request.ContentLength > 0 {
+			if err := c.ShouldBindJSON(&req); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+				return
+			}
+		}
+		result := checkLatestVersion(c.Request.Context(), req.Mirror)
+		c.JSON(http.StatusOK, result)
 	})
 	group.GET("/api/general-config", func(c *gin.Context) {
 		record, err := config.LoadGeneralConfig()
