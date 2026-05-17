@@ -64,6 +64,8 @@
             <div class="selection-toolbar">
               <button type="button" id="selectAllSources" class="tool-button">全选</button>
               <button type="button" id="clearSources" class="tool-button is-ghost">清空</button>
+              <button type="button" id="speedTestSources" class="tool-button is-ghost" title="并发请求每个搜索源，记录响应耗时">测速</button>
+              <span id="speedTestStatus" class="speed-test-status" aria-live="polite"></span>
             </div>
 
             <section class="source-tag-panel" aria-labelledby="sourceTagHeading">

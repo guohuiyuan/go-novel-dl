@@ -178,7 +178,7 @@ func newService(configPath string) (*Service, error) {
 	runtime.Progress = progress.NullReporter{}
 
 	allSources := searchableDownloadDescriptors(runtime.Registry.SiteDescriptors(runtime.AllSearchSites()))
-	defaultSources := allSources
+	defaultSources := defaultAvailableDescriptors(allSources)
 
 	pageSize := webPageSizeFromConfig(cfg)
 
@@ -574,6 +574,15 @@ func newRouter(service *Service) *gin.Engine {
 		}
 
 		c.JSON(http.StatusOK, paginateSearchResponse(response, page, pageSize))
+	})
+	group.POST("/api/sources/speedtest", func(c *gin.Context) {
+		var req sourceSpeedRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+			return
+		}
+		response := service.runSourceSpeedTest(c.Request.Context(), req)
+		c.JSON(http.StatusOK, response)
 	})
 	group.POST("/api/download-tasks", func(c *gin.Context) {
 		var req downloadRequest
@@ -1433,6 +1442,24 @@ func searchableDownloadDescriptors(items []site.SiteDescriptor) []site.SiteDescr
 	return filtered
 }
 
+// defaultAvailableDescriptors keeps only the descriptors whose key is in the
+// curated default-available list, preserving the input ordering. Used to seed
+// the UI's pre-selected channels on first visit.
+func defaultAvailableDescriptors(items []site.SiteDescriptor) []site.SiteDescriptor {
+	if len(items) == 0 {
+		return nil
+	}
+	allowed := site.DefaultAvailableSiteSet()
+	filtered := make([]site.SiteDescriptor, 0, len(allowed))
+	for _, item := range items {
+		if _, ok := allowed[item.Key]; !ok {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	return filtered
+}
+
 func siteSupportsDownload(registry *site.Registry, siteKey string) bool {
 	if registry == nil {
 		return false
@@ -1660,4 +1687,110 @@ func maxDuration(left, right time.Duration) time.Duration {
 		return left
 	}
 	return right
+}
+
+// sourceSpeedRequest is the body for /api/sources/speedtest. All fields are
+// optional: when sites is empty every available downloadable source is tested,
+// the keyword falls back to a generic Chinese probe, and the timeout uses a
+// safe default tuned for slower mirrors.
+type sourceSpeedRequest struct {
+	Keyword          string   `json:"keyword"`
+	Sites            []string `json:"sites"`
+	PerSiteTimeoutMs int      `json:"per_site_timeout_ms"`
+}
+
+// sourceSpeedResult is the per-site outcome.
+type sourceSpeedResult struct {
+	Site      string `json:"site"`
+	OK        bool   `json:"ok"`
+	ElapsedMs int64  `json:"elapsed_ms"`
+	Count     int    `json:"count"`
+	Error     string `json:"error,omitempty"`
+	TimedOut  bool   `json:"timed_out,omitempty"`
+}
+
+// sourceSpeedResponse aggregates results across the tested sites.
+type sourceSpeedResponse struct {
+	Keyword string              `json:"keyword"`
+	Results []sourceSpeedResult `json:"results"`
+}
+
+const (
+	sourceSpeedDefaultKeyword     = "测试"
+	sourceSpeedDefaultTimeout     = 8 * time.Second
+	sourceSpeedMaxTimeout         = 30 * time.Second
+	sourceSpeedSearchResultsLimit = 1
+)
+
+// runSourceSpeedTest fans out a one-shot Search call per site and reports the
+// elapsed time, returning a stable shape regardless of partial failures.
+func (s *Service) runSourceSpeedTest(parent context.Context, req sourceSpeedRequest) sourceSpeedResponse {
+	keyword := strings.TrimSpace(req.Keyword)
+	if keyword == "" {
+		keyword = sourceSpeedDefaultKeyword
+	}
+
+	allowed := descriptorKeySet(s.AllSources)
+	sites := normalizeSites(req.Sites)
+	if len(sites) > 0 {
+		sites = filterAllowedSites(sites, allowed)
+	}
+	if len(sites) == 0 {
+		sites = descriptorKeys(s.AllSources)
+	}
+	if len(sites) == 0 {
+		return sourceSpeedResponse{Keyword: keyword, Results: []sourceSpeedResult{}}
+	}
+
+	timeout := time.Duration(req.PerSiteTimeoutMs) * time.Millisecond
+	if timeout <= 0 {
+		timeout = sourceSpeedDefaultTimeout
+	}
+	if timeout > sourceSpeedMaxTimeout {
+		timeout = sourceSpeedMaxTimeout
+	}
+
+	results := make([]sourceSpeedResult, len(sites))
+	var wg sync.WaitGroup
+	for idx, siteKey := range sites {
+		idx, siteKey := idx, siteKey
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results[idx] = s.measureSiteSpeed(parent, siteKey, keyword, timeout)
+		}()
+	}
+	wg.Wait()
+	return sourceSpeedResponse{Keyword: keyword, Results: results}
+}
+
+func (s *Service) measureSiteSpeed(parent context.Context, siteKey, keyword string, timeout time.Duration) sourceSpeedResult {
+	out := sourceSpeedResult{Site: siteKey}
+	if s.Runtime == nil || s.Runtime.Registry == nil {
+		out.Error = "runtime is not initialised"
+		return out
+	}
+	resolved := s.Config.ResolveSiteConfig(siteKey)
+	client, err := s.Runtime.Registry.Build(siteKey, resolved)
+	if err != nil {
+		out.Error = err.Error()
+		return out
+	}
+
+	ctx, cancel := context.WithTimeout(parent, timeout)
+	defer cancel()
+
+	start := time.Now()
+	items, err := client.Search(ctx, keyword, sourceSpeedSearchResultsLimit)
+	out.ElapsedMs = time.Since(start).Milliseconds()
+	if err != nil {
+		out.Error = err.Error()
+		if ctx.Err() != nil {
+			out.TimedOut = true
+		}
+		return out
+	}
+	out.OK = true
+	out.Count = len(items)
+	return out
 }

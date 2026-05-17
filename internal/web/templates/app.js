@@ -75,6 +75,12 @@ const appState = {
     loading: false,
     loaded: false,
   },
+  sourceSpeed: {
+    running: false,
+    keyword: "",
+    lastRunAt: 0,
+    byKey: new Map(),
+  },
   reader: {
     site: "",
     bookID: "",
@@ -332,6 +338,8 @@ const bookshelfNewFolderButton = document.getElementById("bookshelfNewFolder");
 const bookshelfRefreshButton = document.getElementById("bookshelfRefresh");
 const selectAllSourcesButton = document.getElementById("selectAllSources");
 const clearSourcesButton = document.getElementById("clearSources");
+const speedTestSourcesButton = document.getElementById("speedTestSources");
+const speedTestStatusNode = document.getElementById("speedTestStatus");
 const sourceFiltersNode = document.getElementById("sourceFilters");
 const sourceFiltersToggleButton = document.getElementById("sourceFiltersToggle");
 const sourceFiltersToggleSummaryNode = document.getElementById("sourceFiltersToggleSummary");
@@ -443,6 +451,10 @@ function bootstrap() {
     renderSourceSelector();
     setStatus(appState.selectedSourceTags.size > 0 ? `已清空当前筛选范围内的 ${visibleSources.length} 个渠道选择。` : "已清空渠道选择。");
   });
+
+  if (speedTestSourcesButton) {
+    speedTestSourcesButton.addEventListener("click", () => void runSourceSpeedTest());
+  }
 
   clearTagFiltersButton.addEventListener("click", () => {
     if (appState.selectedSourceTags.size === 0) return;
@@ -628,6 +640,9 @@ function renderSourceSelector() {
       tags.appendChild(tag);
     });
 
+    const speedBadge = renderSourceSpeedBadge(source.key);
+    if (speedBadge) tags.appendChild(speedBadge);
+
     button.appendChild(title);
     button.appendChild(key);
     button.appendChild(tags);
@@ -636,6 +651,118 @@ function renderSourceSelector() {
   });
   sourceSummaryNode.textContent = sourceSummaryText(visibleSources.length);
   refreshSourceFiltersToggleSummary();
+}
+
+function renderSourceSpeedBadge(siteKey) {
+  const speed = appState.sourceSpeed;
+  if (!speed) return null;
+  const entry = speed.byKey.get(siteKey);
+  if (!entry) {
+    if (!speed.running) return null;
+    const pending = document.createElement("span");
+    pending.className = "source-option-speed is-pending";
+    pending.textContent = "测速中…";
+    return pending;
+  }
+  const badge = document.createElement("span");
+  badge.className = "source-option-speed";
+  if (entry.status === "pending") {
+    badge.classList.add("is-pending");
+    badge.textContent = "测速中…";
+    return badge;
+  }
+  if (entry.status === "ok") {
+    badge.classList.add("is-ok");
+    const elapsed = formatSpeedMs(entry.elapsedMs);
+    const countText = Number.isFinite(entry.count) ? `· ${entry.count} 条` : "";
+    badge.textContent = `${elapsed} ${countText}`.trim();
+    badge.title = `响应 ${entry.elapsedMs} ms，命中 ${entry.count} 条结果`;
+    return badge;
+  }
+  badge.classList.add(entry.timedOut ? "is-timeout" : "is-error");
+  badge.textContent = entry.timedOut ? `超时 · ${formatSpeedMs(entry.elapsedMs)}` : `失败 · ${formatSpeedMs(entry.elapsedMs)}`;
+  badge.title = entry.error || (entry.timedOut ? "测速请求超时" : "测速失败");
+  return badge;
+}
+
+function formatSpeedMs(ms) {
+  const value = Math.max(0, Math.round(Number(ms) || 0));
+  if (value < 1000) return `${value} ms`;
+  return `${(value / 1000).toFixed(value < 10000 ? 2 : 1)} s`;
+}
+
+function setSpeedTestStatus(text) {
+  if (!speedTestStatusNode) return;
+  speedTestStatusNode.textContent = text || "";
+}
+
+async function runSourceSpeedTest() {
+  if (!speedTestSourcesButton) return;
+  const speed = appState.sourceSpeed;
+  if (!speed || speed.running) return;
+
+  const visibleSources = filteredSources();
+  if (!visibleSources.length) {
+    setStatus("当前标签筛选下没有可测速的渠道。");
+    return;
+  }
+
+  const keyword = (keywordInput && keywordInput.value.trim()) || "测试";
+  const sites = visibleSources.map((source) => source.key);
+
+  speed.running = true;
+  speed.keyword = keyword;
+  speed.byKey = new Map(sites.map((key) => [key, { status: "pending" }]));
+  speedTestSourcesButton.disabled = true;
+  speedTestSourcesButton.classList.add("is-loading");
+  setSpeedTestStatus(`正在测速：${sites.length} 个渠道，关键字「${keyword}」`);
+  renderSourceSelector();
+
+  try {
+    const response = await fetch(`${root}/api/sources/speedtest`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ keyword, sites, per_site_timeout_ms: 8000 }),
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.error || `speedtest failed (${response.status})`);
+    }
+    const payload = await response.json();
+    const results = Array.isArray(payload && payload.results) ? payload.results : [];
+    const next = new Map();
+    results.forEach((row) => {
+      if (!row || !row.site) return;
+      next.set(row.site, {
+        status: row.ok ? "ok" : "error",
+        elapsedMs: Number(row.elapsed_ms) || 0,
+        count: Number(row.count) || 0,
+        error: row.error || "",
+        timedOut: Boolean(row.timed_out),
+      });
+    });
+    speed.byKey = next;
+    speed.lastRunAt = Date.now();
+    setSpeedTestStatus(summarizeSpeedResults(results));
+  } catch (error) {
+    setSpeedTestStatus(`测速失败：${error.message}`);
+  } finally {
+    speed.running = false;
+    speedTestSourcesButton.disabled = false;
+    speedTestSourcesButton.classList.remove("is-loading");
+    renderSourceSelector();
+  }
+}
+
+function summarizeSpeedResults(results) {
+  if (!Array.isArray(results) || !results.length) return "测速完成：无结果。";
+  const ok = results.filter((row) => row && row.ok);
+  const fail = results.length - ok.length;
+  if (!ok.length) return `测速完成：${results.length} 个渠道全部失败。`;
+  const fastest = ok.reduce((best, row) => (best && best.elapsed_ms <= row.elapsed_ms ? best : row));
+  const slowest = ok.reduce((worst, row) => (worst && worst.elapsed_ms >= row.elapsed_ms ? worst : row));
+  const failNote = fail > 0 ? `，失败 ${fail}` : "";
+  return `测速完成：成功 ${ok.length}${failNote}。最快 ${fastest.site} ${formatSpeedMs(fastest.elapsed_ms)}，最慢 ${slowest.site} ${formatSpeedMs(slowest.elapsed_ms)}。`;
 }
 
 function toggleSource(siteKey) {
@@ -2868,7 +2995,11 @@ async function openBookshelfReader(item, button) {
   if (button) { button.disabled = true; button.textContent = "加载中..."; }
   try {
     if (!item.site || !item.book_id) throw new Error("缺少站点或 book_id");
-    const variant = { site: item.site, book_id: item.book_id, title: item.title, author: item.author, url: item.source_url, local: true };
+
+    setStatus(`正在打开《${item.title || item.book_id}》...`);
+    const { detail, variant, localOnly } = await loadDetailWithLocalFallback(item);
+    if (!detail || !detail.book) throw new Error("未返回详情数据");
+
     const synthetic = {
       title: item.title,
       author: item.author,
@@ -2882,15 +3013,13 @@ async function openBookshelfReader(item, button) {
     };
     appState.detailResult = synthetic;
     appState.activeDetailVariant = variant;
-    setStatus(`正在打开《${item.title || item.book_id}》...`);
-    const detail = await fetchBookDetail(variant, 1, normalizedChapterPageSize(), { local: true });
-    if (!detail || !detail.book) throw new Error("未返回详情数据");
+
     const initialChapters = Array.isArray(detail.book.chapters) ? detail.book.chapters : [];
     const chapters = await loadReaderCatalog(variant, detail.chapterPage, initialChapters);
     if (!chapters.length) throw new Error("没有可用的章节");
 
     setupReaderTracker(item.site, item.book_id, item.title, {
-      localOnly: true,
+      localOnly,
       author: item.author || "",
       coverURL: item.cover_url || "",
       description: item.description || "",
@@ -2899,18 +3028,44 @@ async function openBookshelfReader(item, button) {
     });
     const startIndex = resolveBookshelfStartIndex(chapters, item);
     openReader(chapters, startIndex);
+    const sourceTag = localOnly ? "本地缓存" : "在线";
     if (startIndex > 0) {
       const startChapter = chapters[startIndex];
       const label = (startChapter && startChapter.title) || `第 ${startIndex + 1} 章`;
-      setStatus(`已跳到《${item.title || item.book_id}》上次阅读位置：${label}`);
+      setStatus(`已跳到《${item.title || item.book_id}》上次阅读位置：${label}（${sourceTag}）`);
     } else {
-      setStatus(`已打开《${item.title || item.book_id}》`);
+      setStatus(`已打开《${item.title || item.book_id}》（${sourceTag}）`);
     }
   } catch (error) {
-    setStatus(`加载本地阅读器失败：${error.message}。请先点击下载到本地。`);
+    setStatus(`加载阅读器失败：${error.message}`);
   } finally {
     if (button) { button.disabled = false; button.textContent = original; }
   }
+}
+
+// loadDetailWithLocalFallback prefers cached local data so downloaded books open
+// instantly, then transparently falls back to the online source for items that
+// have never been downloaded (e.g. implicit history rows from web reading).
+async function loadDetailWithLocalFallback(item) {
+  const baseVariant = {
+    site: item.site,
+    book_id: item.book_id,
+    title: item.title,
+    author: item.author,
+    url: item.source_url,
+  };
+  const localVariant = { ...baseVariant, local: true };
+  try {
+    const detail = await fetchBookDetail(localVariant, 1, normalizedChapterPageSize(), { local: true });
+    if (detail && detail.book && Array.isArray(detail.book.chapters) && detail.book.chapters.length > 0) {
+      return { detail, variant: localVariant, localOnly: true };
+    }
+  } catch (_) {
+    // Ignore local miss and fall through to online lookup.
+  }
+  const onlineVariant = { ...baseVariant, local: false };
+  const detail = await fetchBookDetail(onlineVariant, 1, normalizedChapterPageSize());
+  return { detail, variant: onlineVariant, localOnly: false };
 }
 
 function resolveBookshelfStartIndex(chapters, item) {

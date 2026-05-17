@@ -15,30 +15,19 @@ type SiteDescriptor struct {
 }
 
 var defaultAvailableSiteKeys = []string{
-	"aaatxt",
-	"esjzone",
-	"linovelib",
-	"linovel",
-	"lnovel",
-	"shencou",
+	"ciyuanji",
+	"sfacg",
 	"biquge345",
 	"biquge5",
-	"ixdzs8",
-	"ruochu",
-	"fanqienovel",
-	"n17k",
-	"faloo",
-	"sfacg",
-	"ciyuanji",
 	"ciweimao",
-	"n8novel",
+	"faloo",
+	"linovelib",
+	"novalpie",
 	"shuhaige",
 	"tianyabooks",
+	"ixdzs8",
 	"alicesw",
-	"kadokado",
-	"haiwaishubao",
-	"mjyhb",
-	"novelpia",
+	"fsshu",
 }
 
 func DefaultAvailableSiteKeys() []string {
