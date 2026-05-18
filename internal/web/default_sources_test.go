@@ -19,10 +19,11 @@ func TestDefaultWebMetaIncludesNewSearchSources(t *testing.T) {
 	runtime := app.NewRuntime(&cfg, ui.NewConsole(nil, io.Discard, io.Discard))
 	runtime.Progress = progress.NullReporter{}
 	allSources := searchableDownloadDescriptors(runtime.Registry.SiteDescriptors(runtime.AllSearchSites()))
+	defaultSources := defaultAvailableDescriptors(allSources)
 	service := &Service{
 		Config:         &cfg,
 		Runtime:        runtime,
-		DefaultSources: allSources,
+		DefaultSources: defaultSources,
 		AllSources:     allSources,
 		Tasks:          NewDownloadTaskStore(),
 		ContentCache:   newWebContentCache(),
@@ -41,10 +42,15 @@ func TestDefaultWebMetaIncludesNewSearchSources(t *testing.T) {
 	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode meta payload: %v", err)
 	}
-	for _, siteKey := range []string{"novelpia", "kadokado", "haiwaishubao"} {
+	for _, siteKey := range []string{"qidian"} {
 		if findDescriptor(payload.DefaultSources, siteKey) == nil {
 			t.Fatalf("expected %s in default web search sources", siteKey)
 		}
+		if findDescriptor(payload.AllSources, siteKey) == nil {
+			t.Fatalf("expected %s in all web search sources", siteKey)
+		}
+	}
+	for _, siteKey := range []string{"novelpia", "kadokado", "haiwaishubao"} {
 		if findDescriptor(payload.AllSources, siteKey) == nil {
 			t.Fatalf("expected %s in all web search sources", siteKey)
 		}

@@ -138,6 +138,9 @@ func DefaultConfig() Config {
 			"fanqienovel": {
 				BookIDs: []model.BookRef{{BookID: "7276384138653862966"}},
 			},
+			"qidian": {
+				BookIDs: []model.BookRef{{BookID: "1010868264"}},
+			},
 			"faloo": {
 				BookIDs: []model.BookRef{{BookID: "1482723"}},
 			},

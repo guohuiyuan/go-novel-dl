@@ -20,6 +20,7 @@ var defaultAvailableSiteKeys = []string{
 	"biquge345",
 	"biquge5",
 	"ciweimao",
+	"qidian",
 	"faloo",
 	"linovelib",
 	"novalpie",

@@ -56,6 +56,10 @@ var siteMetadata = map[string]SiteMetadata{
 		Title: "番茄小说网",
 		Tags:  []string{"简体中文", "原创", "免费", "男性向", "女性向", "抖音"},
 	},
+	"qidian": {
+		Title: "起点中文网",
+		Tags:  []string{"简体中文", "原创", "男性向", "阅文"},
+	},
 	"fsshu": {
 		Title: "笔趣阁",
 		Tags:  []string{"简体中文", "转载站", "笔趣阁"},
