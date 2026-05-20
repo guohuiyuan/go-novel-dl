@@ -4,6 +4,7 @@ const allSources = window.__NOVEL_DL__.allSources || [];
 const configurableSiteKeys = ["novalpie", "esjzone"];
 const defaultPageSize = window.__NOVEL_DL__.pageSize || 50;
 const initialGeneralConfig = window.__NOVEL_DL__.generalConfig || {};
+const initialPageSize = normalizeSearchPageSize((initialGeneralConfig && initialGeneralConfig.web_page_size) || defaultPageSize, defaultPageSize);
 const versionInfo = window.__NOVEL_DL__.version || { current: "", repo: "", mirrors: [] };
 const sourceLabelMap = new Map(
   allSources.map((source) => [source.key, source.display_name || source.key]),
@@ -50,7 +51,7 @@ const initialSearchSourceState = loadSearchSourceState();
 const appState = {
   activeTab: "search",
   page: 1,
-  pageSize: defaultPageSize,
+  pageSize: initialPageSize,
   lastKeyword: "",
   results: [],
   total: 0,
@@ -112,6 +113,18 @@ const appState = {
   paramSupports: [],
   generalConfig: initialGeneralConfig,
 };
+
+function normalizeSearchPageSize(value, fallback = defaultPageSize) {
+  const parsed = Number.parseInt(String(value || ""), 10);
+  if (parsed > 0) return parsed;
+  const fallbackParsed = Number.parseInt(String(fallback || defaultPageSize), 10);
+  return fallbackParsed > 0 ? fallbackParsed : 50;
+}
+
+function setSearchPageSize(value, fallback = appState.pageSize) {
+  appState.pageSize = normalizeSearchPageSize(value, fallback || defaultPageSize);
+  return appState.pageSize;
+}
 
 function loadSearchSourceState() {
   const fallback = {
@@ -311,6 +324,10 @@ const resultMetaNode = document.getElementById("resultMeta");
 const pageIndicatorNode = document.getElementById("pageIndicator");
 const prevPageButton = document.getElementById("prevPage");
 const nextPageButton = document.getElementById("nextPage");
+const paginationBottomNode = document.getElementById("paginationBottom");
+const pageIndicatorBottomNode = document.getElementById("pageIndicatorBottom");
+const prevPageBottomButton = document.getElementById("prevPageBottom");
+const nextPageBottomButton = document.getElementById("nextPageBottom");
 const taskCountNode = document.getElementById("taskCount");
 const taskTabCountNode = document.getElementById("taskTabCount");
 const sourceSummaryNode = document.getElementById("sourceSummary");
@@ -475,17 +492,24 @@ function bootstrap() {
 
   setupSourceFiltersToggle();
 
-  prevPageButton.addEventListener("click", async () => {
+  const goPrevPage = async () => {
     if (!appState.hasPrev || !appState.lastKeyword) return;
     appState.page -= 1;
     await performSearch();
-  });
+    scrollToResultsTop();
+  };
 
-  nextPageButton.addEventListener("click", async () => {
+  const goNextPage = async () => {
     if (!appState.hasNext || !appState.lastKeyword) return;
     appState.page += 1;
     await performSearch();
-  });
+    scrollToResultsTop();
+  };
+
+  prevPageButton.addEventListener("click", goPrevPage);
+  nextPageButton.addEventListener("click", goNextPage);
+  if (prevPageBottomButton) prevPageBottomButton.addEventListener("click", goPrevPage);
+  if (nextPageBottomButton) nextPageBottomButton.addEventListener("click", goNextPage);
 
   searchForm.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -566,6 +590,7 @@ async function performSearch() {
   if (appState.selectedSites.size === 0) return setStatus("请至少选择一个渠道。");
 
   closeDetail();
+  setSearchPageSize((appState.generalConfig && appState.generalConfig.web_page_size) || appState.pageSize);
   appState.lastKeyword = keyword;
   activateTab("search");
   renderWarnings([]);
@@ -593,6 +618,7 @@ async function performSearch() {
     appState.hasPrev = Boolean(payload.has_prev);
     appState.hasNext = Boolean(payload.has_next);
     appState.page = payload.page || appState.page;
+    appState.pageSize = Math.max(1, Number.parseInt(String(payload.page_size || appState.pageSize || defaultPageSize), 10) || defaultPageSize);
 
     const warnings = payload.warnings || [];
     renderResults(appState.results);
@@ -2149,8 +2175,26 @@ function resultBadge(text) {
 
 function renderPaging() {
   resultCountNode.textContent = appState.lastKeyword ? totalLabel(appState.total, appState.totalExact) : "0";
-  pageIndicatorNode.textContent = `第 ${appState.page} 页 · 每页 ${appState.pageSize} 本`;
+  const pagedCount = appState.results.length;
+  const indicatorText = pagedCount > 0
+    ? `第 ${appState.page} 页 · 本页 ${pagedCount} 本（每页上限 ${appState.pageSize}）`
+    : `第 ${appState.page} 页 · 每页 ${appState.pageSize} 本`;
+  pageIndicatorNode.textContent = indicatorText;
   prevPageButton.disabled = !appState.hasPrev; nextPageButton.disabled = !appState.hasNext;
+
+  if (pageIndicatorBottomNode) pageIndicatorBottomNode.textContent = indicatorText;
+  if (prevPageBottomButton) prevPageBottomButton.disabled = !appState.hasPrev;
+  if (nextPageBottomButton) nextPageBottomButton.disabled = !appState.hasNext;
+  if (paginationBottomNode) {
+    const showBottom = Boolean(appState.lastKeyword) && pagedCount > 0;
+    paginationBottomNode.hidden = !showBottom;
+  }
+}
+
+function scrollToResultsTop() {
+  if (!resultsNode) return;
+  const top = resultsNode.getBoundingClientRect().top + window.scrollY - 12;
+  window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
 }
 
 function renderResultMeta() {
@@ -2753,8 +2797,8 @@ async function loadGeneralConfig() {
   const payload = await response.json();
   if (!response.ok) throw new Error(payload.error || "general config load failed");
   appState.generalConfig = payload.item || appState.generalConfig;
-  if (payload.item && payload.item.web_page_size) {
-    appState.pageSize = Math.max(1, Number.parseInt(String(payload.item.web_page_size), 10) || defaultPageSize);
+  if (payload.item) {
+    setSearchPageSize(payload.item.web_page_size || defaultPageSize);
     renderPaging();
     renderResultMeta();
   }
@@ -2787,7 +2831,7 @@ async function saveGeneralConfig() {
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || "save general config failed");
   appState.generalConfig = data.item || payload;
-  appState.pageSize = Math.max(1, Number.parseInt(String(appState.generalConfig.web_page_size || payload.web_page_size || defaultPageSize), 10) || defaultPageSize);
+  setSearchPageSize(appState.generalConfig.web_page_size || payload.web_page_size || defaultPageSize);
   appState.page = 1;
   appState.detailCache.clear();
   appState.detailPending.clear();
@@ -2800,7 +2844,12 @@ async function saveGeneralConfig() {
   renderPaging();
   renderResultMeta();
   applyImageBlurSetting(appState.generalConfig);
-  setStatus("已保存全局配置。后续搜索、详情和下载将使用最新参数。");
+  if (appState.lastKeyword) {
+    setStatus("已保存全局配置，正在按新的每页数量刷新搜索结果。");
+    await performSearch();
+  } else {
+    setStatus("已保存全局配置。后续搜索、详情和下载将使用最新参数。");
+  }
 }
 
 function applyImageBlurSetting(item) {
