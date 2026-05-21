@@ -151,6 +151,74 @@ func TestNovalpieClientSignatureMatchesCurrentWebBundle(t *testing.T) {
 	}
 }
 
+func TestNovalpieSearchUsesBrowserParametersAndPaginates(t *testing.T) {
+	var pages []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/search" {
+			t.Fatalf("unexpected path: %s", r.URL.String())
+		}
+		query := r.URL.Query()
+		for key, want := range map[string]string{
+			"q":              "女友",
+			"limit":          "60",
+			"scope":          "all",
+			"match_type":     "fuzzy_strict",
+			"sort_by":        "relevance",
+			"sort_order":     "desc",
+			"adult_filter":   "all",
+			"max_word_count": "10000000",
+		} {
+			if got := query.Get(key); got != want {
+				t.Fatalf("unexpected %s: got %q want %q", key, got, want)
+			}
+		}
+		page := query.Get("page")
+		pages = append(pages, page)
+		switch page {
+		case "1":
+			writeNovalpieJSON(t, w, map[string]any{
+				"success":     true,
+				"total":       3,
+				"page":        1,
+				"limit":       60,
+				"total_pages": 2,
+				"results": []map[string]any{
+					{"id": 46044, "title": "女友长出猫耳", "author_name": "dhfil03"},
+					{"id": 120780, "title": "女友是恋爱申诉人", "author_name": "혈산신군"},
+				},
+			})
+		case "2":
+			writeNovalpieJSON(t, w, map[string]any{
+				"success":     true,
+				"total":       3,
+				"page":        2,
+				"limit":       60,
+				"total_pages": 2,
+				"results": []map[string]any{
+					{"id": 125477, "title": "女友太强了", "author_name": "Qwertyvsx"},
+				},
+			})
+		default:
+			t.Fatalf("unexpected page: %s", page)
+		}
+	}))
+	defer server.Close()
+
+	cfg := config.DefaultConfig().ResolveSiteConfig("novalpie")
+	cfg.MirrorHosts = []string{server.URL}
+	site := NewNovalpieSite(cfg)
+	results, err := site.Search(context.Background(), "女友", 10)
+	if err != nil {
+		t.Fatalf("Search returned error: %v", err)
+	}
+	if len(results) != 3 {
+		t.Fatalf("unexpected result count: got %d results=%+v", len(results), results)
+	}
+	if strings.Join(pages, ",") != "1,2" {
+		t.Fatalf("unexpected requested pages: %v", pages)
+	}
+}
+
 func TestNovalpieResolveURLAcceptsNovalpiaHost(t *testing.T) {
 	site := NewNovalpieSite(config.DefaultConfig().ResolveSiteConfig("novalpie"))
 	resolved, ok := site.ResolveURL("https://novalpia.cc/api/chapters/245640/content?session=abc")

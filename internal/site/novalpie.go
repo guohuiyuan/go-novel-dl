@@ -36,6 +36,11 @@ var (
 	novalpieAPIChapterContentRe = regexp.MustCompile(`^/api/chapters/(\d+)/content/?$`)
 )
 
+const (
+	novalpieSearchPageSize = 60
+	novalpieSearchMaxPages = 20
+)
+
 type NovalpieSite struct {
 	cfg        config.ResolvedSiteConfig
 	httpClient *http.Client
@@ -133,10 +138,66 @@ type novalpieSearchItem struct {
 }
 
 type novalpieSearchResponse struct {
-	Success bool                 `json:"success"`
-	Message string               `json:"message"`
-	Results []novalpieSearchItem `json:"results"`
-	Data    []novalpieSearchItem `json:"data"`
+	Success          bool                 `json:"success"`
+	Message          string               `json:"message"`
+	Results          []novalpieSearchItem `json:"results"`
+	Items            []novalpieSearchItem `json:"items"`
+	Novels           []novalpieSearchItem `json:"novels"`
+	Data             json.RawMessage      `json:"data"`
+	Total            int                  `json:"total"`
+	TotalCount       int                  `json:"total_count"`
+	TotalCountCamel  int                  `json:"totalCount"`
+	Page             int                  `json:"page"`
+	CurrentPage      int                  `json:"current_page"`
+	CurrentPageCamel int                  `json:"currentPage"`
+	PerPage          int                  `json:"per_page"`
+	PerPageCamel     int                  `json:"perPage"`
+	Limit            int                  `json:"limit"`
+	PageSize         int                  `json:"page_size"`
+	PageSizeCamel    int                  `json:"pageSize"`
+	TotalPages       int                  `json:"total_pages"`
+	TotalPagesCamel  int                  `json:"totalPages"`
+	LastPage         int                  `json:"last_page"`
+	LastPageCamel    int                  `json:"lastPage"`
+	NextPage         int                  `json:"next_page"`
+	NextPageCamel    int                  `json:"nextPage"`
+	HasMore          *bool                `json:"has_more"`
+	HasMoreCamel     *bool                `json:"hasMore"`
+	Pagination       novalpieSearchPage   `json:"pagination"`
+	Meta             novalpieSearchPage   `json:"meta"`
+}
+
+type novalpieSearchData struct {
+	Results    []novalpieSearchItem `json:"results"`
+	Items      []novalpieSearchItem `json:"items"`
+	Novels     []novalpieSearchItem `json:"novels"`
+	Data       []novalpieSearchItem `json:"data"`
+	Pagination novalpieSearchPage   `json:"pagination"`
+	Meta       novalpieSearchPage   `json:"meta"`
+	novalpieSearchPage
+}
+
+type novalpieSearchPage struct {
+	Total            int   `json:"total"`
+	TotalCount       int   `json:"total_count"`
+	TotalCountCamel  int   `json:"totalCount"`
+	Count            int   `json:"count"`
+	Page             int   `json:"page"`
+	CurrentPage      int   `json:"current_page"`
+	CurrentPageCamel int   `json:"currentPage"`
+	PerPage          int   `json:"per_page"`
+	PerPageCamel     int   `json:"perPage"`
+	Limit            int   `json:"limit"`
+	PageSize         int   `json:"page_size"`
+	PageSizeCamel    int   `json:"pageSize"`
+	TotalPages       int   `json:"total_pages"`
+	TotalPagesCamel  int   `json:"totalPages"`
+	LastPage         int   `json:"last_page"`
+	LastPageCamel    int   `json:"lastPage"`
+	NextPage         int   `json:"next_page"`
+	NextPageCamel    int   `json:"nextPage"`
+	HasMore          *bool `json:"has_more"`
+	HasMoreCamel     *bool `json:"hasMore"`
 }
 
 func NewNovalpieSite(cfg config.ResolvedSiteConfig) *NovalpieSite {
@@ -288,52 +349,269 @@ func (s *NovalpieSite) Search(ctx context.Context, keyword string, limit int) ([
 			return nil, err
 		}
 	}
-	reqURL, err := url.Parse(s.apiURL("/api/search"))
-	if err != nil {
-		return nil, err
+
+	targetLimit := limit
+	if targetLimit <= 0 {
+		targetLimit = novalpieSearchPageSize
 	}
-	q := reqURL.Query()
-	q.Set("q", keyword)
-	reqURL.RawQuery = q.Encode()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-	s.setJSONHeaders(req, s.token != "")
-	body, err := s.doNovalpieRequest(req, "")
-	if err != nil {
-		return nil, err
-	}
-	var payload novalpieSearchResponse
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return nil, err
-	}
-	items := payload.Results
-	if len(items) == 0 {
-		items = payload.Data
-	}
-	if !payload.Success && len(items) == 0 {
-		if payload.Message == "" {
-			payload.Message = "novalpie search failed"
+	pageSize := novalpieSearchPageSize
+
+	results := make([]model.SearchResult, 0, targetLimit)
+	seen := make(map[string]struct{})
+	for page := 1; page <= novalpieSearchMaxPages; page++ {
+		payload, items, err := s.searchNovalpiePage(ctx, keyword, page, pageSize)
+		if err != nil {
+			return nil, err
 		}
-		return nil, fmt.Errorf("%s", payload.Message)
-	}
-	results := make([]model.SearchResult, 0, len(items))
-	for _, item := range items {
-		results = append(results, model.SearchResult{
-			Site:        s.Key(),
-			BookID:      strconv.FormatInt(item.ID, 10),
-			Title:       textconv.ToSimplified(firstNonEmptyNovalpie(item.Title, item.TrueName, item.TrueNameCamel)),
-			Author:      fallback(item.AuthorName, item.AuthorNameCamel),
-			Description: textconv.ToSimplified(item.Description),
-			URL:         s.novelURL(strconv.FormatInt(item.ID, 10)),
-			CoverURL:    fallback(item.PhotoURL, item.PhotoURLCamel),
-		})
-		if limit > 0 && len(results) >= limit {
+		if len(items) == 0 {
+			if page == 1 && !payload.Success {
+				if payload.Message == "" {
+					payload.Message = "novalpie search failed"
+				}
+				return nil, fmt.Errorf("%s", payload.Message)
+			}
+			break
+		}
+		before := len(results)
+		for _, item := range items {
+			key := novalpieSearchItemKey(item)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			results = append(results, novalpieSearchResult(s, item))
+			if limit > 0 && len(results) >= limit {
+				return results, nil
+			}
+		}
+		if len(results) == before {
+			break
+		}
+		if !payload.hasPageInfo() && len(items) < pageSize {
+			break
+		}
+		if !novalpieSearchHasNext(payload, page, len(results)) {
 			break
 		}
 	}
 	return results, nil
+}
+
+func (s *NovalpieSite) searchNovalpiePage(ctx context.Context, keyword string, page, pageSize int) (novalpieSearchResponse, []novalpieSearchItem, error) {
+	reqURL, err := url.Parse(s.apiURL("/api/search"))
+	if err != nil {
+		return novalpieSearchResponse{}, nil, err
+	}
+	q := reqURL.Query()
+	q.Set("q", keyword)
+	q.Set("page", strconv.Itoa(page))
+	q.Set("limit", strconv.Itoa(pageSize))
+	q.Set("scope", "all")
+	q.Set("match_type", "fuzzy_strict")
+	q.Set("sort_by", "relevance")
+	q.Set("sort_order", "desc")
+	q.Set("adult_filter", "all")
+	q.Set("max_word_count", "10000000")
+	reqURL.RawQuery = q.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL.String(), nil)
+	if err != nil {
+		return novalpieSearchResponse{}, nil, err
+	}
+	s.setJSONHeaders(req, s.token != "")
+	body, err := s.doNovalpieRequest(req, "")
+	if err != nil {
+		return novalpieSearchResponse{}, nil, err
+	}
+	var payload novalpieSearchResponse
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return novalpieSearchResponse{}, nil, err
+	}
+	items := payload.items()
+	if !payload.Success && len(items) == 0 && payload.Message != "" {
+		return payload, nil, fmt.Errorf("%s", payload.Message)
+	}
+	return payload, items, nil
+}
+
+func novalpieSearchResult(s *NovalpieSite, item novalpieSearchItem) model.SearchResult {
+	bookID := strconv.FormatInt(item.ID, 10)
+	return model.SearchResult{
+		Site:        s.Key(),
+		BookID:      bookID,
+		Title:       textconv.ToSimplified(firstNonEmptyNovalpie(item.Title, item.TrueName, item.TrueNameCamel)),
+		Author:      fallback(item.AuthorName, item.AuthorNameCamel),
+		Description: textconv.ToSimplified(item.Description),
+		URL:         s.novelURL(bookID),
+		CoverURL:    fallback(item.PhotoURL, item.PhotoURLCamel),
+	}
+}
+
+func novalpieSearchItemKey(item novalpieSearchItem) string {
+	if item.ID != 0 {
+		return strconv.FormatInt(item.ID, 10)
+	}
+	return firstNonEmptyNovalpie(item.Title, item.TrueName, item.TrueNameCamel) + "\x00" + fallback(item.AuthorName, item.AuthorNameCamel)
+}
+
+func (p novalpieSearchResponse) items() []novalpieSearchItem {
+	if len(p.Results) > 0 {
+		return p.Results
+	}
+	if len(p.Items) > 0 {
+		return p.Items
+	}
+	if len(p.Novels) > 0 {
+		return p.Novels
+	}
+	if len(p.Data) == 0 || string(p.Data) == "null" {
+		return nil
+	}
+	var items []novalpieSearchItem
+	if err := json.Unmarshal(p.Data, &items); err == nil && len(items) > 0 {
+		return items
+	}
+	var data novalpieSearchData
+	if err := json.Unmarshal(p.Data, &data); err != nil {
+		return nil
+	}
+	return firstNonEmptyNovalpieSearchItems(data.Results, data.Items, data.Novels, data.Data)
+}
+
+func firstNonEmptyNovalpieSearchItems(groups ...[]novalpieSearchItem) []novalpieSearchItem {
+	for _, items := range groups {
+		if len(items) > 0 {
+			return items
+		}
+	}
+	return nil
+}
+
+func novalpieSearchHasNext(payload novalpieSearchResponse, page, count int) bool {
+	info := payload.pageInfo()
+	if info.HasMore != nil {
+		return *info.HasMore
+	}
+	if info.HasMoreCamel != nil {
+		return *info.HasMoreCamel
+	}
+	if next := firstPositiveInt(info.NextPage, info.NextPageCamel); next > 0 {
+		return next > page
+	}
+	if pages := firstPositiveInt(info.TotalPages, info.TotalPagesCamel, info.LastPage, info.LastPageCamel); pages > 0 {
+		return page < pages
+	}
+	if total := firstPositiveInt(info.Total, info.TotalCount, info.TotalCountCamel, info.Count); total > 0 {
+		return count < total
+	}
+	return true
+}
+
+func (p novalpieSearchResponse) hasPageInfo() bool {
+	info := p.pageInfo()
+	return info.HasMore != nil ||
+		info.HasMoreCamel != nil ||
+		firstPositiveInt(info.NextPage, info.NextPageCamel) > 0 ||
+		firstPositiveInt(info.TotalPages, info.TotalPagesCamel, info.LastPage, info.LastPageCamel) > 0 ||
+		firstPositiveInt(info.Total, info.TotalCount, info.TotalCountCamel, info.Count) > 0
+}
+
+func (p novalpieSearchResponse) pageInfo() novalpieSearchPage {
+	info := novalpieSearchPage{
+		Total:            p.Total,
+		TotalCount:       p.TotalCount,
+		TotalCountCamel:  p.TotalCountCamel,
+		Page:             p.Page,
+		CurrentPage:      p.CurrentPage,
+		CurrentPageCamel: p.CurrentPageCamel,
+		PerPage:          p.PerPage,
+		PerPageCamel:     p.PerPageCamel,
+		Limit:            p.Limit,
+		PageSize:         p.PageSize,
+		PageSizeCamel:    p.PageSizeCamel,
+		TotalPages:       p.TotalPages,
+		TotalPagesCamel:  p.TotalPagesCamel,
+		LastPage:         p.LastPage,
+		LastPageCamel:    p.LastPageCamel,
+		NextPage:         p.NextPage,
+		NextPageCamel:    p.NextPageCamel,
+		HasMore:          p.HasMore,
+		HasMoreCamel:     p.HasMoreCamel,
+	}
+	info = mergeNovalpieSearchPage(info, p.Pagination)
+	info = mergeNovalpieSearchPage(info, p.Meta)
+	if len(p.Data) > 0 && string(p.Data) != "null" {
+		var data novalpieSearchData
+		if err := json.Unmarshal(p.Data, &data); err == nil {
+			info = mergeNovalpieSearchPage(info, data.novalpieSearchPage)
+			info = mergeNovalpieSearchPage(info, data.Pagination)
+			info = mergeNovalpieSearchPage(info, data.Meta)
+		}
+	}
+	return info
+}
+
+func mergeNovalpieSearchPage(base, next novalpieSearchPage) novalpieSearchPage {
+	if base.Total == 0 {
+		base.Total = next.Total
+	}
+	if base.TotalCount == 0 {
+		base.TotalCount = next.TotalCount
+	}
+	if base.TotalCountCamel == 0 {
+		base.TotalCountCamel = next.TotalCountCamel
+	}
+	if base.Count == 0 {
+		base.Count = next.Count
+	}
+	if base.Page == 0 {
+		base.Page = next.Page
+	}
+	if base.CurrentPage == 0 {
+		base.CurrentPage = next.CurrentPage
+	}
+	if base.CurrentPageCamel == 0 {
+		base.CurrentPageCamel = next.CurrentPageCamel
+	}
+	if base.PerPage == 0 {
+		base.PerPage = next.PerPage
+	}
+	if base.PerPageCamel == 0 {
+		base.PerPageCamel = next.PerPageCamel
+	}
+	if base.Limit == 0 {
+		base.Limit = next.Limit
+	}
+	if base.PageSize == 0 {
+		base.PageSize = next.PageSize
+	}
+	if base.PageSizeCamel == 0 {
+		base.PageSizeCamel = next.PageSizeCamel
+	}
+	if base.TotalPages == 0 {
+		base.TotalPages = next.TotalPages
+	}
+	if base.TotalPagesCamel == 0 {
+		base.TotalPagesCamel = next.TotalPagesCamel
+	}
+	if base.LastPage == 0 {
+		base.LastPage = next.LastPage
+	}
+	if base.LastPageCamel == 0 {
+		base.LastPageCamel = next.LastPageCamel
+	}
+	if base.NextPage == 0 {
+		base.NextPage = next.NextPage
+	}
+	if base.NextPageCamel == 0 {
+		base.NextPageCamel = next.NextPageCamel
+	}
+	if base.HasMore == nil {
+		base.HasMore = next.HasMore
+	}
+	if base.HasMoreCamel == nil {
+		base.HasMoreCamel = next.HasMoreCamel
+	}
+	return base
 }
 
 func (s *NovalpieSite) ensureLogin(ctx context.Context) error {
@@ -803,6 +1081,15 @@ func firstNonEmptyNovalpie(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func firstPositiveInt(values ...int) int {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
 }
 
 func readNovalpieResponseBody(resp *http.Response) ([]byte, error) {
