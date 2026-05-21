@@ -206,6 +206,16 @@ func TestIndexPageGlobalSettingsKeepOnlyUsefulRuntimeKnobs(t *testing.T) {
 			t.Fatalf("expected index page to hide low-value runtime knob %s", needle)
 		}
 	}
+	for _, needle := range []string{`id="saveSettingsConfig"`, `id="settingsSaveStatus"`, `class="site-config-close-button"`} {
+		if !strings.Contains(body, needle) {
+			t.Fatalf("expected settings center to contain %s, body=%s", needle, body)
+		}
+	}
+	for _, needle := range []string{`id="saveGeneralConfig"`, `id="saveSiteConfig"`} {
+		if strings.Contains(body, needle) {
+			t.Fatalf("expected settings center to use one save button, found %s", needle)
+		}
+	}
 }
 
 func TestIndexPageSiteSettingsOnlyShowAuthAndMirrorFields(t *testing.T) {
@@ -250,6 +260,59 @@ func TestSettingsScriptLimitsSiteConfigChoices(t *testing.T) {
 	for _, needle := range []string{`login_required:`, `worker_limit:`, `fetch_images:`} {
 		if strings.Contains(script, needle) {
 			t.Fatalf("expected site config payload to omit %s", needle)
+		}
+	}
+}
+
+func TestSettingsSavePromptAndStickyCloseStyles(t *testing.T) {
+	scriptData, err := templateFS.ReadFile("templates/app.js")
+	if err != nil {
+		t.Fatalf("read app.js: %v", err)
+	}
+	script := string(scriptData)
+	for _, needle := range []string{`setSettingsSaveStatus("正在保存系统设置..."`, `系统设置已保存`, `saveSettingsConfig`} {
+		if !strings.Contains(script, needle) {
+			t.Fatalf("expected settings script to contain %s", needle)
+		}
+	}
+
+	styleData, err := templateFS.ReadFile("templates/style.css")
+	if err != nil {
+		t.Fatalf("read style.css: %v", err)
+	}
+	style := string(styleData)
+	for _, needle := range []string{`.site-config-close-button`, `position: sticky`, `right: 0`, `.settings-save-status`} {
+		if !strings.Contains(style, needle) {
+			t.Fatalf("expected settings styles to contain %s", needle)
+		}
+	}
+}
+
+func TestReaderMobileControlsRequireCenterTap(t *testing.T) {
+	data, err := templateFS.ReadFile("templates/app.js")
+	if err != nil {
+		t.Fatalf("read app.js: %v", err)
+	}
+	script := string(data)
+	for _, needle := range []string{`setReaderControlsVisible(false)`, `function handleReaderBodyClick`, `inMiddleX`, `inMiddleY`, `readerBody.addEventListener("click", handleReaderBodyClick)`} {
+		if !strings.Contains(script, needle) {
+			t.Fatalf("expected reader script to contain %s", needle)
+		}
+	}
+
+	styleData, err := templateFS.ReadFile("templates/style.css")
+	if err != nil {
+		t.Fatalf("read style.css: %v", err)
+	}
+	style := string(styleData)
+	for _, needle := range []string{`.reader-overlay.reader-controls-visible .reader-topbar`, `opacity: 0`, `pointer-events: none`, `.reader-overlay.reader-controls-visible .reader-bg-picker`} {
+		if !strings.Contains(style, needle) {
+			t.Fatalf("expected reader styles to contain %s", needle)
+		}
+	}
+	for _, needle := range []string{`.reader-back-button`, `justify-self: start`, `.reader-topbar #readerCloseButton`, `justify-self: end`} {
+		if !strings.Contains(style, needle) {
+			t.Fatalf("expected reader back/close styles to contain %s", needle)
 		}
 	}
 }

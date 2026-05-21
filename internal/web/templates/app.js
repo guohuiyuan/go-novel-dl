@@ -381,6 +381,8 @@ const siteCookieNode = document.getElementById("siteCookie");
 const siteCookieHelpNode = document.getElementById("siteCookieHelp");
 const siteMirrorHostsNode = document.getElementById("siteMirrorHosts");
 const generalConfigForm = document.getElementById("generalConfigForm");
+const saveSettingsConfigButton = document.getElementById("saveSettingsConfig");
+const settingsSaveStatusNode = document.getElementById("settingsSaveStatus");
 
 const generalWorkersNode = document.getElementById("generalWorkers");
 const generalTimeoutNode = document.getElementById("generalTimeout");
@@ -539,13 +541,14 @@ function bootstrap() {
   
   siteConfigForm.addEventListener("submit", async (event) => {
     event.preventDefault();
-    try { await saveSiteConfig(); } catch (error) { setStatus(`保存站点配置失败：${error.message}`); }
+    await saveSettingsConfig();
   });
   
   generalConfigForm.addEventListener("submit", async (event) => {
     event.preventDefault();
-    try { await saveGeneralConfig(); } catch (error) { setStatus(`保存全局配置失败：${error.message}`); }
+    await saveSettingsConfig();
   });
+  if (saveSettingsConfigButton) saveSettingsConfigButton.addEventListener("click", () => void saveSettingsConfig());
   
   // 切换密码显示小眼睛图标
   toggleSitePasswordButton.addEventListener("click", () => {
@@ -1720,6 +1723,7 @@ function openReader(chapters, index) {
   readerState.canAutoLoad = false;
   const token = ++readerState.token;
   readerOverlay.hidden = false;
+  setReaderControlsVisible(false);
   hideReaderCatalog();
 
   document.body.classList.add("has-overlay");
@@ -1809,6 +1813,7 @@ async function loadChaptersSequential(indices, direction) {
 function closeReader() {
   flushProgressReport();
   hideReaderCatalog();
+  setReaderControlsVisible(false);
   readerOverlay.hidden = true;
   document.body.classList.remove("has-overlay");
   setReaderScrollLocked(false);
@@ -1860,6 +1865,30 @@ function showReaderCatalog() {
 function hideReaderCatalog() {
   if (readerCatalogPanel) readerCatalogPanel.hidden = true;
   if (readerCatalogButton) readerCatalogButton.setAttribute("aria-expanded", "false");
+}
+
+function isMobileReaderViewport() {
+  return window.matchMedia && window.matchMedia("(max-width: 720px)").matches;
+}
+
+function setReaderControlsVisible(visible) {
+  if (readerOverlay) readerOverlay.classList.toggle("reader-controls-visible", Boolean(visible));
+}
+
+function readerControlsVisible() {
+  return Boolean(readerOverlay && readerOverlay.classList.contains("reader-controls-visible"));
+}
+
+function handleReaderBodyClick(event) {
+  if (!isMobileReaderViewport() || readerOverlay.hidden) return;
+  const rect = readerBody.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  const x = event.clientX - rect.left;
+  const y = event.clientY - rect.top;
+  const inMiddleX = x >= rect.width * 0.2 && x <= rect.width * 0.8;
+  const inMiddleY = y >= rect.height * 0.3 && y <= rect.height * 0.7;
+  if (!inMiddleX || !inMiddleY) return;
+  setReaderControlsVisible(!readerControlsVisible());
 }
 
 function renderReaderCatalog() {
@@ -2060,6 +2089,7 @@ readerCloseButton.addEventListener("click", closeReader);
 if (readerDetailButton) readerDetailButton.addEventListener("click", openReaderDetail);
 if (readerCatalogButton) readerCatalogButton.addEventListener("click", toggleReaderCatalog);
 if (readerCatalogCloseButton) readerCatalogCloseButton.addEventListener("click", hideReaderCatalog);
+readerBody.addEventListener("click", handleReaderBodyClick);
 
 readerBody.addEventListener("scroll", () => {
   if (!readerState.canAutoLoad) return;
@@ -2775,6 +2805,7 @@ function renderSiteConfigHelp(siteKey) {
 async function openSiteConfig() {
   siteConfigOverlay.hidden = false;
   document.body.classList.add("has-overlay");
+  setSettingsSaveStatus("");
   try {
     await Promise.all([loadGeneralConfig(), loadSiteConfigs()]);
   } catch (error) {
@@ -2815,7 +2846,41 @@ async function loadGeneralConfig() {
   renderGeneralConfigForm(appState.generalConfig);
 }
 
-async function saveGeneralConfig() {
+function setSettingsSaveStatus(text, tone) {
+  if (!settingsSaveStatusNode) return;
+  if (!text) {
+    settingsSaveStatusNode.hidden = true;
+    settingsSaveStatusNode.textContent = "";
+    delete settingsSaveStatusNode.dataset.tone;
+    return;
+  }
+  settingsSaveStatusNode.hidden = false;
+  settingsSaveStatusNode.textContent = text;
+  settingsSaveStatusNode.dataset.tone = tone || "info";
+}
+
+async function saveSettingsConfig() {
+  setSettingsSaveStatus("正在保存系统设置...", "info");
+  if (saveSettingsConfigButton) saveSettingsConfigButton.disabled = true;
+  try {
+    await saveGeneralConfig({ showStatus: false, refreshSearch: false });
+    await saveSiteConfig({ showStatus: false });
+    const message = appState.lastKeyword ? "系统设置已保存，正在按最新设置刷新搜索结果。" : "系统设置已保存。";
+    setSettingsSaveStatus(message, "success");
+    setStatus(message);
+    if (appState.lastKeyword) await performSearch();
+  } catch (error) {
+    const message = `保存系统设置失败：${error.message}`;
+    setSettingsSaveStatus(message, "error");
+    setStatus(message, "error");
+  } finally {
+    if (saveSettingsConfigButton) saveSettingsConfigButton.disabled = false;
+  }
+}
+
+async function saveGeneralConfig(options = {}) {
+  const showStatus = options.showStatus !== false;
+  const refreshSearch = options.refreshSearch !== false;
   const payload = {
     workers: Math.max(1, Number.parseInt(generalWorkersNode.value || "4", 10) || 4),
     timeout: Math.max(1, Number.parseFloat(generalTimeoutNode.value || "10") || 10),
@@ -2854,10 +2919,10 @@ async function saveGeneralConfig() {
   renderPaging();
   renderResultMeta();
   applyImageBlurSetting(appState.generalConfig);
-  if (appState.lastKeyword) {
-    setStatus("已保存全局配置，正在按新的每页数量刷新搜索结果。");
+  if (appState.lastKeyword && refreshSearch) {
+    if (showStatus) setStatus("已保存全局配置，正在按新的每页数量刷新搜索结果。");
     await performSearch();
-  } else {
+  } else if (showStatus) {
     setStatus("已保存全局配置。后续搜索、详情和下载将使用最新参数。");
   }
 }
@@ -2866,7 +2931,8 @@ function applyImageBlurSetting(item) {
   document.body.classList.toggle("web-images-blurred", Boolean(item && item.blur_web_images));
 }
 
-async function saveSiteConfig() {
+async function saveSiteConfig(options = {}) {
+  const showStatus = options.showStatus !== false;
   const siteKey = siteConfigKeyNode.value;
   if (!siteKey) return;
   const payload = {
@@ -2894,7 +2960,7 @@ async function saveSiteConfig() {
   siteWarnings = Array.isArray(data.site_warnings) ? data.site_warnings : [];
   siteStats = Array.isArray(data.site_stats) ? data.site_stats : [];
   renderSiteWarnings();
-  setStatus(`已保存 ${sourceLabel(siteKey)} 配置。`);
+  if (showStatus) setStatus(`已保存 ${sourceLabel(siteKey)} 配置。`);
 }
 
 function setStatus(text, tone) {

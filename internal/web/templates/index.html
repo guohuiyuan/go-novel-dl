@@ -186,9 +186,9 @@
   <div id="siteConfigOverlay" class="site-config-overlay" hidden>
     <div id="siteConfigBackdrop" class="site-config-backdrop"></div>
     <section class="site-config-modal" role="dialog" aria-modal="true" aria-labelledby="siteConfigHeading">
+      <button type="button" id="closeSiteConfig" class="site-config-close-button">关闭</button>
       <div class="site-config-head">
         <h2 id="siteConfigHeading">设置中心</h2>
-        <button type="button" id="closeSiteConfig" class="detail-close">关闭</button>
       </div>
 
       <section class="version-bar" aria-label="版本">
@@ -302,9 +302,6 @@
               <input id="generalOutputDir" class="search-input" type="text">
               <span class="field-help">txt、epub 等导出文件会保存到这里。</span>
             </label>
-            <div class="site-config-actions">
-              <button id="saveGeneralConfig" type="submit" class="search-button">保存全局配置</button>
-            </div>
           </form>
         </section>
 
@@ -350,11 +347,12 @@
               <span class="field-help">只有站点主域不可用时再填写。</span>
             </label>
 
-            <div class="site-config-actions">
-              <button id="saveSiteConfig" type="submit" class="search-button">保存配置</button>
-            </div>
           </form>
         </section>
+      </div>
+      <div id="settingsSaveStatus" class="settings-save-status" hidden></div>
+      <div class="site-config-actions settings-config-actions">
+        <button id="saveSettingsConfig" type="button" class="search-button">保存系统设置</button>
       </div>
     </section>
   </div>
@@ -363,7 +361,7 @@
     <div id="detailBackdrop" class="detail-backdrop"></div>
     <section class="detail-panel" role="dialog" aria-modal="true" aria-labelledby="detailHeading">
       <div class="detail-topbar">
-        <button type="button" id="detailCloseButton" class="detail-close">← 返回</button>
+        <button type="button" id="detailCloseButton" class="detail-close">关闭</button>
       </div>
       <div id="detailContent" class="detail-content">
         <div class="empty-state empty-state-compact">点击封面查看小说详情。</div>
@@ -373,12 +371,12 @@
 
   <div id="readerOverlay" class="reader-overlay" hidden>
     <div class="reader-topbar">
-      <button type="button" id="readerCloseButton" class="detail-close">← 返回</button>
-      <button type="button" id="readerDetailButton" class="reader-nav-btn">详情</button>
+      <button type="button" id="readerDetailButton" class="detail-close reader-back-button">返回</button>
       <button type="button" id="readerCatalogButton" class="reader-nav-btn" aria-expanded="false">目录</button>
       <span id="readerTitle" class="reader-title"></span>
       <span id="readerProgress" class="reader-progress"></span>
       <div class="reader-bg-picker" id="readerBgPicker"></div>
+      <button type="button" id="readerCloseButton" class="detail-close">关闭</button>
     </div>
     <div id="readerCatalogPanel" class="reader-catalog-panel" hidden>
       <section class="reader-catalog-card" aria-label="章节目录">
