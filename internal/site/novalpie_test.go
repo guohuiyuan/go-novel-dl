@@ -24,7 +24,7 @@ func TestNovalpieFullFlowUsesEncryptedChapterAPI(t *testing.T) {
 	const chapterID = "245640"
 
 	sessionKey := base64.StdEncoding.EncodeToString([]byte(sessionKeyPlain))
-	payload := encryptNovalpieTestPayload(t, sessionKeyPlain, `<p>First paragraph.</p><p>Second paragraph.</p>`)
+	payload := encryptNovalpieTestPayload(t, sessionKeyPlain, `<p>First paragraph.</p><p><img data-src="https://images.example/chapter.webp"></p><p>Second paragraph.</p>`)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
@@ -137,7 +137,7 @@ func TestNovalpieFullFlowUsesEncryptedChapterAPI(t *testing.T) {
 	if chapter.Title != "Magic Decline" {
 		t.Fatalf("unexpected chapter title: %q", chapter.Title)
 	}
-	if chapter.Content != "First paragraph.\nSecond paragraph." || !chapter.Downloaded {
+	if chapter.Content != "First paragraph.\n[图片] https://images.example/chapter.webp\nSecond paragraph." || !chapter.Downloaded {
 		t.Fatalf("unexpected chapter content: %+v", chapter)
 	}
 }

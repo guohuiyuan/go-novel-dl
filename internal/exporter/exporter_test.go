@@ -180,11 +180,11 @@ func TestEPUBExportIncludesBookInfoPageForAllPaths(t *testing.T) {
 func TestEPUBExportEmbedsChapterImages(t *testing.T) {
 	pngBytes := tinyPNGBytes(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/image.png" {
+		if r.URL.Path != "/image.file" {
 			http.NotFound(w, r)
 			return
 		}
-		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Content-Type", "application/octet-stream")
 		_, _ = w.Write(pngBytes)
 	}))
 	defer server.Close()
@@ -200,7 +200,7 @@ func TestEPUBExportEmbedsChapterImages(t *testing.T) {
 		Chapters: []model.Chapter{{
 			ID:      "1",
 			Title:   "Chapter 1",
-			Content: "Paragraph 1\n\n[图片] " + server.URL + "/image.png\n\nParagraph 2",
+			Content: "Paragraph 1\n\n[图片] " + server.URL + "/image.file\n\nParagraph 2",
 		}},
 	}
 

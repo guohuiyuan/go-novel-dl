@@ -1247,6 +1247,7 @@ func downloadAssetOnce(client *http.Client, rawURL, referer string) ([]byte, str
 		return nil, "", rawURL, err
 	}
 	mediaType, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+	mediaType = sniffAssetMediaType(data, mediaType)
 	data, mediaType, err = normalizeAssetData(data, mediaType, resp.Request.URL.String())
 	if err != nil {
 		return nil, "", rawURL, err
@@ -1271,6 +1272,20 @@ func normalizeAssetURL(rawURL, referer string) string {
 		}
 	}
 	return rawURL
+}
+
+func sniffAssetMediaType(data []byte, mediaType string) string {
+	mediaType = strings.ToLower(strings.TrimSpace(mediaType))
+	if mediaType != "" && mediaType != "application/octet-stream" {
+		return mediaType
+	}
+	if sniffed := strings.ToLower(strings.TrimSpace(http.DetectContentType(data))); strings.HasPrefix(sniffed, "image/") {
+		return sniffed
+	}
+	if len(data) >= 12 && string(data[:4]) == "RIFF" && string(data[8:12]) == "WEBP" {
+		return "image/webp"
+	}
+	return mediaType
 }
 
 func normalizeAssetData(data []byte, mediaType, rawURL string) ([]byte, string, error) {

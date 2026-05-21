@@ -902,22 +902,125 @@ func normalizeNovalpieChapterText(text string) string {
 	if err != nil {
 		return text
 	}
-	paragraphs := cleanContentParagraphs(findAll(doc, func(n *html.Node) bool {
-		return n.Type == html.ElementNode && n.Data == "p"
-	}), nil)
-	if len(paragraphs) > 0 {
-		return strings.Join(paragraphs, "\n")
-	}
 	body := findFirst(doc, func(n *html.Node) bool {
 		return n.Type == html.ElementNode && n.Data == "body"
 	})
 	if body == nil {
 		body = doc
 	}
+	paragraphs := make([]string, 0, 64)
+	collectNovalpieParagraphs(body, &paragraphs)
+	if len(paragraphs) > 0 {
+		return strings.Join(paragraphs, "\n")
+	}
 	if plain := cleanText(nodeTextPreserveLineBreaks(body)); plain != "" {
 		return plain
 	}
 	return text
+}
+
+func collectNovalpieParagraphs(node *html.Node, paragraphs *[]string) {
+	if node == nil {
+		return
+	}
+	if node.Type == html.ElementNode {
+		switch node.Data {
+		case "head", "script", "style":
+			return
+		case "img":
+			if src := novalpieImageURL(node); src != "" {
+				*paragraphs = append(*paragraphs, formatImagePlaceholder(src))
+			}
+			return
+		case "p", "div", "section", "article", "blockquote", "li":
+			if novalpieHasBlockChild(node) {
+				for child := node.FirstChild; child != nil; child = child.NextSibling {
+					collectNovalpieParagraphs(child, paragraphs)
+				}
+				return
+			}
+			collectNovalpieInlineContent(node, paragraphs)
+			return
+		}
+	}
+	if node.Type == html.TextNode {
+		appendNovalpieTextParagraphs(paragraphs, node.Data)
+		return
+	}
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		collectNovalpieParagraphs(child, paragraphs)
+	}
+}
+
+func collectNovalpieInlineContent(node *html.Node, paragraphs *[]string) {
+	textParts := make([]string, 0, 4)
+	flushText := func() {
+		if len(textParts) == 0 {
+			return
+		}
+		appendNovalpieTextParagraphs(paragraphs, strings.Join(textParts, ""))
+		textParts = textParts[:0]
+	}
+	var walk func(*html.Node)
+	walk = func(current *html.Node) {
+		if current == nil {
+			return
+		}
+		if current.Type == html.TextNode {
+			textParts = append(textParts, current.Data)
+			return
+		}
+		if current.Type == html.ElementNode {
+			switch current.Data {
+			case "head", "script", "style":
+				return
+			case "br":
+				textParts = append(textParts, "\n")
+				return
+			case "img":
+				flushText()
+				if src := novalpieImageURL(current); src != "" {
+					*paragraphs = append(*paragraphs, formatImagePlaceholder(src))
+				}
+				return
+			}
+		}
+		for child := current.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+	walk(node)
+	flushText()
+}
+
+func appendNovalpieTextParagraphs(paragraphs *[]string, raw string) {
+	for _, line := range strings.Split(cleanText(raw), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			*paragraphs = append(*paragraphs, line)
+		}
+	}
+}
+
+func novalpieImageURL(node *html.Node) string {
+	src := firstNonEmptyAttr(node, "data-original", "data-src", "data-lazy-src", "data-echo", "src")
+	if src == "" {
+		src = firstURLFromSrcset(firstNonEmptyAttr(node, "srcset", "data-srcset"))
+	}
+	return absolutizeURL("https://novalpie.cc", src)
+}
+
+func novalpieHasBlockChild(node *html.Node) bool {
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		if child.Type != html.ElementNode {
+			continue
+		}
+		switch child.Data {
+		case "p", "div", "section", "article", "blockquote", "li":
+			return true
+		}
+	}
+	return false
 }
 
 func randomNonce(n int) string {
