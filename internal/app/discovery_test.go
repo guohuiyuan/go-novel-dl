@@ -104,6 +104,40 @@ func TestHybridSearchHonorsExplicitSites(t *testing.T) {
 	}
 }
 
+func TestHybridSearchExactFiltersResultsByKeyword(t *testing.T) {
+	registry := site.NewRegistry()
+	registry.Register("esjzone", func(cfg config.ResolvedSiteConfig) site.Site {
+		return fakeSearchSite{
+			key:         "esjzone",
+			displayName: "ESJ Zone",
+			results: []model.SearchResult{
+				{Site: "esjzone", BookID: "100", Title: "Alpha Journey", Author: "A"},
+				{Site: "esjzone", BookID: "101", Title: "Unrelated", Author: "B"},
+				{Site: "esjzone", BookID: "102", Title: "Side Story", Author: "C", Description: "Contains Alpha in description"},
+				{Site: "esjzone", BookID: "103", Title: "Latest Match", Author: "D", LatestChapter: "Alpha Finale"},
+			},
+		}
+	})
+
+	runtime := newFakeRuntime(registry)
+	response, err := runtime.HybridSearch(context.Background(), "Alpha", HybridSearchOptions{
+		Sites: []string{"esjzone"},
+		Exact: true,
+	})
+	if err != nil {
+		t.Fatalf("HybridSearch returned error: %v", err)
+	}
+
+	if len(response.Results) != 3 {
+		t.Fatalf("expected 3 exact results, got %d (%+v)", len(response.Results), response.Results)
+	}
+	for _, result := range response.Results {
+		if !searchResultContainsKeyword(result.Primary, normalizeSearchText("Alpha")) {
+			t.Fatalf("unexpected non-exact result survived: %+v", result.Primary)
+		}
+	}
+}
+
 func TestHybridSearchCollectsWarnings(t *testing.T) {
 	registry := site.NewRegistry()
 	registry.Register("esjzone", func(cfg config.ResolvedSiteConfig) site.Site {

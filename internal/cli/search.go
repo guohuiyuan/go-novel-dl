@@ -24,6 +24,7 @@ func newSearchCmd() *cobra.Command {
 		pageSize   int
 		timeout    float64
 		formats    []string
+		exact      bool
 	)
 
 	cmd := &cobra.Command{
@@ -68,6 +69,7 @@ func newSearchCmd() *cobra.Command {
 				Sites:        selectedSites,
 				OverallLimit: limit,
 				PerSiteLimit: siteLimit,
+				Exact:        exact,
 			})
 			if err != nil {
 				return err
@@ -115,6 +117,7 @@ func newSearchCmd() *cobra.Command {
 	cmd.Flags().IntVar(&pageSize, "page-size", 0, "每页显示数量，默认读取配置")
 	cmd.Flags().Float64Var(&timeout, "timeout", 5.0, "请求超时秒数")
 	cmd.Flags().StringSliceVar(&formats, "format", nil, "导出格式列表，默认读取配置")
+	cmd.Flags().BoolVar(&exact, "exact", false, "精确搜索：只保留标题、作者、简介或最新章节包含关键词的结果")
 	return cmd
 }
 

@@ -160,6 +160,29 @@ func TestIndexPageIncludesDisableCacheControl(t *testing.T) {
 	}
 }
 
+func TestIndexPageIncludesExactSearchControl(t *testing.T) {
+	service := newTestService()
+	router := newRouter(service)
+
+	req := httptest.NewRequest(http.MethodGet, RoutePrefix+"/", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	body := resp.Body.String()
+	for _, needle := range []string{`type="submit">搜索</button>`, `id="exactSearchButton"`, `精确搜索`} {
+		if !strings.Contains(body, needle) {
+			t.Fatalf("expected index page to contain %s, body=%s", needle, body)
+		}
+	}
+	if strings.Contains(body, `id="exactSearch"`) {
+		t.Fatalf("expected exact search to be a button, got checkbox control in body=%s", body)
+	}
+}
+
 func TestIndexPageGlobalSettingsKeepOnlyUsefulRuntimeKnobs(t *testing.T) {
 	service := newTestService()
 	router := newRouter(service)
@@ -274,6 +297,39 @@ func TestSearchEndpointPaginatesMixedSearchableSources(t *testing.T) {
 	}
 	if len(payload.Warnings) != 0 {
 		t.Fatalf("expected no warnings for mixed searchable sources, got %+v", payload.Warnings)
+	}
+}
+
+func TestSearchEndpointExactFiltersResults(t *testing.T) {
+	service := newTestService()
+	router := newRouter(service)
+
+	body := strings.NewReader(`{
+		"keyword":"會長",
+		"sites":["esjzone"],
+		"exact":true,
+		"page":1,
+		"page_size":5
+	}`)
+	req := httptest.NewRequest(http.MethodPost, RoutePrefix+"/api/search", body)
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", resp.Code, resp.Body.String())
+	}
+
+	var payload paginatedSearchResponse
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode search payload: %v", err)
+	}
+
+	if payload.Total != 1 || len(payload.Results) != 1 {
+		t.Fatalf("expected one exact result, got total=%d len=%d results=%+v", payload.Total, len(payload.Results), payload.Results)
+	}
+	if payload.Results[0].Primary.BookID != "001" {
+		t.Fatalf("unexpected exact result: %+v", payload.Results[0].Primary)
 	}
 }
 

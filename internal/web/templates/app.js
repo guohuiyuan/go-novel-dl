@@ -53,6 +53,7 @@ const appState = {
   page: 1,
   pageSize: initialPageSize,
   lastKeyword: "",
+  lastExact: false,
   results: [],
   total: 0,
   totalExact: true,
@@ -315,6 +316,7 @@ function markTransientSiteWarningSeen(warning) {
 }
 
 const keywordInput = document.getElementById("keyword");
+const exactSearchButton = document.getElementById("exactSearchButton");
 const searchForm = document.getElementById("searchForm");
 const statusNode = document.getElementById("status");
 const warningsNode = document.getElementById("warnings");
@@ -514,8 +516,14 @@ function bootstrap() {
   searchForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     appState.page = 1;
-    await performSearch();
+    await performSearch(false);
   });
+  if (exactSearchButton) {
+    exactSearchButton.addEventListener("click", async () => {
+      appState.page = 1;
+      await performSearch(true);
+    });
+  }
 
   detailCloseButton.addEventListener("click", closeDetail);
   detailBackdrop.addEventListener("click", closeDetail);
@@ -584,17 +592,19 @@ function activateTab(tabName) {
   }
 }
 
-async function performSearch() {
+async function performSearch(exact = appState.lastExact) {
   const keyword = keywordInput.value.trim();
   if (!keyword) return setStatus("请输入关键词。");
   if (appState.selectedSites.size === 0) return setStatus("请至少选择一个渠道。");
+  const useExact = Boolean(exact);
 
   closeDetail();
   setSearchPageSize((appState.generalConfig && appState.generalConfig.web_page_size) || appState.pageSize);
   appState.lastKeyword = keyword;
+  appState.lastExact = useExact;
   activateTab("search");
   renderWarnings([]);
-  setStatus(`正在搜索“${keyword}”，第 ${appState.page} 页...`);
+  setStatus(`正在${useExact ? "精确搜索" : "搜索"}“${keyword}”，第 ${appState.page} 页...`);
 
   try {
     const response = await fetch(`${root}/api/search`, {
@@ -602,7 +612,7 @@ async function performSearch() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         keyword, scope: "all", sites: Array.from(appState.selectedSites),
-        page: appState.page, page_size: appState.pageSize,
+        page: appState.page, page_size: appState.pageSize, exact: useExact,
       }),
     });
     const payload = await response.json();
@@ -628,7 +638,7 @@ async function performSearch() {
 
     if (!appState.results.length) {
       const suffix = warnings.length ? `；${temporaryWarningSummary(warnings)}` : "";
-      return setStatus(`没有搜索到“${keyword}”，可以换关键词、减少渠道标签筛选，或直接粘贴小说链接${suffix}。`, "empty");
+      return setStatus(`没有${useExact ? "精确搜索" : "搜索"}到“${keyword}”，可以换关键词、减少渠道标签筛选，或直接粘贴小说链接${suffix}。`, "empty");
     }
     const warningSuffix = warnings.length ? `，${warnings.length} 个渠道临时跳过` : "";
     setStatus(`当前显示第 ${appState.page} 页，共 ${totalLabel(appState.total, appState.totalExact)} 条结果${warningSuffix}。`);

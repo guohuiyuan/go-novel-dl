@@ -113,6 +113,7 @@ type searchRequest struct {
 	SiteLimit int      `json:"site_limit"`
 	Page      int      `json:"page"`
 	PageSize  int      `json:"page_size"`
+	Exact     bool     `json:"exact"`
 }
 
 type downloadRequest struct {
@@ -586,6 +587,7 @@ func newRouter(service *Service) *gin.Engine {
 			Sites:        sites,
 			OverallLimit: maxInt(req.Limit, fetchLimit),
 			PerSiteLimit: siteLimit,
+			Exact:        req.Exact,
 		})
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

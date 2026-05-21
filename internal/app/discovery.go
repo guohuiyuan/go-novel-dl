@@ -19,6 +19,7 @@ type HybridSearchOptions struct {
 	OverallLimit   int           `json:"overall_limit,omitempty"`
 	PerSiteLimit   int           `json:"per_site_limit,omitempty"`
 	PerSiteTimeout time.Duration `json:"-"`
+	Exact          bool          `json:"exact,omitempty"`
 }
 
 type SearchWarning struct {
@@ -160,6 +161,9 @@ func (r *Runtime) HybridSearch(ctx context.Context, keyword string, opts HybridS
 			}
 
 			items = textconv.NormalizeSearchResultsLocale(items, resolved.General.LocaleStyle)
+			if opts.Exact {
+				items = filterSearchResultsByKeyword(items, normalizeSearchKeywordLocale(keyword, resolved.General.LocaleStyle))
+			}
 			siteResults <- siteSearchResponse{siteKey: siteKey, items: items}
 		}(siteKey)
 	}
@@ -426,6 +430,39 @@ func normalizeSearchText(value string) string {
 		}
 	}
 	return builder.String()
+}
+
+func filterSearchResultsByKeyword(items []model.SearchResult, keyword string) []model.SearchResult {
+	keywordNorm := normalizeSearchText(keyword)
+	if keywordNorm == "" || len(items) == 0 {
+		return items
+	}
+	filtered := make([]model.SearchResult, 0, len(items))
+	for _, item := range items {
+		if searchResultContainsKeyword(item, keywordNorm) {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
+}
+
+func searchResultContainsKeyword(item model.SearchResult, keywordNorm string) bool {
+	for _, value := range []string{item.Title, item.Author, item.Description, item.LatestChapter} {
+		if strings.Contains(normalizeSearchText(value), keywordNorm) {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeSearchKeywordLocale(keyword, localeStyle string) string {
+	style := strings.ToLower(strings.TrimSpace(localeStyle))
+	switch style {
+	case "simplified", "zh_cn", "zh-cn", "zh-hans":
+		return textconv.ToSimplified(keyword)
+	default:
+		return keyword
+	}
 }
 
 func similarityScore(a, b string) float64 {
