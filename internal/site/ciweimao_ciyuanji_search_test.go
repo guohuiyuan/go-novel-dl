@@ -29,6 +29,55 @@ func TestParseCiweimaoSearchResults(t *testing.T) {
 	}
 }
 
+func TestCiweimaoSearchURLIncludesTagSegment(t *testing.T) {
+	got := ciweimaoSearchURL("女尊，开局离婚觉醒追夫火葬场系统", 1)
+	if !strings.Contains(got, "/%E5%85%A8%E9%83%A8/") {
+		t.Fatalf("expected search URL to include tag segment, got %s", got)
+	}
+	if !strings.Contains(got, "%E5%A5%B3%E5%B0%8A") {
+		t.Fatalf("expected search URL to include escaped keyword, got %s", got)
+	}
+	if strings.Contains(got, "/0-0-0-0-0-0/%E5%A5%B3%E5%B0%8A") {
+		t.Fatalf("search URL is missing the tag slot before keyword: %s", got)
+	}
+}
+
+func TestCiweimaoResolveMobileBookAndCatalogChapterURLs(t *testing.T) {
+	client := NewCiweimaoSite(config.DefaultConfig().ResolveSiteConfig("ciweimao"))
+
+	book, ok := client.ResolveURL("https://wap.ciweimao.com/book/100445947")
+	if !ok || book.BookID != "100445947" || book.ChapterID != "" {
+		t.Fatalf("unexpected mobile book resolve: ok=%v resolved=%+v", ok, book)
+	}
+
+	chapter, ok := client.ResolveURL("https://wap.ciweimao.com/chapter/100445947/113596882")
+	if !ok || chapter.BookID != "100445947" || chapter.ChapterID != "113596882" {
+		t.Fatalf("unexpected mobile chapter resolve: ok=%v resolved=%+v", ok, chapter)
+	}
+}
+
+func TestExtractCiweimaoChapterBookID(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		markup string
+	}{
+		{
+			name:   "script",
+			markup: `<script>HB.book = {book_id: 100445947, chapter_id: 113596882, is_paid: 1};</script>`,
+		},
+		{
+			name:   "book link",
+			markup: `<a href="https://wap.ciweimao.com/book/100445947">详情</a>`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := extractCiweimaoChapterBookID(tc.markup); got != "100445947" {
+				t.Fatalf("expected book id 100445947, got %q", got)
+			}
+		})
+	}
+}
+
 func TestCiweimaoSearchFallbackMatchByBookID(t *testing.T) {
 	book := &model.Book{Site: "ciweimao", ID: "1001", Title: "Example Ciweimao", Author: "Author Name"}
 	results := []model.SearchResult{
@@ -51,6 +100,39 @@ func TestFillCiweimaoBookFromSearchFillsMissingDescription(t *testing.T) {
 	fillCiweimaoBookFromSearch(book, results)
 	if book.Description != "Example description" {
 		t.Fatalf("expected description to be filled, got %q", book.Description)
+	}
+}
+
+func TestCiweimaoLiveSearchAndMobileChapterResolve(t *testing.T) {
+	if os.Getenv("GO_NOVEL_DL_INTEGRATION_SEARCH") == "" {
+		t.Skip("set GO_NOVEL_DL_INTEGRATION_SEARCH=1 to run live ciweimao search")
+	}
+
+	cfg := config.DefaultConfig().ResolveSiteConfig("ciweimao")
+	cfg.General.Timeout = 20
+	client := NewCiweimaoSite(cfg)
+
+	resolved, ok := client.ResolveURL("https://wap.ciweimao.com/chapter/113596882")
+	if !ok || resolved.BookID != "100445947" || resolved.ChapterID != "113596882" {
+		t.Fatalf("unexpected live mobile chapter resolve: ok=%v resolved=%+v", ok, resolved)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	results, err := client.Search(ctx, "女尊，开局离婚觉醒追夫火葬场系统", 3)
+	if err != nil {
+		t.Fatalf("live ciweimao search: %v", err)
+	}
+	if len(results) == 0 || results[0].BookID != "100445947" {
+		t.Fatalf("expected target ciweimao book as first result, got %+v", results)
+	}
+
+	chapter, err := client.FetchChapter(ctx, "100445947", model.Chapter{ID: "113596882"})
+	if err != nil {
+		t.Fatalf("live ciweimao chapter fetch: %v", err)
+	}
+	if !strings.Contains(chapter.Content, "2025年，7月1号") {
+		t.Fatalf("expected target chapter content, got prefix %q", chapter.Content[:min(len(chapter.Content), 80)])
 	}
 }
 

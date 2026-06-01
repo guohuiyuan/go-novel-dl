@@ -22,12 +22,15 @@ import (
 )
 
 var (
-	ciweimaoBookRe         = regexp.MustCompile(`^/book/(\d+)/?$`)
-	ciweimaoChapterRe      = regexp.MustCompile(`^/chapter/(\d+)/?$`)
-	ciweimaoTitleCleanRe   = regexp.MustCompile(`\s+`)
-	ciweimaoChapterListURL = "https://www.ciweimao.com/chapter/get_chapter_list_in_chapter_detail"
-	ciweimaoSessionURL     = "https://www.ciweimao.com/chapter/ajax_get_session_code"
-	ciweimaoDetailURL      = "https://www.ciweimao.com/chapter/get_book_chapter_detail_info"
+	ciweimaoBookRe                = regexp.MustCompile(`^/book/(\d+)/?$`)
+	ciweimaoChapterRe             = regexp.MustCompile(`^/chapter/(\d+)/?$`)
+	ciweimaoChapterWithBookRe     = regexp.MustCompile(`^/chapter/(\d+)/(\d+)/?$`)
+	ciweimaoChapterBookIDScriptRe = regexp.MustCompile(`(?s)HB\.book\s*=\s*\{[^}]*\bbook_id\s*:\s*(\d+)`)
+	ciweimaoBookHrefRe            = regexp.MustCompile(`/book/(\d+)`)
+	ciweimaoTitleCleanRe          = regexp.MustCompile(`\s+`)
+	ciweimaoChapterListURL        = "https://www.ciweimao.com/chapter/get_chapter_list_in_chapter_detail"
+	ciweimaoSessionURL            = "https://www.ciweimao.com/chapter/ajax_get_session_code"
+	ciweimaoDetailURL             = "https://www.ciweimao.com/chapter/get_book_chapter_detail_info"
 )
 
 type CiweimaoSite struct {
@@ -57,15 +60,22 @@ func (s *CiweimaoSite) ResolveURL(rawURL string) (*ResolvedURL, bool) {
 	if err != nil {
 		return nil, false
 	}
-	host := strings.ToLower(strings.TrimPrefix(parsed.Host, "www."))
-	if host != "ciweimao.com" {
+	if !isCiweimaoHost(parsed.Hostname()) {
 		return nil, false
 	}
-	if m := ciweimaoChapterRe.FindStringSubmatch(parsed.Path); len(m) == 2 {
-		return &ResolvedURL{SiteKey: s.Key(), ChapterID: m[1], Canonical: "https://www.ciweimao.com" + parsed.Path}, true
+	if m := ciweimaoChapterWithBookRe.FindStringSubmatch(parsed.Path); len(m) == 3 {
+		return &ResolvedURL{SiteKey: s.Key(), BookID: m[1], ChapterID: m[2], Canonical: "https://www.ciweimao.com/chapter/" + m[2]}, true
 	}
 	if m := ciweimaoBookRe.FindStringSubmatch(parsed.Path); len(m) == 2 {
 		return &ResolvedURL{SiteKey: s.Key(), BookID: m[1], Canonical: "https://www.ciweimao.com" + parsed.Path}, true
+	}
+	if m := ciweimaoChapterRe.FindStringSubmatch(parsed.Path); len(m) == 2 {
+		canonical := "https://www.ciweimao.com" + parsed.Path
+		bookID := s.resolveCiweimaoChapterBookID(m[1], canonical)
+		if bookID == "" {
+			return nil, false
+		}
+		return &ResolvedURL{SiteKey: s.Key(), BookID: bookID, ChapterID: m[1], Canonical: canonical}, true
 	}
 	return nil, false
 }
@@ -379,15 +389,23 @@ func (s *CiweimaoSite) searchPage(ctx context.Context, keyword string, page int)
 	if page < 1 {
 		page = 1
 	}
-	markup, err := s.html.Get(ctx, fmt.Sprintf(
-		"https://www.ciweimao.com/get-search-book-list/0-0-0-0-0-0/%s/%d",
-		url.PathEscape(keyword),
-		page,
-	))
+	markup, err := s.html.Get(ctx, ciweimaoSearchURL(keyword, page))
 	if err != nil {
 		return nil, false, err
 	}
 	return parseCiweimaoSearchResults(markup)
+}
+
+func ciweimaoSearchURL(keyword string, page int) string {
+	if page < 1 {
+		page = 1
+	}
+	return fmt.Sprintf(
+		"https://www.ciweimao.com/get-search-book-list/0-0-0-0-0-0/%s/%s/%d",
+		url.PathEscape("全部"),
+		url.PathEscape(keyword),
+		page,
+	)
 }
 
 func parseCiweimaoSearchResults(markup string) ([]model.SearchResult, bool, error) {
@@ -522,6 +540,54 @@ func ciweimaoPath(raw string) string {
 		}
 	}
 	return raw
+}
+
+func isCiweimaoHost(host string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	host = strings.TrimSuffix(host, ".")
+	return host == "ciweimao.com" || strings.HasSuffix(host, ".ciweimao.com")
+}
+
+func (s *CiweimaoSite) resolveCiweimaoChapterBookID(chapterID, canonical string) string {
+	chapterID = strings.TrimSpace(chapterID)
+	if chapterID == "" {
+		return ""
+	}
+	candidates := []string{
+		strings.TrimSpace(canonical),
+		"https://www.ciweimao.com/chapter/" + chapterID,
+		"https://wap.ciweimao.com/chapter/" + chapterID,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+	seen := make(map[string]struct{}, len(candidates))
+	for _, rawURL := range candidates {
+		if rawURL == "" {
+			continue
+		}
+		if _, ok := seen[rawURL]; ok {
+			continue
+		}
+		seen[rawURL] = struct{}{}
+		markup, err := s.html.Get(ctx, rawURL)
+		if err != nil {
+			continue
+		}
+		if bookID := extractCiweimaoChapterBookID(markup); bookID != "" {
+			return bookID
+		}
+	}
+	return ""
+}
+
+func extractCiweimaoChapterBookID(markup string) string {
+	if match := ciweimaoChapterBookIDScriptRe.FindStringSubmatch(markup); len(match) == 2 {
+		return strings.TrimSpace(match[1])
+	}
+	if match := ciweimaoBookHrefRe.FindStringSubmatch(markup); len(match) == 2 {
+		return strings.TrimSpace(match[1])
+	}
+	return ""
 }
 
 func removeNode(n *html.Node) {

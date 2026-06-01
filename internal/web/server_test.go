@@ -317,6 +317,28 @@ func TestReaderMobileControlsRequireCenterTap(t *testing.T) {
 	}
 }
 
+func TestMobileSearchResultStylesPreventLongTextOverflow(t *testing.T) {
+	styleData, err := templateFS.ReadFile("templates/style.css")
+	if err != nil {
+		t.Fatalf("read style.css: %v", err)
+	}
+	style := string(styleData)
+	for _, needle := range []string{
+		`.status-card, .panel-hint, .page-indicator, .result-title, .result-author, .result-source, .result-extra, .result-badge`,
+		`overflow-wrap: anywhere`,
+		`.result-card { display: flex; flex-direction: column; gap: 10px; min-width: 0; overflow: hidden;`,
+		`@media (max-width: 480px)`,
+		`grid-template-columns: 72px minmax(0, 1fr)`,
+		`.result-cover-overlay { display: none; }`,
+		`bottom: calc(88px + env(safe-area-inset-bottom, 12px))`,
+		`max-height: min(36vh, 180px)`,
+	} {
+		if !strings.Contains(style, needle) {
+			t.Fatalf("expected mobile overflow guard style %s", needle)
+		}
+	}
+}
+
 func TestSearchEndpointPaginatesMixedSearchableSources(t *testing.T) {
 	service := newTestService()
 	router := newRouter(service)

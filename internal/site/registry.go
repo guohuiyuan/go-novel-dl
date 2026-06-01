@@ -185,7 +185,7 @@ func NewDefaultRegistry() *Registry {
 	registry.RegisterWithHosts("ciyuanji", []string{"ciyuanji.com"}, func(cfg config.ResolvedSiteConfig) Site {
 		return NewCiyuanjiSite(cfg)
 	})
-	registry.RegisterWithHosts("ciweimao", []string{"ciweimao.com"}, func(cfg config.ResolvedSiteConfig) Site {
+	registry.RegisterWithHosts("ciweimao", []string{"ciweimao.com", "wap.ciweimao.com", "mip.ciweimao.com"}, func(cfg config.ResolvedSiteConfig) Site {
 		return NewCiweimaoSite(cfg)
 	})
 	registry.RegisterWithHosts("tongrenshe", []string{"tongrenshe.cc"}, func(cfg config.ResolvedSiteConfig) Site {
