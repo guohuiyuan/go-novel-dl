@@ -8,11 +8,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/net/html"
@@ -28,15 +30,20 @@ var (
 	ciweimaoChapterBookIDScriptRe = regexp.MustCompile(`(?s)HB\.book\s*=\s*\{[^}]*\bbook_id\s*:\s*(\d+)`)
 	ciweimaoBookHrefRe            = regexp.MustCompile(`/book/(\d+)`)
 	ciweimaoTitleCleanRe          = regexp.MustCompile(`\s+`)
-	ciweimaoChapterListURL        = "https://www.ciweimao.com/chapter/get_chapter_list_in_chapter_detail"
-	ciweimaoSessionURL            = "https://www.ciweimao.com/chapter/ajax_get_session_code"
-	ciweimaoDetailURL             = "https://www.ciweimao.com/chapter/get_book_chapter_detail_info"
+	ciweimaoBaseURL               = "https://www.ciweimao.com"
+	ciweimaoWapBaseURL            = "https://wap.ciweimao.com"
+	ciweimaoChapterListURL        = ciweimaoBaseURL + "/chapter/get_chapter_list_in_chapter_detail"
+	ciweimaoSessionURL            = ciweimaoBaseURL + "/chapter/ajax_get_session_code"
+	ciweimaoDetailURL             = ciweimaoBaseURL + "/chapter/get_book_chapter_detail_info"
+	ciweimaoImageSessionURL       = ciweimaoBaseURL + "/chapter/ajax_get_image_session_code"
+	ciweimaoVIPImageURL           = ciweimaoBaseURL + "/chapter/book_chapter_image"
 )
 
 type CiweimaoSite struct {
-	cfg    config.ResolvedSiteConfig
-	html   HTMLSite
-	client *http.Client
+	cfg           config.ResolvedSiteConfig
+	html          HTMLSite
+	client        *http.Client
+	textChapterMu sync.Mutex
 }
 
 func NewCiweimaoSite(cfg config.ResolvedSiteConfig) *CiweimaoSite {
@@ -97,7 +104,8 @@ func (s *CiweimaoSite) Download(ctx context.Context, ref model.BookRef) (*model.
 }
 
 func (s *CiweimaoSite) DownloadPlan(ctx context.Context, ref model.BookRef) (*model.Book, error) {
-	markup, err := s.html.Get(ctx, fmt.Sprintf("https://www.ciweimao.com/book/%s", ref.BookID))
+	bookURL := ciweimaoURL("/book/" + ref.BookID)
+	markup, err := s.html.Get(ctx, bookURL)
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +131,7 @@ func (s *CiweimaoSite) DownloadPlan(ctx context.Context, ref model.BookRef) (*mo
 		Description: fallback(metaProperty(infoDoc, "og:description"), cleanText(nodeText(findFirst(infoDoc, func(n *html.Node) bool {
 			return n.Type == html.ElementNode && n.Data == "div" && hasClass(n, "book-desc")
 		})))),
-		SourceURL: fmt.Sprintf("https://www.ciweimao.com/book/%s", ref.BookID),
+		SourceURL: bookURL,
 		CoverURL: fallback(metaProperty(infoDoc, "og:image"), attrValue(findFirst(infoDoc, func(n *html.Node) bool {
 			return n.Type == html.ElementNode && n.Data == "img" && hasAncestorClass(n, "cover")
 		}), "src")),
@@ -135,29 +143,12 @@ func (s *CiweimaoSite) DownloadPlan(ctx context.Context, ref model.BookRef) (*mo
 			fillCiweimaoBookFromSearch(book, results)
 		}
 	}
-	chapters := make([]model.Chapter, 0)
-	currentVolume := "正文"
-	for _, box := range findAll(listDoc, func(n *html.Node) bool {
-		return n.Type == html.ElementNode && n.Data == "div" && hasClass(n, "book-chapter-box")
-	}) {
-		if title := cleanText(nodeText(findFirst(box, func(n *html.Node) bool { return n.Type == html.ElementNode && n.Data == "h4" && hasClass(n, "sub-tit") }))); title != "" {
-			currentVolume = title
-		}
-		for _, a := range findAll(box, func(n *html.Node) bool {
-			return n.Type == html.ElementNode && n.Data == "a" && hasAncestorClass(n, "book-chapter-list")
-		}) {
-			href := strings.TrimSpace(attrValue(a, "href"))
-			match := ciweimaoChapterRe.FindStringSubmatch(ciweimaoPath(href))
-			if len(match) != 2 {
-				continue
+	chapters := parseCiweimaoChapters(listDoc, ciweimaoBaseURL, true)
+	if len(chapters) == 0 {
+		if wapMarkup, err := s.html.Get(ctx, ciweimaoWapURL("/book/"+ref.BookID)); err == nil {
+			if wapDoc, err := parseHTML(wapMarkup); err == nil {
+				chapters = parseCiweimaoChapters(wapDoc, ciweimaoWapBaseURL, true)
 			}
-			locked := findFirst(a, func(n *html.Node) bool {
-				return n.Type == html.ElementNode && n.Data == "i" && hasClassContains(n, "icon-lock")
-			}) != nil
-			if locked && !s.cfg.General.FetchInaccessible {
-				continue
-			}
-			chapters = append(chapters, model.Chapter{ID: match[1], Title: cleanText(nodeText(a)), URL: absolutizeURL("https://www.ciweimao.com", href), Volume: currentVolume, Order: len(chapters) + 1})
 		}
 	}
 	book.Chapters = applyChapterRange(chapters, ref)
@@ -227,16 +218,36 @@ func normalizeCiweimaoFallbackText(value string) string {
 
 func (s *CiweimaoSite) FetchChapter(ctx context.Context, bookID string, chapter model.Chapter) (model.Chapter, error) {
 	_ = bookID
-	markup, err := s.html.Get(ctx, fmt.Sprintf("https://www.ciweimao.com/chapter/%s", chapter.ID))
+	chapterURL := ciweimaoURL("/chapter/" + chapter.ID)
+	markup, err := s.html.Get(ctx, chapterURL)
 	if err != nil {
 		return chapter, err
-	}
-	if strings.Contains(markup, "J_ImgRead") {
-		return chapter, fmt.Errorf("ciweimao image chapter is not implemented yet")
 	}
 	if title := extractCiweimaoTitle(markup); title != "" {
 		chapter.Title = title
 	}
+	if strings.Contains(markup, "J_ImgRead") {
+		return s.fetchCiweimaoImageChapter(ctx, chapter, chapterURL)
+	}
+	s.textChapterMu.Lock()
+	defer s.textChapterMu.Unlock()
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		loaded, err := s.fetchCiweimaoTextChapter(ctx, chapter)
+		if err == nil {
+			return loaded, nil
+		}
+		lastErr = err
+		select {
+		case <-ctx.Done():
+			return chapter, ctx.Err()
+		case <-time.After(time.Duration(180*(attempt+1)) * time.Millisecond):
+		}
+	}
+	return chapter, lastErr
+}
+
+func (s *CiweimaoSite) fetchCiweimaoTextChapter(ctx context.Context, chapter model.Chapter) (model.Chapter, error) {
 	session, err := s.fetchCiweimaoSession(ctx, chapter.ID)
 	if err != nil {
 		return chapter, err
@@ -306,15 +317,27 @@ type ciweimaoDetailResp struct {
 	ChapterContent string   `json:"chapter_content"`
 }
 
+type ciweimaoImageSessionResp struct {
+	Code         int      `json:"code"`
+	EncryptKeys  []string `json:"encryt_keys"`
+	ImageCode    string   `json:"image_code"`
+	AccessKey    string   `json:"access_key"`
+	ErrorMessage string   `json:"error_message"`
+}
+
 func (s *CiweimaoSite) fetchCiweimaoChapterList(ctx context.Context, bookID string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ciweimaoChapterListURL, strings.NewReader("book_id="+bookID+"&chapter_id=0&orderby=0"))
+	form := url.Values{}
+	form.Set("book_id", bookID)
+	form.Set("chapter_id", "0")
+	form.Set("orderby", "0")
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ciweimaoChapterListURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
 	req.Header.Set("X-Requested-With", "XMLHttpRequest")
-	req.Header.Set("Origin", "https://www.ciweimao.com")
-	req.Header.Set("Referer", fmt.Sprintf("https://www.ciweimao.com/book/%s", bookID))
+	req.Header.Set("Origin", ciweimaoBaseURL)
+	req.Header.Set("Referer", ciweimaoURL("/book/"+bookID))
 	resp, err := s.client.Do(req)
 	if err != nil {
 		return "", err
@@ -331,14 +354,16 @@ func (s *CiweimaoSite) fetchCiweimaoChapterList(ctx context.Context, bookID stri
 }
 
 func (s *CiweimaoSite) fetchCiweimaoSession(ctx context.Context, chapterID string) (*ciweimaoSessionResp, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ciweimaoSessionURL, strings.NewReader("chapter_id="+chapterID))
+	form := url.Values{}
+	form.Set("chapter_id", chapterID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ciweimaoSessionURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
 	req.Header.Set("X-Requested-With", "XMLHttpRequest")
-	req.Header.Set("Origin", "https://www.ciweimao.com")
-	req.Header.Set("Referer", fmt.Sprintf("https://www.ciweimao.com/chapter/%s", chapterID))
+	req.Header.Set("Origin", ciweimaoBaseURL)
+	req.Header.Set("Referer", ciweimaoURL("/chapter/"+chapterID))
 	resp, err := s.client.Do(req)
 	if err != nil {
 		return nil, err
@@ -358,15 +383,17 @@ func (s *CiweimaoSite) fetchCiweimaoSession(ctx context.Context, chapterID strin
 }
 
 func (s *CiweimaoSite) fetchCiweimaoDetail(ctx context.Context, chapterID, accessKey string) (*ciweimaoDetailResp, error) {
-	body := "chapter_id=" + chapterID + "&chapter_access_key=" + accessKey
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ciweimaoDetailURL, strings.NewReader(body))
+	form := url.Values{}
+	form.Set("chapter_id", chapterID)
+	form.Set("chapter_access_key", accessKey)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ciweimaoDetailURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
 	req.Header.Set("X-Requested-With", "XMLHttpRequest")
-	req.Header.Set("Origin", "https://www.ciweimao.com")
-	req.Header.Set("Referer", fmt.Sprintf("https://www.ciweimao.com/chapter/%s", chapterID))
+	req.Header.Set("Origin", ciweimaoBaseURL)
+	req.Header.Set("Referer", ciweimaoURL("/chapter/"+chapterID))
 	resp, err := s.client.Do(req)
 	if err != nil {
 		return nil, err
@@ -383,6 +410,106 @@ func (s *CiweimaoSite) fetchCiweimaoDetail(ctx context.Context, chapterID, acces
 		return nil, fmt.Errorf("ciweimao encrypted chapter payload missing")
 	}
 	return &result, nil
+}
+
+func (s *CiweimaoSite) fetchCiweimaoImageChapter(ctx context.Context, chapter model.Chapter, chapterURL string) (model.Chapter, error) {
+	session, err := s.fetchCiweimaoImageSession(ctx, chapter.ID, chapterURL)
+	if err != nil {
+		return chapter, err
+	}
+	imageCode, err := decryptCiweimao(session.ImageCode, session.EncryptKeys, session.AccessKey)
+	if err != nil {
+		return chapter, err
+	}
+	data, mediaType, err := s.fetchCiweimaoVIPImage(ctx, chapter.ID, chapterURL, imageCode)
+	if err != nil {
+		return chapter, err
+	}
+	if len(data) == 0 {
+		return chapter, fmt.Errorf("ciweimao image chapter payload is empty")
+	}
+	alt := ciweimaoMarkdownAlt(chapter.Title)
+	if alt == "" {
+		alt = "\u56fe\u7247"
+	}
+	chapter.Content = fmt.Sprintf("![%s](data:%s;base64,%s)", alt, mediaType, base64.StdEncoding.EncodeToString(data))
+	chapter.Downloaded = true
+	return chapter, nil
+}
+
+func (s *CiweimaoSite) fetchCiweimaoImageSession(ctx context.Context, chapterID, referer string) (*ciweimaoImageSessionResp, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ciweimaoImageSessionURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json, text/javascript, */*; q=0.01")
+	req.Header.Set("X-Requested-With", "XMLHttpRequest")
+	req.Header.Set("Origin", ciweimaoBaseURL)
+	req.Header.Set("Referer", referer)
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("ciweimao image session http %d", resp.StatusCode)
+	}
+	var result ciweimaoImageSessionResp
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+	if result.Code != 0 && result.Code != 100000 {
+		if result.ErrorMessage != "" {
+			return nil, fmt.Errorf("ciweimao image session failed: %s", result.ErrorMessage)
+		}
+		return nil, fmt.Errorf("ciweimao image session failed with code %d", result.Code)
+	}
+	if result.ImageCode == "" || len(result.EncryptKeys) == 0 || result.AccessKey == "" {
+		return nil, fmt.Errorf("ciweimao image session payload missing for chapter %s", chapterID)
+	}
+	return &result, nil
+}
+
+func (s *CiweimaoSite) fetchCiweimaoVIPImage(ctx context.Context, chapterID, referer, imageCode string) ([]byte, string, error) {
+	values := url.Values{}
+	values.Set("chapter_id", chapterID)
+	values.Set("area_width", "871")
+	values.Set("font", "undefined")
+	values.Set("font_size", "18")
+	values.Set("image_code", imageCode)
+	values.Set("bg_color_name", "white")
+	values.Set("text_color_name", "white")
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ciweimaoVIPImageURL+"?"+values.Encode(), nil)
+	if err != nil {
+		return nil, "", err
+	}
+	req.Header.Set("Accept", "image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+	req.Header.Set("X-Requested-With", "XMLHttpRequest")
+	req.Header.Set("Origin", ciweimaoBaseURL)
+	req.Header.Set("Referer", referer)
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, "", fmt.Errorf("ciweimao image http %d", resp.StatusCode)
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, "", err
+	}
+	mediaType, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+	mediaType = strings.ToLower(strings.TrimSpace(mediaType))
+	if mediaType == "" || !strings.HasPrefix(mediaType, "image/") {
+		if sniffed := strings.ToLower(strings.TrimSpace(http.DetectContentType(data))); strings.HasPrefix(sniffed, "image/") {
+			mediaType = sniffed
+		}
+	}
+	if !strings.HasPrefix(mediaType, "image/") {
+		return nil, "", fmt.Errorf("ciweimao image payload is not an image: %s", mediaType)
+	}
+	return data, mediaType, nil
 }
 
 func (s *CiweimaoSite) searchPage(ctx context.Context, keyword string, page int) ([]model.SearchResult, bool, error) {
@@ -455,9 +582,9 @@ func parseCiweimaoSearchResults(markup string) ([]model.SearchResult, bool, erro
 			Title:         fallback(attrValue(titleLink, "title"), cleanText(nodeText(titleLink))),
 			Author:        author,
 			Description:   cleanText(nodeTextPreserveLineBreaks(findFirst(item, func(n *html.Node) bool { return n.Type == html.ElementNode && n.Data == "div" && hasClass(n, "desc") }))),
-			URL:           absolutizeURL("https://www.ciweimao.com", attrValue(titleLink, "href")),
+			URL:           absolutizeURL(ciweimaoBaseURL, attrValue(titleLink, "href")),
 			LatestChapter: latest,
-			CoverURL: absolutizeURL("https://www.ciweimao.com", attrValue(findFirst(item, func(n *html.Node) bool {
+			CoverURL: absolutizeURL(ciweimaoBaseURL, attrValue(findFirst(item, func(n *html.Node) bool {
 				return n.Type == html.ElementNode && n.Data == "img" && hasAncestorClass(n, "cover")
 			}), "src")),
 		})
@@ -542,6 +669,109 @@ func ciweimaoPath(raw string) string {
 	return raw
 }
 
+func ciweimaoURL(path string) string {
+	return strings.TrimRight(ciweimaoBaseURL, "/") + path
+}
+
+func ciweimaoWapURL(path string) string {
+	return strings.TrimRight(ciweimaoWapBaseURL, "/") + path
+}
+
+func parseCiweimaoChapters(doc *html.Node, baseURL string, includeLocked bool) []model.Chapter {
+	if doc == nil {
+		return nil
+	}
+	if chapters := parseCiweimaoDesktopChapters(doc, baseURL, includeLocked); len(chapters) > 0 {
+		return chapters
+	}
+	return parseCiweimaoMobileChapters(doc, baseURL, includeLocked)
+}
+
+func parseCiweimaoDesktopChapters(doc *html.Node, baseURL string, includeLocked bool) []model.Chapter {
+	chapters := make([]model.Chapter, 0)
+	seen := make(map[string]struct{})
+	currentVolume := "\u6b63\u6587"
+	for _, box := range findAll(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "div" && hasClass(n, "book-chapter-box")
+	}) {
+		if title := cleanText(nodeText(findFirst(box, func(n *html.Node) bool { return n.Type == html.ElementNode && n.Data == "h4" && hasClass(n, "sub-tit") }))); title != "" {
+			currentVolume = title
+		}
+		for _, a := range findAll(box, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "a" && hasAncestorClass(n, "book-chapter-list")
+		}) {
+			appendCiweimaoCatalogChapter(&chapters, seen, a, baseURL, currentVolume, includeLocked)
+		}
+	}
+	return chapters
+}
+
+func parseCiweimaoMobileChapters(doc *html.Node, baseURL string, includeLocked bool) []model.Chapter {
+	root := findFirst(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "div" && hasClass(n, "cnt-box") && hasClass(n, "catalogue")
+	})
+	if root == nil {
+		root = doc
+	}
+
+	chapters := make([]model.Chapter, 0)
+	seen := make(map[string]struct{})
+	currentVolume := "\u6b63\u6587"
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n == nil {
+			return
+		}
+		if n.Type == html.ElementNode {
+			if n.Data == "h2" {
+				if title := cleanText(nodeText(n)); title != "" {
+					currentVolume = title
+				}
+			}
+			if n.Data == "a" {
+				appendCiweimaoCatalogChapter(&chapters, seen, n, baseURL, currentVolume, includeLocked)
+			}
+		}
+		for child := n.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+	walk(root)
+	return chapters
+}
+
+func appendCiweimaoCatalogChapter(chapters *[]model.Chapter, seen map[string]struct{}, a *html.Node, baseURL, currentVolume string, includeLocked bool) {
+	href := strings.TrimSpace(attrValue(a, "href"))
+	match := ciweimaoChapterRe.FindStringSubmatch(ciweimaoPath(href))
+	if len(match) != 2 {
+		return
+	}
+	chapterID := match[1]
+	if _, ok := seen[chapterID]; ok {
+		return
+	}
+	locked := findFirst(a, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "i" && hasClassContains(n, "icon-lock")
+	}) != nil
+	if locked && !includeLocked {
+		return
+	}
+	seen[chapterID] = struct{}{}
+	*chapters = append(*chapters, model.Chapter{
+		ID:     chapterID,
+		Title:  cleanText(nodeText(a)),
+		URL:    absolutizeURL(baseURL, href),
+		Volume: currentVolume,
+		Order:  len(*chapters) + 1,
+	})
+}
+
+func ciweimaoMarkdownAlt(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.NewReplacer("[", "", "]", "", "\r", " ", "\n", " ").Replace(value)
+	return strings.TrimSpace(value)
+}
+
 func isCiweimaoHost(host string) bool {
 	host = strings.ToLower(strings.TrimSpace(host))
 	host = strings.TrimSuffix(host, ".")
@@ -555,8 +785,8 @@ func (s *CiweimaoSite) resolveCiweimaoChapterBookID(chapterID, canonical string)
 	}
 	candidates := []string{
 		strings.TrimSpace(canonical),
-		"https://www.ciweimao.com/chapter/" + chapterID,
-		"https://wap.ciweimao.com/chapter/" + chapterID,
+		ciweimaoURL("/chapter/" + chapterID),
+		ciweimaoWapURL("/chapter/" + chapterID),
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()

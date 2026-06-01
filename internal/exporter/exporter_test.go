@@ -321,6 +321,63 @@ func TestEPUBExportConvertsWebPImagesToJPEGForESJ(t *testing.T) {
 	}
 }
 
+func TestEPUBExportEmbedsDataURIImages(t *testing.T) {
+	imageB64 := base64.StdEncoding.EncodeToString(tinyPNGBytes(t))
+	service := New()
+	book := &model.Book{
+		Site:         "ciweimao",
+		ID:           "100445947",
+		Title:        "Data URI Test",
+		Author:       "Tester",
+		DownloadedAt: time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
+		Chapters: []model.Chapter{{
+			ID:      "1",
+			Title:   "Image Chapter",
+			Content: "![Image Chapter](data:image/png;base64," + imageB64 + ")",
+		}},
+	}
+
+	paths, err := service.Export(book, "ciweimao", config.DefaultConfig().General.Output, t.TempDir(), []string{"epub"})
+	if err != nil {
+		t.Fatalf("export epub with data image: %v", err)
+	}
+
+	r, err := zip.OpenReader(paths[0])
+	if err != nil {
+		t.Fatalf("open epub zip: %v", err)
+	}
+	defer r.Close()
+
+	foundImage := false
+	foundReference := false
+	for _, file := range r.File {
+		switch {
+		case strings.HasPrefix(file.Name, "OEBPS/images/image-") && strings.HasSuffix(file.Name, ".jpg"):
+			foundImage = true
+		case file.Name == "OEBPS/chapter-001.xhtml":
+			rc, err := file.Open()
+			if err != nil {
+				t.Fatalf("open chapter file: %v", err)
+			}
+			body, err := io.ReadAll(rc)
+			rc.Close()
+			if err != nil {
+				t.Fatalf("read chapter file: %v", err)
+			}
+			if strings.Contains(string(body), `src="images/image-001.jpg"`) {
+				foundReference = true
+			}
+		}
+	}
+	if !foundImage {
+		t.Fatalf("expected data uri image to be embedded")
+	}
+	if !foundReference {
+		t.Fatalf("expected chapter page to reference embedded data uri image")
+	}
+}
+
 func TestCollectInlineImageURLsSupportsLazyAttrsAndSrcset(t *testing.T) {
 	line := `<p><img data-original="https://img.example/cover.jpg" data-src="https://img.example/a.jpg" srcset="https://img.example/b.jpg 1x, https://img.example/c.jpg 2x" /><img data-srcset="https://img.example/d.jpg 640w, https://img.example/e.jpg 1280w"></p>`
 	urls := collectInlineImageURLs(line)

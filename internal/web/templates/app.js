@@ -1964,8 +1964,37 @@ function renderChapterBlock(block, text) {
   if (!text.trim()) { block.innerHTML = '<div class="reader-error">章节内容为空</div>'; return; }
   text.split(/\n/).forEach(line => {
     if (!line.trim()) return;
+    const image = readerImageFromLine(line);
+    if (image && image.src) {
+      block.appendChild(createReaderImage(image.src, image.alt));
+      return;
+    }
     const p = document.createElement("p"); p.textContent = line; block.appendChild(p);
   });
+}
+
+function readerImageFromLine(line) {
+  const value = (line || "").trim();
+  if (!value) return null;
+  const markdown = value.match(/^!\[([^\]]*)\]\((.+)\)$/);
+  if (markdown) return { alt: markdown[1] || "", src: markdown[2].trim() };
+  const placeholder = value.match(/^\[(?:\u56fe\u7247|\u5716\u7247|\u63d2\u56fe|\u63d2\u5716|\?\?)\]\s+(\S+)\s*$/);
+  if (placeholder) return { alt: "", src: placeholder[1].trim() };
+  const htmlImage = value.match(/<img\b[^>]*(?:data-original|data-src|src)=["']([^"']+)["'][^>]*>/i);
+  if (htmlImage) return { alt: "", src: htmlImage[1].trim() };
+  return null;
+}
+
+function createReaderImage(src, alt) {
+  const figure = document.createElement("figure");
+  figure.className = "reader-image-figure";
+  const img = document.createElement("img");
+  img.className = "reader-image";
+  img.src = src;
+  img.alt = alt || "\u7ae0\u8282\u56fe\u7247";
+  img.loading = "lazy";
+  figure.appendChild(img);
+  return figure;
 }
 
 async function fetchChapterContentForReader(ch, index) {

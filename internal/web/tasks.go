@@ -393,7 +393,11 @@ func (s *DownloadTaskStore) MarkExporting(id string, done int, total int) {
 		if total <= 0 {
 			total = 1
 		}
-		task.TotalChapters = total + 1
+		if task.Target == DownloadTaskTargetLocal || task.Target == DownloadTaskTargetShelf {
+			task.TotalChapters = total
+		} else {
+			task.TotalChapters = total + 1
+		}
 		if done > total {
 			done = total
 		}

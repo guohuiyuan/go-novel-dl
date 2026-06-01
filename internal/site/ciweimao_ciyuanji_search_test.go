@@ -2,7 +2,12 @@ package site
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"encoding/base64"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -91,6 +96,177 @@ func TestCiweimaoSearchFallbackMatchByBookID(t *testing.T) {
 	}
 }
 
+func TestParseCiweimaoCatalogIncludesLockedChapters(t *testing.T) {
+	markup := `<div class="book-chapter-box"><h4 class="sub-tit">Vol 1</h4><ul class="book-chapter-list"><li><a href="/chapter/1">One</a></li><li><a href="/chapter/2"><i class="icon-lock"></i>Two</a></li></ul></div>`
+	doc, err := parseHTML(markup)
+	if err != nil {
+		t.Fatalf("parse catalog: %v", err)
+	}
+
+	chapters := parseCiweimaoChapters(doc, "https://www.ciweimao.com", true)
+	if len(chapters) != 2 {
+		t.Fatalf("expected locked chapter to be included, got %+v", chapters)
+	}
+	if chapters[1].ID != "2" || chapters[1].URL != "https://www.ciweimao.com/chapter/2" || chapters[1].Volume != "Vol 1" {
+		t.Fatalf("unexpected locked chapter: %+v", chapters[1])
+	}
+
+	visibleOnly := parseCiweimaoChapters(doc, "https://www.ciweimao.com", false)
+	if len(visibleOnly) != 1 || visibleOnly[0].ID != "1" {
+		t.Fatalf("expected locked chapter to be skipped when requested, got %+v", visibleOnly)
+	}
+}
+
+func TestParseCiweimaoMobileCatalog(t *testing.T) {
+	markup := `<div class="cnt-box catalogue"><h1 class="title">作品目录</h1><div class="cnt-inner"><h2>第一卷</h2><ul class="catalogue-list less"><li><a href="https://wap.ciweimao.com/chapter/113596882">第一章</a></li><li><a href="https://wap.ciweimao.com/chapter/113726059"><i class='icon icon-lock'></i>第六十三章</a></li></ul></div></div>`
+	doc, err := parseHTML(markup)
+	if err != nil {
+		t.Fatalf("parse mobile catalog: %v", err)
+	}
+
+	chapters := parseCiweimaoChapters(doc, "https://wap.ciweimao.com", true)
+	if len(chapters) != 2 {
+		t.Fatalf("expected 2 mobile chapters, got %+v", chapters)
+	}
+	if chapters[0].ID != "113596882" || chapters[1].ID != "113726059" {
+		t.Fatalf("unexpected mobile chapter ids: %+v", chapters)
+	}
+	if chapters[1].Volume != "第一卷" || chapters[1].URL != "https://wap.ciweimao.com/chapter/113726059" {
+		t.Fatalf("unexpected mobile locked chapter: %+v", chapters[1])
+	}
+}
+
+func TestCiweimaoFetchImageChapterEmbedsDataImage(t *testing.T) {
+	key := []byte("1234567890abcdef1234567890abcdef")
+	keyB64 := base64.StdEncoding.EncodeToString(key)
+	imageCode := "plain-image-code"
+	encryptedCode := encryptCiweimaoForTest(t, imageCode, []string{keyB64}, "a")
+	imageBytes := ciweimaoTinyPNGBytes(t)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/chapter/123":
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write([]byte(`<html><body><h1 class="chapter">Image Title</h1><div id="J_ImgRead"></div></body></html>`))
+		case "/chapter/ajax_get_image_session_code":
+			if r.Method != http.MethodPost {
+				t.Fatalf("expected POST image session, got %s", r.Method)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"code":100000,"encryt_keys":["` + keyB64 + `"],"image_code":"` + encryptedCode + `","access_key":"a"}`))
+		case "/chapter/book_chapter_image":
+			if got := r.URL.Query().Get("image_code"); got != imageCode {
+				t.Fatalf("unexpected image_code %q", got)
+			}
+			if !strings.Contains(r.Header.Get("Referer"), "/chapter/123") {
+				t.Fatalf("missing chapter referer: %q", r.Header.Get("Referer"))
+			}
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write(imageBytes)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	restore := overrideCiweimaoTestURLs(server.URL)
+	defer restore()
+
+	client := NewCiweimaoSite(config.DefaultConfig().ResolveSiteConfig("ciweimao"))
+	chapter, err := client.FetchChapter(context.Background(), "1001", model.Chapter{ID: "123"})
+	if err != nil {
+		t.Fatalf("fetch image chapter: %v", err)
+	}
+	if !chapter.Downloaded {
+		t.Fatalf("expected image chapter to be marked downloaded")
+	}
+	prefix := "![Image Title](data:image/png;base64,"
+	if !strings.HasPrefix(chapter.Content, prefix) || !strings.HasSuffix(chapter.Content, ")") {
+		t.Fatalf("unexpected image chapter content prefix: %q", chapter.Content[:min(len(chapter.Content), 80)])
+	}
+	payload := strings.TrimSuffix(strings.TrimPrefix(chapter.Content, prefix), ")")
+	decoded, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil {
+		t.Fatalf("decode embedded image: %v", err)
+	}
+	if string(decoded) != string(imageBytes) {
+		t.Fatalf("embedded image bytes changed")
+	}
+}
+
+func overrideCiweimaoTestURLs(baseURL string) func() {
+	oldBaseURL := ciweimaoBaseURL
+	oldWapBaseURL := ciweimaoWapBaseURL
+	oldChapterListURL := ciweimaoChapterListURL
+	oldSessionURL := ciweimaoSessionURL
+	oldDetailURL := ciweimaoDetailURL
+	oldImageSessionURL := ciweimaoImageSessionURL
+	oldVIPImageURL := ciweimaoVIPImageURL
+
+	ciweimaoBaseURL = baseURL
+	ciweimaoWapBaseURL = baseURL
+	ciweimaoChapterListURL = baseURL + "/chapter/get_chapter_list_in_chapter_detail"
+	ciweimaoSessionURL = baseURL + "/chapter/ajax_get_session_code"
+	ciweimaoDetailURL = baseURL + "/chapter/get_book_chapter_detail_info"
+	ciweimaoImageSessionURL = baseURL + "/chapter/ajax_get_image_session_code"
+	ciweimaoVIPImageURL = baseURL + "/chapter/book_chapter_image"
+
+	return func() {
+		ciweimaoBaseURL = oldBaseURL
+		ciweimaoWapBaseURL = oldWapBaseURL
+		ciweimaoChapterListURL = oldChapterListURL
+		ciweimaoSessionURL = oldSessionURL
+		ciweimaoDetailURL = oldDetailURL
+		ciweimaoImageSessionURL = oldImageSessionURL
+		ciweimaoVIPImageURL = oldVIPImageURL
+	}
+}
+
+func encryptCiweimaoForTest(t *testing.T, plain string, keys []string, accessKey string) string {
+	t.Helper()
+	if len(keys) == 0 || accessKey == "" {
+		t.Fatalf("invalid ciweimao encryption fixture")
+	}
+	selected := []string{keys[int(accessKey[len(accessKey)-1])%len(keys)], keys[int(accessKey[0])%len(keys)]}
+	current := []byte(plain)
+	for idx := len(selected) - 1; idx >= 0; idx-- {
+		key, err := base64.StdEncoding.DecodeString(selected[idx])
+		if err != nil {
+			t.Fatalf("decode key: %v", err)
+		}
+		block, err := aes.NewCipher(key)
+		if err != nil {
+			t.Fatalf("new cipher: %v", err)
+		}
+		iv := []byte("abcdefghijklmnop")
+		padded := pkcs7PadForTest(current, aes.BlockSize)
+		ciphertext := make([]byte, len(padded))
+		cipher.NewCBCEncrypter(block, iv).CryptBlocks(ciphertext, padded)
+		raw := append(append([]byte{}, iv...), ciphertext...)
+		current = []byte(base64.StdEncoding.EncodeToString(raw))
+	}
+	return string(current)
+}
+
+func pkcs7PadForTest(data []byte, size int) []byte {
+	pad := size - len(data)%size
+	out := make([]byte, 0, len(data)+pad)
+	out = append(out, data...)
+	for i := 0; i < pad; i++ {
+		out = append(out, byte(pad))
+	}
+	return out
+}
+
+func ciweimaoTinyPNGBytes(t *testing.T) []byte {
+	t.Helper()
+	data, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=")
+	if err != nil {
+		t.Fatalf("decode tiny png: %v", err)
+	}
+	return data
+}
+
 func TestFillCiweimaoBookFromSearchFillsMissingDescription(t *testing.T) {
 	book := &model.Book{Site: "ciweimao", ID: "1001", Title: "Example Ciweimao", Author: "Author Name"}
 	results := []model.SearchResult{
@@ -133,6 +309,22 @@ func TestCiweimaoLiveSearchAndMobileChapterResolve(t *testing.T) {
 	}
 	if !strings.Contains(chapter.Content, "2025年，7月1号") {
 		t.Fatalf("expected target chapter content, got prefix %q", chapter.Content[:min(len(chapter.Content), 80)])
+	}
+
+	book, err := client.DownloadPlan(ctx, model.BookRef{BookID: "100445947"})
+	if err != nil {
+		t.Fatalf("live ciweimao download plan: %v", err)
+	}
+	if len(book.Chapters) < 400 {
+		t.Fatalf("expected live ciweimao plan to include image/locked chapters, got %d", len(book.Chapters))
+	}
+
+	imageChapter, err := client.FetchChapter(ctx, "100445947", model.Chapter{ID: "113726059"})
+	if err != nil {
+		t.Fatalf("live ciweimao image chapter fetch: %v", err)
+	}
+	if !strings.HasPrefix(imageChapter.Content, "![") || !strings.Contains(imageChapter.Content, "](data:image/") {
+		t.Fatalf("expected embedded image chapter content, got prefix %q", imageChapter.Content[:min(len(imageChapter.Content), 80)])
 	}
 }
 

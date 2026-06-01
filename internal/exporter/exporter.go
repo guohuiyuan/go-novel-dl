@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"crypto/sha1"
+	"encoding/base64"
 	"fmt"
 	stdhtml "html"
 	"html/template"
@@ -205,6 +206,10 @@ func normalizeTXTChapterContent(content string) string {
 	parts := make([]string, 0, len(blocks))
 	for _, block := range blocks {
 		if imageURL := strings.TrimSpace(block.ImageURL); imageURL != "" {
+			if isDataImageURL(imageURL) {
+				parts = append(parts, chapterImagePlaceholder+" \u5185\u5d4c\u56fe\u7247")
+				continue
+			}
 			parts = append(parts, chapterImagePlaceholder+" "+imageURL)
 			continue
 		}
@@ -1019,10 +1024,17 @@ func normalizeInlineImageURL(raw string) string {
 		return ""
 	}
 	lower := strings.ToLower(value)
-	if strings.HasPrefix(lower, "data:") || strings.HasPrefix(lower, "javascript:") {
+	if strings.HasPrefix(lower, "data:") && !strings.HasPrefix(lower, "data:image/") {
+		return ""
+	}
+	if strings.HasPrefix(lower, "javascript:") {
 		return ""
 	}
 	return value
+}
+
+func isDataImageURL(raw string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(raw)), "data:image/")
 }
 
 func firstSrcsetURL(value string) string {
@@ -1185,6 +1197,10 @@ func downloadAsset(client *http.Client, rawURL, referer string) ([]byte, string,
 	if rawURL == "" {
 		return nil, "", "", fmt.Errorf("empty asset url")
 	}
+	if isDataImageURL(rawURL) {
+		data, mediaType, err := decodeDataImageURL(rawURL)
+		return data, mediaType, rawURL, err
+	}
 	referers := buildDownloadRefererCandidates(rawURL, referer)
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
@@ -1201,6 +1217,44 @@ func downloadAsset(client *http.Client, rawURL, referer string) ([]byte, string,
 		lastErr = fmt.Errorf("failed to download asset: %s", rawURL)
 	}
 	return nil, "", rawURL, lastErr
+}
+
+func decodeDataImageURL(rawURL string) ([]byte, string, error) {
+	header, payload, ok := strings.Cut(strings.TrimSpace(rawURL), ",")
+	if !ok {
+		return nil, "", fmt.Errorf("invalid data image url")
+	}
+	header = strings.TrimSpace(header)
+	payload = strings.TrimSpace(payload)
+	if !isDataImageURL(header) || payload == "" {
+		return nil, "", fmt.Errorf("invalid data image url")
+	}
+	meta := strings.TrimPrefix(header, "data:")
+	meta = strings.TrimPrefix(meta, "DATA:")
+	parts := strings.Split(meta, ";")
+	mediaType := strings.ToLower(strings.TrimSpace(parts[0]))
+	if !strings.HasPrefix(mediaType, "image/") {
+		return nil, "", fmt.Errorf("unsupported data image media type: %s", mediaType)
+	}
+	isBase64 := false
+	for _, part := range parts[1:] {
+		if strings.EqualFold(strings.TrimSpace(part), "base64") {
+			isBase64 = true
+			break
+		}
+	}
+	if !isBase64 {
+		decoded, err := neturl.QueryUnescape(payload)
+		if err != nil {
+			return nil, "", err
+		}
+		return []byte(decoded), mediaType, nil
+	}
+	data, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil {
+		return nil, "", err
+	}
+	return data, mediaType, nil
 }
 
 func buildDownloadRefererCandidates(rawURL, referer string) []string {

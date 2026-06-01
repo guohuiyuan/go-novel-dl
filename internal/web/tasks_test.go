@@ -86,6 +86,35 @@ func TestDownloadTaskStoreTracksFailure(t *testing.T) {
 	}
 }
 
+func TestDownloadTaskStoreKeepsLocalSavingChapterTotal(t *testing.T) {
+	store := NewDownloadTaskStore()
+	task := store.Create("ciweimao", "100445947", DownloadTaskOptions{Target: DownloadTaskTargetLocal})
+
+	store.MarkRunning(task.ID, "ciweimao", "100445947", "example title", 444)
+	store.MarkProgress(task.ID, 444, 444, "last chapter")
+	store.MarkExporting(task.ID, 444, 444)
+
+	saving, ok := store.Snapshot(task.ID)
+	if !ok {
+		t.Fatalf("expected task snapshot in saving phase")
+	}
+	if saving.Phase != "saving" {
+		t.Fatalf("expected saving phase, got %s", saving.Phase)
+	}
+	if saving.CompletedChapters != 444 || saving.TotalChapters != 444 {
+		t.Fatalf("expected local save progress to stay at chapter count, got %d/%d", saving.CompletedChapters, saving.TotalChapters)
+	}
+
+	store.MarkCompleted(task.ID, "example title", nil)
+	completed, ok := store.Snapshot(task.ID)
+	if !ok {
+		t.Fatalf("expected completed task snapshot")
+	}
+	if completed.CompletedChapters != 444 || completed.TotalChapters != 444 {
+		t.Fatalf("expected local completed progress to stay at chapter count, got %d/%d", completed.CompletedChapters, completed.TotalChapters)
+	}
+}
+
 func TestDownloadTaskSnapshotSanitizesNonFiniteSpeed(t *testing.T) {
 	store := NewDownloadTaskStore()
 	task := store.Create("esjzone", "1755960125")

@@ -339,6 +339,58 @@ func TestMobileSearchResultStylesPreventLongTextOverflow(t *testing.T) {
 	}
 }
 
+func TestMobileDownloadTaskStylesPreventLongTextOverflow(t *testing.T) {
+	styleData, err := templateFS.ReadFile("templates/style.css")
+	if err != nil {
+		t.Fatalf("read style.css: %v", err)
+	}
+	style := string(styleData)
+	for _, needle := range []string{
+		`.task-card {`,
+		`min-width: 0; overflow: hidden;`,
+		`.task-title {`,
+		`white-space: nowrap; overflow: hidden; text-overflow: ellipsis`,
+		`.task-chip {`,
+		`max-width: min(240px, 100%)`,
+		`.task-file-chip {`,
+		`max-width: min(280px, 100%)`,
+		`@media (max-width: 768px)`,
+		`.task-head { align-items: flex-start; flex-wrap: wrap; gap: 8px; }`,
+		`.task-title {`,
+		`flex-basis: 100%; white-space: normal`,
+		`.task-chip-current { flex-basis: 100%; }`,
+		`.task-file-chip { width: 100%; max-width: 100%; }`,
+	} {
+		if !strings.Contains(style, needle) {
+			t.Fatalf("expected mobile task overflow guard style %s", needle)
+		}
+	}
+}
+
+func TestReaderRendersImageChapterLines(t *testing.T) {
+	scriptData, err := templateFS.ReadFile("templates/app.js")
+	if err != nil {
+		t.Fatalf("read app.js: %v", err)
+	}
+	script := string(scriptData)
+	for _, needle := range []string{`function readerImageFromLine`, `function createReaderImage`, `markdown = value.match`, `reader-image-figure`} {
+		if !strings.Contains(script, needle) {
+			t.Fatalf("expected reader image rendering script %s", needle)
+		}
+	}
+
+	styleData, err := templateFS.ReadFile("templates/style.css")
+	if err != nil {
+		t.Fatalf("read style.css: %v", err)
+	}
+	style := string(styleData)
+	for _, needle := range []string{`.reader-image-figure`, `.reader-image`, `max-width: 100%`} {
+		if !strings.Contains(style, needle) {
+			t.Fatalf("expected reader image style %s", needle)
+		}
+	}
+}
+
 func TestSearchEndpointPaginatesMixedSearchableSources(t *testing.T) {
 	service := newTestService()
 	router := newRouter(service)
