@@ -41,7 +41,9 @@ func NewQidianSite(cfg config.ResolvedSiteConfig) *QidianSite {
 	}
 	jar, _ := cookiejar.New(nil)
 	client := newSiteHTTPClient(timeout, siteHTTPClientOptions{Jar: jar})
-	return &QidianSite{cfg: cfg, html: NewHTMLSite(client), client: client}
+	site := &QidianSite{cfg: cfg, html: NewHTMLSite(client), client: client}
+	site.injectQidianCookieString(cfg.Cookie)
+	return site
 }
 
 func (s *QidianSite) Key() string         { return "qidian" }
@@ -95,44 +97,39 @@ func (s *QidianSite) Download(ctx context.Context, ref model.BookRef) (*model.Bo
 
 func (s *QidianSite) DownloadPlan(ctx context.Context, ref model.BookRef) (*model.Book, error) {
 	markup, sourceURL, err := s.fetchQidianBookPage(ctx, ref.BookID)
-	if err != nil {
-		return nil, err
+	var doc *html.Node
+	var book *model.Book
+	var chapters []model.Chapter
+	detailErr := err
+	if detailErr == nil {
+		doc, err = parseHTML(markup)
+		if err != nil {
+			return nil, err
+		}
+		book = qidianBookFromDocument(doc, ref.BookID, sourceURL, s.Key())
+		chapters = qidianParseStaticCatalog(doc, ref.BookID, s.cfg.General.FetchInaccessible)
+	} else {
+		sourceURL = fmt.Sprintf("https://m.qidian.com/book/%s/", ref.BookID)
+		book = qidianFallbackBook(ref.BookID, sourceURL, s.Key())
 	}
-	doc, err := parseHTML(markup)
-	if err != nil {
-		return nil, err
-	}
-	book := &model.Book{
-		Site: s.Key(),
-		ID:   ref.BookID,
-		Title: fallback(metaProperty(doc, "og:novel:book_name"), qidianFirstText(doc,
-			qidianByID("bookName"),
-			qidianByClass("book-name"),
-			qidianByClass("book-title"),
-			qidianByClass("title"),
-		)),
-		Author: fallback(metaProperty(doc, "og:novel:author"), qidianAuthor(doc)),
-		Description: fallback(metaProperty(doc, "og:description"), qidianFirstText(doc,
-			qidianByID("book-intro-detail"),
-			qidianByClass("book-intro"),
-			qidianByClass("intro"),
-		)),
-		SourceURL: sourceURL,
-		CoverURL: absolutizeURL(sourceURL, fallback(metaProperty(doc, "og:image"), attrValue(findFirst(doc, func(n *html.Node) bool {
-			return n.Type == html.ElementNode && n.Data == "img" && (hasAncestorByID(n, "bookImg") || hasAncestorClass(n, "book-img"))
-		}), "src"))),
-		DownloadedAt: time.Now().UTC(),
-		UpdatedAt:    time.Now().UTC(),
-	}
-	book.Tags = qidianTags(doc)
-	chapters := qidianParseStaticCatalog(doc, ref.BookID, s.cfg.General.FetchInaccessible)
+	catalogErrs := make([]error, 0, 2)
 	if fromMobile, err := s.fetchQidianMobileCatalog(ctx, ref.BookID); err == nil && len(fromMobile) > len(chapters) {
 		chapters = fromMobile
+	} else if err != nil {
+		catalogErrs = append(catalogErrs, fmt.Errorf("mobile catalog: %w", err))
 	}
 	if fromAPI, err := s.fetchQidianCatalog(ctx, ref.BookID, sourceURL); err == nil && len(fromAPI) > len(chapters) {
 		chapters = fromAPI
+	} else if err != nil {
+		catalogErrs = append(catalogErrs, fmt.Errorf("ajax catalog: %w", err))
 	}
 	if len(chapters) == 0 {
+		if detailErr != nil {
+			return nil, qidianNoCatalogError(ref.BookID, detailErr, catalogErrs)
+		}
+		if len(catalogErrs) > 0 {
+			return nil, qidianNoCatalogError(ref.BookID, fmt.Errorf("detail page did not expose chapter catalog"), catalogErrs)
+		}
 		return nil, fmt.Errorf("qidian chapter catalog not found")
 	}
 	book.Chapters = applyChapterRange(dedupChapters(chapters), ref)
@@ -259,16 +256,28 @@ func (s *QidianSite) fetchQidianBookPage(ctx context.Context, bookID string) (st
 		},
 	}
 	var lastErr error
+	var notFoundErr error
+	var probeErr error
 	for _, target := range urls {
 		markup, err := s.fetchQidianHTML(ctx, target.rawURL, target.headers)
 		if err == nil {
 			if qidianIsProbePage(markup) {
-				lastErr = fmt.Errorf("qidian anti-bot probe page for %s", target.rawURL)
+				probeErr = fmt.Errorf("qidian anti-bot probe page for %s", target.rawURL)
+				lastErr = probeErr
 				continue
 			}
 			return markup, target.rawURL, nil
 		}
+		if qidianIsHTTPStatus(err, http.StatusNotFound) && notFoundErr == nil {
+			notFoundErr = fmt.Errorf("qidian book %s not found at %s", bookID, target.rawURL)
+		}
 		lastErr = err
+	}
+	if notFoundErr != nil {
+		if probeErr != nil {
+			return "", "", fmt.Errorf("%w; desktop fallback blocked by anti-bot", notFoundErr)
+		}
+		return "", "", notFoundErr
 	}
 	return "", "", lastErr
 }
@@ -327,7 +336,15 @@ func (s *QidianSite) fetchQidianCatalog(ctx context.Context, bookID string, refe
 	if err := decoder.Decode(&payload); err != nil {
 		return nil, err
 	}
-	return qidianParseCatalogPayload(payload, bookID, s.cfg.General.FetchInaccessible), nil
+	if code := int64Value(payload["code"]); code != 0 {
+		message := fallback(stringValue(payload["msg"]), fmt.Sprintf("code %d", code))
+		return nil, fmt.Errorf("qidian catalog api failed: %s", message)
+	}
+	chapters := qidianParseCatalogPayload(payload, bookID, s.cfg.General.FetchInaccessible)
+	if len(chapters) == 0 {
+		return nil, fmt.Errorf("qidian ajax chapter catalog not found")
+	}
+	return chapters, nil
 }
 
 func (s *QidianSite) fetchQidianMobileCatalog(ctx context.Context, bookID string) ([]model.Chapter, error) {
@@ -351,7 +368,7 @@ func (s *QidianSite) fetchQidianMobileCatalog(ctx context.Context, bookID string
 }
 
 func (s *QidianSite) qidianCSRFToken() string {
-	for _, raw := range []string{"https://www.qidian.com/", "https://book.qidian.com/"} {
+	for _, raw := range []string{"https://www.qidian.com/", "https://book.qidian.com/", "https://m.qidian.com/"} {
 		u, err := url.Parse(raw)
 		if err != nil {
 			continue
@@ -363,6 +380,103 @@ func (s *QidianSite) qidianCSRFToken() string {
 		}
 	}
 	return ""
+}
+
+func (s *QidianSite) injectQidianCookieString(raw string) {
+	raw = strings.TrimSpace(raw)
+	if len(raw) >= len("Cookie:") && strings.EqualFold(raw[:len("Cookie:")], "Cookie:") {
+		raw = strings.TrimSpace(raw[len("Cookie:"):])
+	}
+	if raw == "" || s.client == nil || s.client.Jar == nil {
+		return
+	}
+	cookies := make([]*http.Cookie, 0)
+	for _, part := range strings.Split(raw, ";") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		name, value, ok := strings.Cut(part, "=")
+		if !ok {
+			continue
+		}
+		name = strings.TrimSpace(name)
+		value = strings.TrimSpace(value)
+		if name == "" {
+			continue
+		}
+		cookies = append(cookies, &http.Cookie{Name: name, Value: value, Path: "/"})
+	}
+	if len(cookies) == 0 {
+		return
+	}
+	for _, rawURL := range []string{"https://www.qidian.com/", "https://book.qidian.com/", "https://m.qidian.com/"} {
+		u, err := url.Parse(rawURL)
+		if err == nil {
+			s.client.Jar.SetCookies(u, cookies)
+		}
+	}
+}
+
+func qidianBookFromDocument(doc *html.Node, bookID string, sourceURL string, siteKey string) *model.Book {
+	book := &model.Book{
+		Site: siteKey,
+		ID:   bookID,
+		Title: fallback(metaProperty(doc, "og:novel:book_name"), qidianFirstText(doc,
+			qidianByID("bookName"),
+			qidianByClass("book-name"),
+			qidianByClassPart("bookName"),
+			qidianByClass("book-title"),
+			qidianByClassPart("book-title"),
+			qidianByClass("title"),
+		)),
+		Author: fallback(metaProperty(doc, "og:novel:author"), qidianAuthor(doc)),
+		Description: fallback(metaProperty(doc, "og:description"), qidianFirstText(doc,
+			qidianByID("book-intro-detail"),
+			qidianByClass("book-intro"),
+			qidianByClassPart("bookDesc"),
+			qidianByClass("intro"),
+		)),
+		SourceURL: sourceURL,
+		CoverURL: absolutizeURL(sourceURL, fallback(metaProperty(doc, "og:image"), attrValue(findFirst(doc, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "img" && (hasAncestorByID(n, "bookImg") || hasAncestorClass(n, "book-img") || qidianHasClassPart(n, "bookCover"))
+		}), "src"))),
+		DownloadedAt: time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
+	}
+	if book.Title == "" {
+		book.Title = "qidian-" + bookID
+	}
+	book.Tags = qidianTags(doc)
+	return book
+}
+
+func qidianFallbackBook(bookID string, sourceURL string, siteKey string) *model.Book {
+	return &model.Book{
+		Site:         siteKey,
+		ID:           bookID,
+		Title:        "qidian-" + bookID,
+		SourceURL:    sourceURL,
+		DownloadedAt: time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
+	}
+}
+
+func qidianNoCatalogError(bookID string, detailErr error, catalogErrs []error) error {
+	parts := []string{fmt.Sprintf("detail page: %v", detailErr)}
+	for _, err := range catalogErrs {
+		if err != nil {
+			parts = append(parts, err.Error())
+		}
+	}
+	return fmt.Errorf("qidian book %s chapter catalog not available: %s", bookID, strings.Join(parts, "; "))
+}
+
+func qidianIsHTTPStatus(err error, status int) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), fmt.Sprintf("http %d for ", status))
 }
 
 func parseQidianSearchResults(markup string) ([]model.SearchResult, error) {
