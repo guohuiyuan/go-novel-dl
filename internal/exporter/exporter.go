@@ -157,12 +157,9 @@ func buildFilename(book *model.Book, site string, cfg config.OutputConfig, forma
 	if strings.TrimSpace(name) == "" {
 		name = "{title}_{author}"
 	}
-	bookID := ""
-	if book != nil {
-		bookID = book.ID
-	}
-	name = strings.ReplaceAll(name, "{title}", fallback(book.Title, bookID))
-	name = strings.ReplaceAll(name, "{author}", fallback(book.Author, "unknown"))
+	bookID := filenameBookID(book)
+	name = strings.ReplaceAll(name, "{title}", filenameBookTitle(book, bookID))
+	name = strings.ReplaceAll(name, "{author}", filenameBookAuthor(book))
 	name = strings.ReplaceAll(name, "{site}", fallback(site, "site"))
 	name = strings.ReplaceAll(name, "{book_id}", fallback(bookID, "id"))
 	name = sanitize(name)
@@ -170,6 +167,79 @@ func buildFilename(book *model.Book, site string, cfg config.OutputConfig, forma
 		name += "_" + time.Now().Format("20060102_150405")
 	}
 	return name + "." + extensionFor(format)
+}
+
+func filenameBookTitle(book *model.Book, bookID string) string {
+	if book != nil {
+		if title := cleanFilenameMetadata(book.Title); title != "" {
+			return title
+		}
+	}
+	return fallback(bookID, "book")
+}
+
+func filenameBookAuthor(book *model.Book) string {
+	if book != nil {
+		if author := cleanFilenameMetadata(book.Author); author != "" {
+			return author
+		}
+	}
+	return "unknown"
+}
+
+func filenameBookID(book *model.Book) string {
+	if book == nil {
+		return ""
+	}
+	if id := cleanFilenameMetadata(book.ID); id != "" {
+		return id
+	}
+	return bookIDFromSourceURL(book.SourceURL)
+}
+
+func cleanFilenameMetadata(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "." || value == ".." || looksLikeLocalPath(value) {
+		return ""
+	}
+	return value
+}
+
+func looksLikeLocalPath(value string) bool {
+	normalized := strings.ReplaceAll(strings.TrimSpace(value), "\\", "/")
+	if strings.HasPrefix(normalized, "./") || strings.HasPrefix(normalized, "../") || strings.HasPrefix(normalized, "/") {
+		return true
+	}
+	if len(normalized) >= 3 && ((normalized[0] >= 'A' && normalized[0] <= 'Z') || (normalized[0] >= 'a' && normalized[0] <= 'z')) && normalized[1] == ':' && normalized[2] == '/' {
+		return true
+	}
+	return false
+}
+
+func bookIDFromSourceURL(rawURL string) string {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return ""
+	}
+	parsed, err := neturl.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	for idx, part := range parts {
+		switch strings.ToLower(part) {
+		case "book", "info", "read":
+			if idx+1 < len(parts) {
+				return cleanFilenameMetadata(parts[idx+1])
+			}
+		}
+	}
+	for idx := len(parts) - 1; idx >= 0; idx-- {
+		if id := cleanFilenameMetadata(parts[idx]); id != "" {
+			return id
+		}
+	}
+	return ""
 }
 
 func extensionFor(format string) string {

@@ -54,6 +54,24 @@ func TestBuildFilenameMissingFieldsFallback(t *testing.T) {
 	}
 }
 
+func TestBuildFilenameIgnoresPathLikeMetadata(t *testing.T) {
+	book := &model.Book{
+		ID:        ".",
+		Title:     ".",
+		Author:    "./data/raw_data",
+		SourceURL: "https://www.qidian.com/book/1042513640/",
+	}
+	cfg := config.OutputConfig{FilenameTemplate: "{title}_{author}"}
+
+	got := buildFilename(book, "qidian", cfg, "epub")
+	if got != "1042513640_unknown.epub" {
+		t.Fatalf("expected source URL fallback filename, got %q", got)
+	}
+	if strings.Contains(got, "data_raw_data") {
+		t.Fatalf("path-like metadata leaked into filename: %q", got)
+	}
+}
+
 func TestBuildFilenameAppendsTimestamp(t *testing.T) {
 	book := &model.Book{ID: "1", Title: "T", Author: "A"}
 	cfg := config.OutputConfig{AppendTimestamp: true}
