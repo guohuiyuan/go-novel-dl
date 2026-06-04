@@ -1,32 +1,29 @@
-FROM golang:1.25-alpine AS builder
-
-RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
-RUN apk add --no-cache git
+# Build stage
+FROM --platform=$BUILDPLATFORM golang:1.25 AS builder
 
 WORKDIR /app
+ARG TARGETOS=linux
+ARG TARGETARCH
 
 COPY go.mod go.sum ./
-
-RUN GOPROXY=https://goproxy.cn,direct go mod download
+RUN go mod download
 
 COPY . .
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=${TARGETARCH:-$(go env GOARCH)} go build -trimpath -ldflags "-s -w" -o novel-dl ./cmd/novel-dl
 
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o novel-dl ./cmd/novel-dl
+# Runtime stage
+FROM alpine:3.22
 
-FROM alpine:latest
-
-RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 RUN apk --no-cache add ca-certificates tzdata
 
 ENV TZ=Asia/Shanghai
 
 RUN adduser -D -s /bin/sh appuser
 
-WORKDIR /home/appuser
+WORKDIR /home/appuser/
 
-COPY --from=builder /app/novel-dl ./
-
-RUN chown -R appuser:appuser /home/appuser
+COPY --from=builder /app/novel-dl .
+RUN chown -R appuser:appuser /home/appuser/
 
 USER appuser
 
