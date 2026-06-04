@@ -368,6 +368,46 @@ h3 { font-size: 14px; font-weight: 700; color: #334155; }
 .temporary-warning-modal .site-warning-card { padding: 8px 10px; border-radius: 8px; box-shadow: none; }
 .temporary-warning-modal .site-warning-message { font-size: 13px; line-height: 1.4; }
 
+.app-toast-container {
+  position: fixed; right: 24px; bottom: 24px; z-index: 140;
+  width: min(380px, calc(100vw - 48px)); display: grid; gap: 10px;
+  pointer-events: none;
+}
+.app-toast {
+  display: grid; grid-template-columns: minmax(0, 1fr) 28px; gap: 10px;
+  padding: 12px 12px 12px 14px; border-radius: var(--radius-card);
+  border: 1px solid var(--line); background: rgba(255, 255, 255, 0.98);
+  box-shadow: var(--shadow-hover); pointer-events: auto;
+  animation: app-toast-in 0.18s ease-out; overflow: hidden;
+}
+.app-toast-success { border-left: 4px solid #10b981; }
+.app-toast-warning { border-left: 4px solid #f59e0b; }
+.app-toast-error { border-left: 4px solid #ef4444; }
+.app-toast-info { border-left: 4px solid #3b82f6; }
+.app-toast-content { min-width: 0; display: grid; gap: 4px; }
+.app-toast-title { font-size: 14px; font-weight: 700; color: var(--text); line-height: 1.4; }
+.app-toast-message { font-size: 13px; color: var(--muted); line-height: 1.45; word-break: break-word; }
+.app-toast-action {
+  justify-self: start; margin-top: 2px; font-size: 13px; font-weight: 700;
+  color: var(--accent-strong); text-decoration: none; border-bottom: 1px dashed var(--accent-soft);
+}
+.app-toast-action:hover { border-bottom-color: var(--accent); }
+.app-toast-close {
+  width: 28px; height: 28px; border: 0; border-radius: 999px;
+  color: var(--muted); background: transparent; cursor: pointer;
+  font-size: 18px; line-height: 1; display: inline-flex; align-items: center; justify-content: center;
+}
+.app-toast-close:hover { color: var(--text); background: #f1f5f9; }
+.app-toast-hide { animation: app-toast-out 0.18s ease-in forwards; }
+@keyframes app-toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes app-toast-out {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(8px); }
+}
+
 .site-config-overlay[hidden] { display: none; }
 .site-config-overlay { position: fixed; inset: 0; z-index: 120; }
 .site-config-backdrop { position: absolute; inset: 0; background: rgba(15, 23, 42, 0.4); backdrop-filter: blur(4px); }

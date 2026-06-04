@@ -264,6 +264,37 @@ func TestSettingsScriptLimitsSiteConfigChoices(t *testing.T) {
 	}
 }
 
+func TestVersionUpdateReminderAssets(t *testing.T) {
+	scriptData, err := templateFS.ReadFile("templates/app.js")
+	if err != nil {
+		t.Fatalf("read app.js: %v", err)
+	}
+	script := string(scriptData)
+	for _, needle := range []string{
+		`VERSION_AUTO_CHECK_KEY = "novel-dl:update_checked_at"`,
+		`function maybeAutoCheckVersion()`,
+		`runVersionCheck({ silent: true, notify: true })`,
+		`function showVersionUpdateReminder`,
+		`function showToast`,
+		`app-toast-container`,
+	} {
+		if !strings.Contains(script, needle) {
+			t.Fatalf("expected version reminder script to contain %s", needle)
+		}
+	}
+
+	styleData, err := templateFS.ReadFile("templates/style.css")
+	if err != nil {
+		t.Fatalf("read style.css: %v", err)
+	}
+	style := string(styleData)
+	for _, needle := range []string{`.app-toast-container`, `.app-toast-warning`, `.app-toast-action`, `@keyframes app-toast-in`} {
+		if !strings.Contains(style, needle) {
+			t.Fatalf("expected version reminder style to contain %s", needle)
+		}
+	}
+}
+
 func TestSettingsSavePromptAndStickyCloseStyles(t *testing.T) {
 	scriptData, err := templateFS.ReadFile("templates/app.js")
 	if err != nil {

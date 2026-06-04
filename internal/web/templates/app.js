@@ -14,6 +14,8 @@ let siteStats = window.__NOVEL_DL__.siteStats || [];
 const siteWarningPanel = document.getElementById("siteWarningPanel");
 let siteWarningHideTimer = 0;
 let temporaryWarningDialogTimer = 0;
+const VERSION_AUTO_CHECK_KEY = "novel-dl:update_checked_at";
+const VERSION_AUTO_CHECK_INTERVAL = 6 * 60 * 60 * 1000;
 
 const warningLevelIcons = {
   danger: "⚠️",
@@ -292,6 +294,70 @@ function ensureTemporaryWarningDialog() {
   return dialog;
 }
 
+function showToast(title, message = "", type = "info", options = {}) {
+  let container = document.getElementById("app-toast-container");
+  if (!container) {
+    container = document.createElement("div");
+    container.id = "app-toast-container";
+    container.className = "app-toast-container";
+    document.body.appendChild(container);
+  }
+
+  const toastType = ["success", "warning", "error", "info"].includes(type) ? type : "info";
+  const toast = document.createElement("div");
+  toast.className = `app-toast app-toast-${toastType}`;
+  toast.setAttribute("role", toastType === "error" ? "alert" : "status");
+  toast.setAttribute("aria-live", toastType === "error" ? "assertive" : "polite");
+
+  const content = document.createElement("div");
+  content.className = "app-toast-content";
+  const titleNode = document.createElement("div");
+  titleNode.className = "app-toast-title";
+  titleNode.textContent = title;
+  content.appendChild(titleNode);
+
+  if (message) {
+    const messageNode = document.createElement("div");
+    messageNode.className = "app-toast-message";
+    messageNode.textContent = message;
+    content.appendChild(messageNode);
+  }
+
+  if (options.actionLabel && options.actionURL) {
+    const action = document.createElement("a");
+    action.className = "app-toast-action";
+    action.href = options.actionURL;
+    action.target = "_blank";
+    action.rel = "noopener noreferrer";
+    action.textContent = options.actionLabel;
+    content.appendChild(action);
+  }
+
+  const closeButton = document.createElement("button");
+  closeButton.type = "button";
+  closeButton.className = "app-toast-close";
+  closeButton.setAttribute("aria-label", "关闭提示");
+  closeButton.textContent = "\u00d7";
+
+  let timer = 0;
+  const close = () => {
+    if (timer) {
+      window.clearTimeout(timer);
+      timer = 0;
+    }
+    toast.classList.add("app-toast-hide");
+    window.setTimeout(() => toast.remove(), 180);
+  };
+  closeButton.addEventListener("click", close);
+
+  toast.append(content, closeButton);
+  container.appendChild(toast);
+  const duration = Number.isFinite(options.duration) ? options.duration : 7000;
+  if (duration > 0) {
+    timer = window.setTimeout(close, duration);
+  }
+}
+
 function isTransientSiteWarning(warning) {
   return Boolean(warning && (warning.transient || String(warning.message || "").startsWith("临时提示")));
 }
@@ -484,6 +550,7 @@ function bootstrap() {
   }
 
   setupVersionPanel();
+  maybeAutoCheckVersion();
 
   clearTagFiltersButton.addEventListener("click", () => {
     if (appState.selectedSourceTags.size === 0) return;
@@ -847,12 +914,18 @@ function setupVersionPanel() {
   }
 }
 
-async function runVersionCheck() {
-  if (!versionCheckButton) return;
+async function runVersionCheck(options = {}) {
+  const silent = Boolean(options.silent);
+  const renderPanel = !silent || Boolean(options.renderPanel);
+  if (!silent && !versionCheckButton) return null;
   const mirror = versionMirrorNode ? versionMirrorNode.value : "";
-  versionCheckButton.disabled = true;
-  versionCheckButton.classList.add("is-loading");
-  setVersionResult({ kind: "info", text: "正在检查最新版本..." });
+  if (!silent && versionCheckButton) {
+    versionCheckButton.disabled = true;
+    versionCheckButton.classList.add("is-loading");
+  }
+  if (renderPanel) {
+    setVersionResult({ kind: "info", text: "正在检查最新版本..." });
+  }
   try {
     const response = await fetch(`${root}/api/version/check`, {
       method: "POST",
@@ -864,19 +937,39 @@ async function runVersionCheck() {
       throw new Error(payload.error || `version check failed (${response.status})`);
     }
     if (payload.error) {
-      setVersionResult({ kind: "error", text: `检查失败：${payload.error}` });
-      return;
+      if (renderPanel) setVersionResult({ kind: "error", text: `检查失败：${payload.error}` });
+      return payload;
     }
-    renderVersionResult(payload);
+    if (renderPanel) {
+      renderVersionResult(payload, { notify: Boolean(options.notify) });
+    } else if (options.notify) {
+      notifyVersionUpdateIfNeeded(payload);
+    }
+    return payload;
   } catch (error) {
-    setVersionResult({ kind: "error", text: `检查失败：${error.message}` });
+    if (renderPanel) setVersionResult({ kind: "error", text: `检查失败：${error.message}` });
+    return null;
   } finally {
-    versionCheckButton.disabled = false;
-    versionCheckButton.classList.remove("is-loading");
+    if (!silent && versionCheckButton) {
+      versionCheckButton.disabled = false;
+      versionCheckButton.classList.remove("is-loading");
+    }
   }
 }
 
-function renderVersionResult(payload) {
+function maybeAutoCheckVersion() {
+  if (!versionInfo || !versionInfo.current) return;
+  const now = Date.now();
+  try {
+    const last = Number(window.localStorage.getItem(VERSION_AUTO_CHECK_KEY) || "0");
+    if (Number.isFinite(last) && now - last < VERSION_AUTO_CHECK_INTERVAL) return;
+    window.localStorage.setItem(VERSION_AUTO_CHECK_KEY, String(now));
+  } catch (_) {
+  }
+  void runVersionCheck({ silent: true, notify: true });
+}
+
+function renderVersionResult(payload, options = {}) {
   const current = (payload.current || "").replace(/^v/, "");
   const latest = (payload.latest || "").replace(/^v/, "");
   if (!latest) {
@@ -895,6 +988,7 @@ function renderVersionResult(payload) {
       kind: "warning",
       html: `<strong>有新版本：v${latest}</strong>${publishedAt}<br>当前 v${current}${mirrorTag}<br>${releaseLink}`,
     });
+    if (options.notify) showVersionUpdateReminder(payload, latest, current);
   } else if (cmp === 0) {
     setVersionResult({
       kind: "ok",
@@ -906,6 +1000,24 @@ function renderVersionResult(payload) {
       html: `当前 v${current} 高于 GitHub 最新发布 v${latest}${mirrorTag}<br>${releaseLink}`,
     });
   }
+}
+
+function notifyVersionUpdateIfNeeded(payload) {
+  const current = (payload.current || "").replace(/^v/, "");
+  const latest = (payload.latest || "").replace(/^v/, "");
+  if (!latest || compareSemver(latest, current) <= 0) return false;
+  showVersionUpdateReminder(payload, latest, current);
+  return true;
+}
+
+function showVersionUpdateReminder(payload, latest, current) {
+  const releaseURL = payload.html_url || (versionInfo.repo ? `https://github.com/${versionInfo.repo}/releases/latest` : "");
+  const message = current ? `当前 v${current}，最新 v${latest}` : `最新 v${latest}`;
+  showToast("发现新版本", message, "warning", {
+    actionLabel: "查看 Release",
+    actionURL: releaseURL,
+    duration: 8000,
+  });
 }
 
 function setVersionResult(opts) {
