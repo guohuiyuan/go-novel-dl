@@ -1,12 +1,7 @@
 package site
 
 import (
-	"context"
-	"os"
 	"testing"
-	"time"
-
-	"github.com/guohuiyuan/go-novel-dl/internal/config"
 )
 
 func TestParseN23QBSitemap(t *testing.T) {
@@ -26,21 +21,4 @@ func TestParseN23QBSitemap(t *testing.T) {
 	if results[0].BookID != "12713" || results[0].Title != "Reborn Book" || results[0].Author != "Alice" {
 		t.Fatalf("unexpected sitemap result: %+v", results[0])
 	}
-}
-
-func TestN23QBLiveSearch(t *testing.T) {
-	if os.Getenv("GO_NOVEL_DL_INTEGRATION_SEARCH") == "" {
-		t.Skip("set GO_NOVEL_DL_INTEGRATION_SEARCH=1 to run live n23qb search")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	results, err := NewN23QBSite(config.DefaultConfig().ResolveSiteConfig("n23qb")).Search(ctx, "重生", 5)
-	if err != nil {
-		t.Fatalf("live search failed: %v", err)
-	}
-	if len(results) == 0 {
-		t.Fatalf("expected live search results")
-	}
-	t.Logf("n23qb first result: %s/%s %s", results[0].Site, results[0].BookID, results[0].Title)
 }

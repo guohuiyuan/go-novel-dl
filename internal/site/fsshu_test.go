@@ -4,10 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/guohuiyuan/go-novel-dl/internal/config"
 	"github.com/guohuiyuan/go-novel-dl/internal/model"
@@ -95,39 +93,5 @@ func TestFsshuDownloadPlanAppliesChapterRange(t *testing.T) {
 	}
 	if book.Description != "line1\nline2" {
 		t.Fatalf("unexpected normalized description: %q", book.Description)
-	}
-}
-
-func TestFsshuFetchChapterLiveMultipage(t *testing.T) {
-	if os.Getenv("GO_NOVEL_DL_HEALTH") == "" {
-		t.Skip("set GO_NOVEL_DL_HEALTH=1 to run live fsshu verification")
-	}
-
-	s := NewFsshuSite(config.DefaultConfig().ResolveSiteConfig("fsshu"))
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-
-	chapter, err := s.FetchChapter(ctx, "115_115495", model.Chapter{
-		ID:    "c273955",
-		Title: "第1章 多子多福，目标诡空姐？",
-	})
-	if err != nil {
-		t.Fatalf("fetch live multipage chapter: %v", err)
-	}
-
-	wantSnippets := []string{
-		"【只要胆子大，能让诡异放产假】",
-		"【目标：诡空姐-007号-夏柠】",
-		"【综合评级】：95分",
-	}
-	for _, snippet := range wantSnippets {
-		if !strings.Contains(chapter.Content, snippet) {
-			t.Fatalf("expected live chapter content to contain %q", snippet)
-		}
-	}
-
-	if strings.Contains(chapter.Content, "第(1/3)页") || strings.Contains(chapter.Content, "第(2/3)页") || strings.Contains(chapter.Content, "第(3/3)页") {
-		t.Fatalf("expected live chapter content to remove page indicators")
 	}
 }

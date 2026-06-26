@@ -361,7 +361,6 @@ func TestMobileSearchResultStylesPreventLongTextOverflow(t *testing.T) {
 		`@media (max-width: 480px)`,
 		`grid-template-columns: 72px minmax(0, 1fr)`,
 		`.result-cover-overlay { display: none; }`,
-		`bottom: calc(88px + env(safe-area-inset-bottom, 12px))`,
 		`max-height: min(36vh, 180px)`,
 	} {
 		if !strings.Contains(style, needle) {

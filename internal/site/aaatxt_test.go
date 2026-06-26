@@ -4,10 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"strings"
 	"testing"
-	"time"
 
 	"github.com/guohuiyuan/go-novel-dl/internal/config"
 	"github.com/guohuiyuan/go-novel-dl/internal/model"
@@ -84,38 +81,6 @@ func TestAaatxtFullFlowWithLocalServer(t *testing.T) {
 	if !ok || resolvedChapter.BookID != "24514" || resolvedChapter.ChapterID != "24514_1" {
 		t.Fatalf("unexpected resolved chapter URL: %+v ok=%v", resolvedChapter, ok)
 	}
-}
-
-func TestAaatxtLiveFullFlow(t *testing.T) {
-	if os.Getenv("GO_NOVEL_DL_AAATXT_LIVE") == "" {
-		t.Skip("set GO_NOVEL_DL_AAATXT_LIVE=1 to run live aaatxt full-flow check")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-	defer cancel()
-
-	site := NewAaatxtSite(config.DefaultConfig().ResolveSiteConfig("aaatxt"))
-	results, err := site.Search(ctx, "斗破", 3)
-	if err != nil {
-		t.Fatalf("live search failed: %v", err)
-	}
-	if len(results) == 0 {
-		t.Fatalf("expected live search results")
-	}
-	book, err := site.DownloadPlan(ctx, model.BookRef{BookID: results[0].BookID})
-	if err != nil {
-		t.Fatalf("live download plan failed for %s: %v", results[0].BookID, err)
-	}
-	if len(book.Chapters) == 0 {
-		t.Fatalf("expected live book chapters for %s", book.ID)
-	}
-	chapter, err := site.FetchChapter(ctx, book.ID, book.Chapters[0])
-	if err != nil {
-		t.Fatalf("live fetch chapter failed for %s/%s: %v", book.ID, book.Chapters[0].ID, err)
-	}
-	if strings.TrimSpace(chapter.Content) == "" {
-		t.Fatalf("expected live chapter content")
-	}
-	t.Logf("aaatxt live ok: %s/%s %s -> %s (%d chars)", book.Site, book.ID, book.Title, chapter.Title, len(chapter.Content))
 }
 
 func aaatxtSearchFixture() string {

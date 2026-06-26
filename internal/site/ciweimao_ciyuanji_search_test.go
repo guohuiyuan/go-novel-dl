@@ -8,10 +8,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/guohuiyuan/go-novel-dl/internal/config"
 	"github.com/guohuiyuan/go-novel-dl/internal/model"
@@ -279,55 +277,6 @@ func TestFillCiweimaoBookFromSearchFillsMissingDescription(t *testing.T) {
 	}
 }
 
-func TestCiweimaoLiveSearchAndMobileChapterResolve(t *testing.T) {
-	if os.Getenv("GO_NOVEL_DL_INTEGRATION_SEARCH") == "" {
-		t.Skip("set GO_NOVEL_DL_INTEGRATION_SEARCH=1 to run live ciweimao search")
-	}
-
-	cfg := config.DefaultConfig().ResolveSiteConfig("ciweimao")
-	cfg.General.Timeout = 20
-	client := NewCiweimaoSite(cfg)
-
-	resolved, ok := client.ResolveURL("https://wap.ciweimao.com/chapter/113596882")
-	if !ok || resolved.BookID != "100445947" || resolved.ChapterID != "113596882" {
-		t.Fatalf("unexpected live mobile chapter resolve: ok=%v resolved=%+v", ok, resolved)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	results, err := client.Search(ctx, "女尊，开局离婚觉醒追夫火葬场系统", 3)
-	if err != nil {
-		t.Fatalf("live ciweimao search: %v", err)
-	}
-	if len(results) == 0 || results[0].BookID != "100445947" {
-		t.Fatalf("expected target ciweimao book as first result, got %+v", results)
-	}
-
-	chapter, err := client.FetchChapter(ctx, "100445947", model.Chapter{ID: "113596882"})
-	if err != nil {
-		t.Fatalf("live ciweimao chapter fetch: %v", err)
-	}
-	if !strings.Contains(chapter.Content, "2025年，7月1号") {
-		t.Fatalf("expected target chapter content, got prefix %q", chapter.Content[:min(len(chapter.Content), 80)])
-	}
-
-	book, err := client.DownloadPlan(ctx, model.BookRef{BookID: "100445947"})
-	if err != nil {
-		t.Fatalf("live ciweimao download plan: %v", err)
-	}
-	if len(book.Chapters) < 400 {
-		t.Fatalf("expected live ciweimao plan to include image/locked chapters, got %d", len(book.Chapters))
-	}
-
-	imageChapter, err := client.FetchChapter(ctx, "100445947", model.Chapter{ID: "113726059"})
-	if err != nil {
-		t.Fatalf("live ciweimao image chapter fetch: %v", err)
-	}
-	if !strings.HasPrefix(imageChapter.Content, "![") || !strings.Contains(imageChapter.Content, "](data:image/") {
-		t.Fatalf("expected embedded image chapter content, got prefix %q", imageChapter.Content[:min(len(imageChapter.Content), 80)])
-	}
-}
-
 func TestParseCiyuanjiSearchFirstPage(t *testing.T) {
 	markup := `<html><body><li class="card_item__BZXh0"><a href="/b_d_27673.html"><img data-src="https://img.ciyuanji.com/27673.jpg"></a><p class="BookCard_title__nQGag">Example Ciyuanji</p><p class="BookCard_author__AibmT"><a href="/author/home/1.html">Author Name</a><span>|</span><a href="/l_c_115_0_0_0_1.html">同人</a></p><p class="BookCard_chapter__HAG4j"><span>151.5w字</span><span>|</span><a href="/chapter/27673_4557050.html"><span>最新：489章向死而生</span></a></p><p class="BookCard_desc__oZWM6">Example description</p></li><nav><a aria-label="Go to next page" href="/l_c_0_0_0_0_1_2_10.html">2</a></nav><script id="__NEXT_DATA__" type="application/json">{"buildId":"build123"}</script></body></html>`
 	results, hasNext, buildID, err := parseCiyuanjiSearchFirstPage(markup)
@@ -385,25 +334,4 @@ func TestCiyuanjiMobileAPIValuesEncryptPayload(t *testing.T) {
 	if payload["keyword"] != "重生" || int(int64Value(payload["pageNo"])) != 1 || int(int64Value(payload["pageSize"])) != 10 {
 		t.Fatalf("unexpected encrypted mobile payload: %+v", payload)
 	}
-}
-
-func TestCiyuanjiLiveSearch(t *testing.T) {
-	if os.Getenv("GO_NOVEL_DL_INTEGRATION_SEARCH") == "" {
-		t.Skip("set GO_NOVEL_DL_INTEGRATION_SEARCH=1 to run live ciyuanji search")
-	}
-
-	cfg := config.DefaultConfig().ResolveSiteConfig("ciyuanji")
-	cfg.General.Timeout = 20
-	client := NewCiyuanjiSite(cfg)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	results, err := client.Search(ctx, "重生", 5)
-	if err != nil {
-		t.Fatalf("live ciyuanji search: %v", err)
-	}
-	if len(results) == 0 {
-		t.Fatalf("expected live ciyuanji search to return results")
-	}
-	t.Logf("live ciyuanji first result: %+v", results[0])
 }

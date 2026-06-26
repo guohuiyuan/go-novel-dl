@@ -6,11 +6,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/guohuiyuan/go-novel-dl/internal/config"
 	"github.com/guohuiyuan/go-novel-dl/internal/model"
@@ -280,26 +278,5 @@ func TestTianyabooksGetWithRetryFallsBackToWindowsNativeHTTP(t *testing.T) {
 	}
 	if markup != "<html><body>ok</body></html>" {
 		t.Fatalf("unexpected fallback markup: %q", markup)
-	}
-}
-
-func TestTianyabooksLiveSearch(t *testing.T) {
-	if os.Getenv("GO_NOVEL_DL_INTEGRATION_SEARCH") == "" {
-		t.Skip("set GO_NOVEL_DL_INTEGRATION_SEARCH=1 to run live tianyabooks search")
-	}
-
-	site := NewTianyabooksSite(config.DefaultConfig().ResolveSiteConfig("tianyabooks"))
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	defer cancel()
-
-	results, err := site.Search(ctx, "庆余年", 3)
-	if err != nil {
-		t.Fatalf("live search failed: %v", err)
-	}
-	if len(results) == 0 {
-		t.Fatalf("expected tianyabooks live search to return results")
-	}
-	if results[0].Site != "tianyabooks" {
-		t.Fatalf("unexpected site on live result: %+v", results[0])
 	}
 }

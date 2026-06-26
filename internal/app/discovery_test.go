@@ -283,6 +283,8 @@ func TestHybridSearchReturnsWhenOverallLimitIsReached(t *testing.T) {
 	})
 
 	runtime := newFakeRuntime(registry)
+	defer func(old time.Duration) { hybridSearchGracePeriod = old }(hybridSearchGracePeriod)
+	hybridSearchGracePeriod = 0
 	started := time.Now()
 	response, err := runtime.HybridSearch(context.Background(), "Alpha", HybridSearchOptions{
 		Sites:        []string{"slow", "ruochu", "sfacg"},

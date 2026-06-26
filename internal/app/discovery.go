@@ -22,6 +22,12 @@ type HybridSearchOptions struct {
 	Exact          bool          `json:"exact,omitempty"`
 }
 
+// 聚合搜索达到配额后给慢渠道的宽限期：快渠道往往一次返回大量泛匹配，
+// 会在精确匹配渠道（如刺猬猫）回来之前抢先填满结果。给一个短暂窗口收尾，
+// 让这些渠道的高相关结果也能进入排序，避免目标书被泛匹配挤掉。
+// 用 var 以便测试覆盖。
+var hybridSearchGracePeriod = 2500 * time.Millisecond
+
 type SearchWarning struct {
 	Site  string `json:"site"`
 	Error string `json:"error"`
@@ -171,6 +177,10 @@ func (r *Runtime) HybridSearch(ctx context.Context, keyword string, opts HybridS
 	rawResults := make([]model.SearchResult, 0, len(sites)*perSiteLimit)
 	warnings := make([]SearchWarning, 0)
 	completed := 0
+	// 收集到足够结果后，不再立刻取消其余渠道：先给一个宽限期，
+	// 让响应稍慢但相关度更高的渠道（如刺猬猫）有机会把精确匹配补进来，
+	// 避免快渠道（返回大量泛匹配）抢先填满配额导致目标书丢失。
+	var graceCh <-chan time.Time
 	for completed < len(sites) {
 		select {
 		case result := <-siteResults:
@@ -183,13 +193,16 @@ func (r *Runtime) HybridSearch(ctx context.Context, keyword string, opts HybridS
 				continue
 			}
 			rawResults = append(rawResults, result.items...)
-			if opts.OverallLimit > 0 && len(rawResults) >= opts.OverallLimit {
+			if graceCh == nil && opts.OverallLimit > 0 && len(rawResults) >= opts.OverallLimit {
 				aggregated := groupHybridSearchResults(rawResults, keyword, r.Registry.DefaultSearchKeys(), opts.OverallLimit)
 				if len(aggregated) >= opts.OverallLimit {
-					cancelSearches()
-					return newHybridSearchResponse(keyword, sites, aggregated, warnings), nil
+					graceCh = time.After(hybridSearchGracePeriod)
 				}
 			}
+		case <-graceCh:
+			cancelSearches()
+			aggregated := groupHybridSearchResults(rawResults, keyword, r.Registry.DefaultSearchKeys(), opts.OverallLimit)
+			return newHybridSearchResponse(keyword, sites, aggregated, warnings), nil
 		case <-ctx.Done():
 			cancelSearches()
 			aggregated := groupHybridSearchResults(rawResults, keyword, r.Registry.DefaultSearchKeys(), opts.OverallLimit)

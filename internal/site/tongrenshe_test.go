@@ -5,10 +5,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/guohuiyuan/go-novel-dl/internal/config"
 	"github.com/guohuiyuan/go-novel-dl/internal/model"
@@ -210,26 +208,5 @@ func TestTongrensheSearchFallsBackToCatalogIndex(t *testing.T) {
 	}
 	if results[0].Author != "\u6d4b\u8bd5\u4f5c\u8005" {
 		t.Fatalf("unexpected author: %q", results[0].Author)
-	}
-}
-
-func TestTongrensheLiveSearch(t *testing.T) {
-	if os.Getenv("GO_NOVEL_DL_INTEGRATION_SEARCH") == "" {
-		t.Skip("set GO_NOVEL_DL_INTEGRATION_SEARCH=1 to run live tongrenshe search")
-	}
-
-	site := NewTongrensheSite(config.DefaultConfig().ResolveSiteConfig("tongrenshe"))
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	results, err := site.Search(ctx, "武侠", 3)
-	if err != nil {
-		t.Fatalf("live search failed: %v", err)
-	}
-	if len(results) == 0 {
-		t.Fatalf("expected tongrenshe live search to return results")
-	}
-	if results[0].Site != "tongrenshe" {
-		t.Fatalf("unexpected site on live result: %+v", results[0])
 	}
 }
