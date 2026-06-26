@@ -9,30 +9,21 @@
   <link rel="stylesheet" href="{{ .Root }}/style.css">
 </head>
 <body>
-  <nav class="right-rail" aria-label="次级导航">
-    <button type="button" id="historyRailButton" class="right-rail-btn" data-tab="history" aria-label="阅读历史">
-      <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M3 12a9 9 0 1 0 3-6.7"></path>
-        <path d="M3 4v5h5"></path>
-        <path d="M12 7v5l3 2"></path>
-      </svg>
-      <span class="right-rail-label">历史</span>
-    </button>
-    <button type="button" id="openGeneralConfig" class="right-rail-btn" aria-label="设置中心">
-      <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <circle cx="12" cy="12" r="3"></circle>
-        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-      </svg>
-      <span class="right-rail-label">设置</span>
-    </button>
-  </nav>
-
   <div class="page-shell">
     <header class="hero">
       <div class="hero-copy panel-card">
-        <p class="eyebrow">Novel DL Web <a href="https://github.com/guohuiyuan/go-novel-dl" target="_blank" rel="noopener noreferrer" style="margin-left: 10px; text-decoration: none; color: inherit;">🔗 GitHub</a></p>
-        <h1>聚合搜索与下载</h1>
-        <p class="lead">多渠道并发检索，封面点开详情，查看简介、章节并直接发起下载。</p>
+        <div class="hero-text">
+          <p class="eyebrow">Novel DL Web <a href="https://github.com/guohuiyuan/go-novel-dl" target="_blank" rel="noopener noreferrer">🔗 GitHub</a></p>
+          <h1>聚合搜索与下载</h1>
+          <p class="lead">多渠道并发检索，封面点开详情，查看简介、章节并直接发起下载。</p>
+        </div>
+        <button type="button" id="openGeneralConfig" class="hero-settings-btn" aria-label="系统设置">
+          <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+          <span class="hero-settings-label">设置</span>
+        </button>
       </div>
     </header>
 
@@ -40,11 +31,8 @@
       <button type="button" id="searchTabButton" class="tab-button is-active" data-tab="search">
         搜索
       </button>
-      <button type="button" id="bookshelfTabButton" class="tab-button" data-tab="bookshelf">
-        书架
-      </button>
-      <button type="button" id="tasksTabButton" class="tab-button" data-tab="tasks">
-        下载任务
+      <button type="button" id="favoritesTabButton" class="tab-button" data-tab="favorites">
+        收藏
       </button>
     </nav>
 
@@ -128,57 +116,86 @@
       </div>
     </section>
 
-    <section id="bookshelfTabPanel" class="tab-panel">
-      <section class="panel-card bookshelf-panel">
-        <div class="bookshelf-toolbar">
-          <nav id="bookshelfBreadcrumb" class="bookshelf-breadcrumb" aria-label="书架路径">
-            <button type="button" class="bookshelf-crumb is-root" data-parent-id="">书架</button>
-          </nav>
-          <div class="bookshelf-actions">
-            <button type="button" id="bookshelfNewFolder" class="tool-button">新建文件夹</button>
+    <section id="favoritesTabPanel" class="tab-panel">
+      <nav class="subtab-bar" aria-label="收藏视图">
+        <button type="button" id="bookshelfSubTab" class="subtab-button is-active" data-subtab="bookshelf">
+          收藏 <span id="bookshelfTabCount" class="tab-count">0</span>
+        </button>
+        <button type="button" id="historySubTab" class="subtab-button" data-subtab="history">
+          历史 <span id="historyTabCount" class="tab-count">0</span>
+        </button>
+        <button type="button" id="tasksSubTab" class="subtab-button" data-subtab="tasks">
+          任务 <span id="taskTabCount" class="tab-count">0</span>
+        </button>
+      </nav>
+
+      <section id="bookshelfSubPanel" class="subtab-panel is-active">
+        <section class="panel-card bookshelf-panel">
+          <div class="bookshelf-toolbar">
+            <nav id="bookshelfBreadcrumb" class="bookshelf-breadcrumb" aria-label="书架路径">
+              <button type="button" class="bookshelf-crumb is-root" data-parent-id="">书架</button>
+            </nav>
+            <div class="bookshelf-actions">
+              <button type="button" id="bookshelfNewFolder" class="tool-button">新建文件夹</button>
+            </div>
           </div>
-        </div>
-        <p id="bookshelfStatus" class="panel-hint">在搜索结果中点击「加入书架」即可把书放到这里管理。</p>
-        <div id="bookshelf" class="results-grid">
-          <div class="empty-state empty-state-compact">书架还是空的。</div>
-        </div>
+          <p id="bookshelfStatus" class="panel-hint">在搜索结果中点击「加入书架」即可把书放到这里管理。</p>
+          <div id="bookshelf" class="results-grid">
+            <div class="empty-state empty-state-compact">书架还是空的。</div>
+          </div>
+          <div class="pagination pagination-bottom" id="bookshelfPagination" hidden>
+            <button type="button" id="bookshelfPrevPage" class="page-button">上一页</button>
+            <span id="bookshelfPageIndicator" class="page-indicator">第 1 页</span>
+            <button type="button" id="bookshelfNextPage" class="page-button">下一页</button>
+          </div>
+        </section>
       </section>
-    </section>
 
-    <section id="historyTabPanel" class="tab-panel">
-      <section class="panel-card bookshelf-panel">
-        <div class="panel-header">
-          <div>
-            <h2>阅读历史</h2>
-            <p class="panel-hint">最近阅读过的小说会按时间倒序出现在这里，点击即可继续上次的章节。</p>
+      <section id="historySubPanel" class="subtab-panel">
+        <section class="panel-card bookshelf-panel">
+          <div class="panel-header">
+            <div>
+              <h2>阅读历史</h2>
+              <p class="panel-hint">最近阅读过的小说会按时间倒序出现在这里，点击即可继续上次的章节。</p>
+            </div>
+            <div class="bookshelf-actions">
+              <button type="button" id="historyRefresh" class="tool-button is-ghost">刷新</button>
+            </div>
           </div>
-          <div class="bookshelf-actions">
-            <button type="button" id="historyRefresh" class="tool-button is-ghost">刷新</button>
+          <p id="historyStatus" class="panel-hint">尚未读过任何小说。</p>
+          <div id="historyList" class="history-list">
+            <div class="empty-state empty-state-compact">读过的书会在这里显示。</div>
           </div>
-        </div>
-        <p id="historyStatus" class="panel-hint">尚未读过任何小说。</p>
-        <div id="historyList" class="history-list">
-          <div class="empty-state empty-state-compact">读过的书会在这里显示。</div>
-        </div>
+          <div class="pagination pagination-bottom" id="historyPagination" hidden>
+            <button type="button" id="historyPrevPage" class="page-button">上一页</button>
+            <span id="historyPageIndicator" class="page-indicator">第 1 页</span>
+            <button type="button" id="historyNextPage" class="page-button">下一页</button>
+          </div>
+        </section>
       </section>
-    </section>
 
-    <section id="tasksTabPanel" class="tab-panel">
-      <section class="panel-card tasks-panel">
-        <div class="panel-header">
-          <div>
-            <h2>下载任务</h2>
-            <p class="panel-hint">这里显示历史与当前会话的下载任务。重启进程后未完成任务会被标记为失败。</p>
+      <section id="tasksSubPanel" class="subtab-panel">
+        <section class="panel-card tasks-panel">
+          <div class="panel-header">
+            <div>
+              <h2>下载任务</h2>
+              <p class="panel-hint">这里显示历史与当前会话的下载任务。重启进程后未完成任务会被标记为失败。</p>
+            </div>
+            <div class="tasks-tools">
+              <span id="taskCount" class="count-badge">0</span>
+              <button type="button" id="tasksClearFinished" class="tool-button is-ghost">清理已完成/失败</button>
+            </div>
           </div>
-          <div class="tasks-tools">
-            <span id="taskCount" class="count-badge">0</span>
-            <button type="button" id="tasksClearFinished" class="tool-button is-ghost">清理已完成/失败</button>
-          </div>
-        </div>
 
-        <div id="tasks" class="task-list">
-          <div class="empty-state empty-state-compact">还没有下载任务。</div>
-        </div>
+          <div id="tasks" class="task-list">
+            <div class="empty-state empty-state-compact">还没有下载任务。</div>
+          </div>
+          <div class="pagination pagination-bottom" id="tasksPagination" hidden>
+            <button type="button" id="tasksPrevPage" class="page-button">上一页</button>
+            <span id="tasksPageIndicator" class="page-indicator">第 1 页</span>
+            <button type="button" id="tasksNextPage" class="page-button">下一页</button>
+          </div>
+        </section>
       </section>
     </section>
   </div>

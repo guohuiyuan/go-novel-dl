@@ -52,6 +52,7 @@ const initialSearchSourceState = loadSearchSourceState();
 
 const appState = {
   activeTab: "search",
+  activeSubTab: "bookshelf",
   page: 1,
   pageSize: initialPageSize,
   lastKeyword: "",
@@ -65,6 +66,7 @@ const appState = {
   selectedSourceTags: new Set(initialSearchSourceState.tags),
   tasks: new Map(),
   tasksLoaded: false,
+  tasksPage: 1,
   pollers: new Map(),
   inlineTaskViews: new Map(),
   bookshelf: {
@@ -73,12 +75,14 @@ const appState = {
     breadcrumb: [],
     loading: false,
     loaded: false,
+    page: 1,
     booksByKey: new Map(),
   },
   history: {
     items: [],
     loading: false,
     loaded: false,
+    page: 1,
   },
   sourceSpeed: {
     running: false,
@@ -405,22 +409,36 @@ const clearTagFiltersButton = document.getElementById("clearTagFilters");
 const tasksNode = document.getElementById("tasks");
 const tasksClearFinishedButton = document.getElementById("tasksClearFinished");
 const searchTabButton = document.getElementById("searchTabButton");
-const bookshelfTabButton = document.getElementById("bookshelfTabButton");
+const favoritesTabButton = document.getElementById("favoritesTabButton");
+const bookshelfSubTab = document.getElementById("bookshelfSubTab");
+const historySubTab = document.getElementById("historySubTab");
+const tasksSubTab = document.getElementById("tasksSubTab");
+const bookshelfSubPanel = document.getElementById("bookshelfSubPanel");
+const historySubPanel = document.getElementById("historySubPanel");
+const tasksSubPanel = document.getElementById("tasksSubPanel");
 const bookshelfTabCountNode = document.getElementById("bookshelfTabCount");
-const historyTabButton = document.getElementById("historyRailButton");
 const historyTabCountNode = document.getElementById("historyTabCount");
-const tasksTabButton = document.getElementById("tasksTabButton");
 const searchTabPanel = document.getElementById("searchTabPanel");
-const bookshelfTabPanel = document.getElementById("bookshelfTabPanel");
-const historyTabPanel = document.getElementById("historyTabPanel");
+const favoritesTabPanel = document.getElementById("favoritesTabPanel");
 const historyListNode = document.getElementById("historyList");
 const historyStatusNode = document.getElementById("historyStatus");
 const historyRefreshButton = document.getElementById("historyRefresh");
-const tasksTabPanel = document.getElementById("tasksTabPanel");
 const bookshelfNode = document.getElementById("bookshelf");
 const bookshelfBreadcrumbNode = document.getElementById("bookshelfBreadcrumb");
 const bookshelfStatusNode = document.getElementById("bookshelfStatus");
 const bookshelfNewFolderButton = document.getElementById("bookshelfNewFolder");
+const bookshelfPaginationNode = document.getElementById("bookshelfPagination");
+const bookshelfPrevPageButton = document.getElementById("bookshelfPrevPage");
+const bookshelfNextPageButton = document.getElementById("bookshelfNextPage");
+const bookshelfPageIndicatorNode = document.getElementById("bookshelfPageIndicator");
+const historyPaginationNode = document.getElementById("historyPagination");
+const historyPrevPageButton = document.getElementById("historyPrevPage");
+const historyNextPageButton = document.getElementById("historyNextPage");
+const historyPageIndicatorNode = document.getElementById("historyPageIndicator");
+const tasksPaginationNode = document.getElementById("tasksPagination");
+const tasksPrevPageButton = document.getElementById("tasksPrevPage");
+const tasksNextPageButton = document.getElementById("tasksNextPage");
+const tasksPageIndicatorNode = document.getElementById("tasksPageIndicator");
 const selectAllSourcesButton = document.getElementById("selectAllSources");
 const clearSourcesButton = document.getElementById("clearSources");
 const speedTestSourcesButton = document.getElementById("speedTestSources");
@@ -507,11 +525,27 @@ function bootstrap() {
   });
 
   searchTabButton.addEventListener("click", () => activateTab("search"));
-  if (bookshelfTabButton) bookshelfTabButton.addEventListener("click", () => activateTab("bookshelf"));
-  if (historyTabButton) historyTabButton.addEventListener("click", () => activateTab("history"));
-  tasksTabButton.addEventListener("click", () => activateTab("tasks"));
+  if (favoritesTabButton) favoritesTabButton.addEventListener("click", () => activateTab("favorites"));
+  if (bookshelfSubTab) bookshelfSubTab.addEventListener("click", () => activateSubTab("bookshelf"));
+  if (historySubTab) historySubTab.addEventListener("click", () => activateSubTab("history"));
+  if (tasksSubTab) tasksSubTab.addEventListener("click", () => activateSubTab("tasks"));
 
   if (historyRefreshButton) historyRefreshButton.addEventListener("click", () => void loadHistory());
+
+  const goBookshelfPrev = () => { if (appState.bookshelf.page > 1) { appState.bookshelf.page -= 1; renderBookshelf(); } };
+  const goBookshelfNext = () => { appState.bookshelf.page += 1; renderBookshelf(); };
+  if (bookshelfPrevPageButton) bookshelfPrevPageButton.addEventListener("click", goBookshelfPrev);
+  if (bookshelfNextPageButton) bookshelfNextPageButton.addEventListener("click", goBookshelfNext);
+
+  const goHistoryPrev = () => { if (appState.history.page > 1) { appState.history.page -= 1; renderHistory(); } };
+  const goHistoryNext = () => { appState.history.page += 1; renderHistory(); };
+  if (historyPrevPageButton) historyPrevPageButton.addEventListener("click", goHistoryPrev);
+  if (historyNextPageButton) historyNextPageButton.addEventListener("click", goHistoryNext);
+
+  const goTasksPrev = () => { if (appState.tasksPage > 1) { appState.tasksPage -= 1; renderTasks(); } };
+  const goTasksNext = () => { appState.tasksPage += 1; renderTasks(); };
+  if (tasksPrevPageButton) tasksPrevPageButton.addEventListener("click", goTasksPrev);
+  if (tasksNextPageButton) tasksNextPageButton.addEventListener("click", goTasksNext);
 
   if (bookshelfNewFolderButton) bookshelfNewFolderButton.addEventListener("click", () => void createBookshelfFolderPrompt());
   if (bookshelfBreadcrumbNode) {
@@ -643,21 +677,31 @@ function bootstrap() {
 }
 
 function activateTab(tabName) {
-  if (tabName !== "search" && tabName !== "bookshelf" && tabName !== "history" && tabName !== "tasks") tabName = "search";
+  if (tabName !== "search" && tabName !== "favorites") tabName = "search";
   appState.activeTab = tabName;
   searchTabButton.classList.toggle("is-active", tabName === "search");
-  if (bookshelfTabButton) bookshelfTabButton.classList.toggle("is-active", tabName === "bookshelf");
-  if (historyTabButton) historyTabButton.classList.toggle("is-active", tabName === "history");
-  tasksTabButton.classList.toggle("is-active", tabName === "tasks");
+  if (favoritesTabButton) favoritesTabButton.classList.toggle("is-active", tabName === "favorites");
   searchTabPanel.classList.toggle("is-active", tabName === "search");
-  if (bookshelfTabPanel) bookshelfTabPanel.classList.toggle("is-active", tabName === "bookshelf");
-  if (historyTabPanel) historyTabPanel.classList.toggle("is-active", tabName === "history");
-  tasksTabPanel.classList.toggle("is-active", tabName === "tasks");
-  if (tabName === "bookshelf" && !appState.bookshelf.loading) {
+  if (favoritesTabPanel) favoritesTabPanel.classList.toggle("is-active", tabName === "favorites");
+  if (tabName === "favorites") {
+    activateSubTab(appState.activeSubTab || "bookshelf");
+  }
+}
+
+function activateSubTab(subTabName) {
+  if (subTabName !== "bookshelf" && subTabName !== "history" && subTabName !== "tasks") subTabName = "bookshelf";
+  appState.activeSubTab = subTabName;
+  if (bookshelfSubTab) bookshelfSubTab.classList.toggle("is-active", subTabName === "bookshelf");
+  if (historySubTab) historySubTab.classList.toggle("is-active", subTabName === "history");
+  if (tasksSubTab) tasksSubTab.classList.toggle("is-active", subTabName === "tasks");
+  if (bookshelfSubPanel) bookshelfSubPanel.classList.toggle("is-active", subTabName === "bookshelf");
+  if (historySubPanel) historySubPanel.classList.toggle("is-active", subTabName === "history");
+  if (tasksSubPanel) tasksSubPanel.classList.toggle("is-active", subTabName === "tasks");
+  if (subTabName === "bookshelf" && !appState.bookshelf.loading) {
     // 每次切到书架都自动刷新，确保任务/外部修改后内容始终最新
     void loadBookshelf(appState.bookshelf.parentId);
   }
-  if (tabName === "history" && !appState.history.loaded) {
+  if (subTabName === "history" && !appState.history.loaded) {
     void loadHistory();
   }
 }
@@ -2409,7 +2453,7 @@ async function startDownloadTask(target, button, options = {}) {
     upsertTask(payload.task);
     startPollingTask(payload.task.id);
     if (!options.keepDetailOpen) closeDetail();
-    if (!options.noActivate) activateTab("tasks");
+    if (!options.noActivate) { activateTab("favorites"); activateSubTab("tasks"); }
     const label = taskTarget === "export" ? "导出" : "下载";
     setStatus(`已创建${label}任务：${payload.task.site}/${payload.task.book_id}`);
   } catch (error) { setStatus(`创建任务失败：${error.message}`); }
@@ -2518,17 +2562,48 @@ async function clearFinishedTasks() {
   setStatus(`已清理 ${tasks.length} 个任务。`);
 }
 
+function favoritesPageSize() {
+  const n = Number.parseInt(String(appState.pageSize || ""), 10);
+  return n > 0 ? n : 20;
+}
+
+function paginate(items, page, pageSize) {
+  const total = items.length;
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const current = Math.min(Math.max(1, page), pages);
+  const start = (current - 1) * pageSize;
+  return { slice: items.slice(start, start + pageSize), current, pages, total, start };
+}
+
+function renderSubPagination(node, prevBtn, nextBtn, indicator, info) {
+  if (!node) return;
+  const show = info.total > info.pageSize;
+  node.hidden = !show;
+  if (!show) return;
+  if (prevBtn) prevBtn.disabled = info.current <= 1;
+  if (nextBtn) nextBtn.disabled = info.current >= info.pages;
+  if (indicator) indicator.textContent = `第 ${info.current} / ${info.pages} 页 · 共 ${info.total} 项`;
+}
+
 function renderTasks() {
   const tasks = Array.from(appState.tasks.values()).sort((l, r) => new Date(r.updated_at).getTime() - new Date(l.updated_at).getTime());
   if (taskCountNode) taskCountNode.textContent = String(tasks.length);
   if (taskTabCountNode) taskTabCountNode.textContent = String(tasks.length);
   tasksNode.innerHTML = "";
 
-  if (!tasks.length) return tasksNode.appendChild(createEmptyState("还没有下载任务。", true));
+  if (!tasks.length) {
+    appState.tasksPage = 1;
+    renderSubPagination(tasksPaginationNode, tasksPrevPageButton, tasksNextPageButton, tasksPageIndicatorNode, { total: 0, pageSize: favoritesPageSize(), current: 1, pages: 1 });
+    return tasksNode.appendChild(createEmptyState("还没有下载任务。", true));
+  }
 
-  tasks.forEach((task) => {
+  const pageSize = favoritesPageSize();
+  const info = paginate(tasks, appState.tasksPage, pageSize);
+  appState.tasksPage = info.current;
+  info.slice.forEach((task) => {
     tasksNode.appendChild(buildTaskCard(task));
   });
+  renderSubPagination(tasksPaginationNode, tasksPrevPageButton, tasksNextPageButton, tasksPageIndicatorNode, { ...info, pageSize });
 }
 
 function buildTaskCard(task) {
@@ -3135,6 +3210,7 @@ async function loadBookshelf(parentId) {
     shelf.items = Array.isArray(payload.items) ? payload.items : [];
     shelf.breadcrumb = Array.isArray(payload.breadcrumb) ? payload.breadcrumb : [];
     shelf.loaded = true;
+    shelf.page = 1;
     updateBookshelfFolderActions();
     rebuildBookshelfIndex();
     renderBookshelf();
@@ -3198,16 +3274,22 @@ function renderBookshelf() {
   bookshelfNode.innerHTML = "";
   const items = appState.bookshelf.items;
   if (!items.length) {
+    appState.bookshelf.page = 1;
+    renderSubPagination(bookshelfPaginationNode, bookshelfPrevPageButton, bookshelfNextPageButton, bookshelfPageIndicatorNode, { total: 0, pageSize: favoritesPageSize(), current: 1, pages: 1 });
     bookshelfNode.appendChild(createEmptyState(appState.bookshelf.parentId ? "这个文件夹是空的。" : "书架还是空的。", true));
     return;
   }
-  items.forEach((item) => {
+  const pageSize = favoritesPageSize();
+  const info = paginate(items, appState.bookshelf.page, pageSize);
+  appState.bookshelf.page = info.current;
+  info.slice.forEach((item) => {
     if (item.kind === "folder") {
       bookshelfNode.appendChild(renderBookshelfFolderCard(item));
     } else {
       bookshelfNode.appendChild(renderBookshelfBookCard(item));
     }
   });
+  renderSubPagination(bookshelfPaginationNode, bookshelfPrevPageButton, bookshelfNextPageButton, bookshelfPageIndicatorNode, { ...info, pageSize });
 }
 
 function setHistoryStatus(text) {
@@ -3226,6 +3308,7 @@ async function loadHistory() {
     if (!response.ok) throw new Error(payload.error || "load history failed");
     history.items = Array.isArray(payload.items) ? payload.items : [];
     history.loaded = true;
+    history.page = 1;
     renderHistory();
     if (historyTabCountNode) historyTabCountNode.textContent = String(history.items.length);
     if (history.items.length === 0) {
@@ -3245,10 +3328,16 @@ function renderHistory() {
   historyListNode.innerHTML = "";
   const items = appState.history.items;
   if (!items.length) {
+    appState.history.page = 1;
+    renderSubPagination(historyPaginationNode, historyPrevPageButton, historyNextPageButton, historyPageIndicatorNode, { total: 0, pageSize: favoritesPageSize(), current: 1, pages: 1 });
     historyListNode.appendChild(createEmptyState("还没有阅读记录。", true));
     return;
   }
-  items.forEach((item) => historyListNode.appendChild(renderHistoryCard(item)));
+  const pageSize = favoritesPageSize();
+  const info = paginate(items, appState.history.page, pageSize);
+  appState.history.page = info.current;
+  info.slice.forEach((item) => historyListNode.appendChild(renderHistoryCard(item)));
+  renderSubPagination(historyPaginationNode, historyPrevPageButton, historyNextPageButton, historyPageIndicatorNode, { ...info, pageSize });
 }
 
 function renderHistoryCard(item) {
