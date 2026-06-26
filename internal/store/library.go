@@ -444,8 +444,12 @@ func (g *gormChapterDB) ClearChapters() error {
 	return g.db.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&chapterRow{}).Error
 }
 
+// chapterUpsertBatchSize keeps each INSERT under SQLite's 999 bound-variable
+// limit. chapterRow has 10 columns, so 90 rows uses 900 variables.
+const chapterUpsertBatchSize = 90
+
 func (g *gormChapterDB) UpsertChapters(rows []chapterRow) error {
-	return g.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&rows).Error
+	return g.db.Clauses(clause.OnConflict{UpdateAll: true}).CreateInBatches(&rows, chapterUpsertBatchSize).Error
 }
 
 func (g *gormChapterDB) ListChapters() ([]chapterRow, error) {
