@@ -677,8 +677,7 @@ func newRouter(service *Service) *gin.Engine {
 		}
 
 		fileName := filepath.Base(absPath)
-		c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, fileName))
-		c.File(absPath)
+		c.FileAttachment(absPath, fileName)
 	})
 	group.GET("/api/chapter-content", func(c *gin.Context) {
 		siteKey := strings.TrimSpace(c.Query("site"))
