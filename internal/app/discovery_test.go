@@ -138,6 +138,51 @@ func TestHybridSearchExactFiltersResultsByKeyword(t *testing.T) {
 	}
 }
 
+func TestHybridSearchOrdersByKeywordRelevance(t *testing.T) {
+	registry := site.NewRegistry()
+	// 高偏好站点（默认排序靠前）只给一个泛匹配结果，
+	// 低偏好站点给一个与关键字精确相同的结果。相关度排序应让精确匹配胜出，
+	// 即便它来自偏好更低的站点。
+	registry.Register("sfacg", func(cfg config.ResolvedSiteConfig) site.Site {
+		return fakeSearchSite{
+			key:         "sfacg",
+			displayName: "SFACG",
+			results: []model.SearchResult{
+				{Site: "sfacg", BookID: "1", Title: "诡秘之主的衍生外传故事集", Author: "佚名", Description: "x", CoverURL: "y"},
+			},
+		}
+	})
+	registry.Register("ciweimao", func(cfg config.ResolvedSiteConfig) site.Site {
+		return fakeSearchSite{
+			key:         "ciweimao",
+			displayName: "Ciweimao",
+			results: []model.SearchResult{
+				{Site: "ciweimao", BookID: "2", Title: "诡秘之主", Author: "爱潜水的乌贼"},
+			},
+		}
+	})
+
+	runtime := newFakeRuntime(registry)
+	response, err := runtime.HybridSearch(context.Background(), "诡秘之主", HybridSearchOptions{
+		Sites: []string{"sfacg", "ciweimao"},
+	})
+	if err != nil {
+		t.Fatalf("HybridSearch returned error: %v", err)
+	}
+	if len(response.Results) != 2 {
+		t.Fatalf("expected 2 results, got %d (%+v)", len(response.Results), response.Results)
+	}
+	if response.Results[0].Title != "诡秘之主" {
+		t.Fatalf("expected exact-match title ranked first, got %q (relevance=%.3f) ahead of %q (relevance=%.3f)",
+			response.Results[0].Title, response.Results[0].Relevance,
+			response.Results[1].Title, response.Results[1].Relevance)
+	}
+	if response.Results[0].Relevance <= response.Results[1].Relevance {
+		t.Fatalf("expected first result to have higher relevance: %.3f vs %.3f",
+			response.Results[0].Relevance, response.Results[1].Relevance)
+	}
+}
+
 func TestHybridSearchCollectsWarnings(t *testing.T) {
 	registry := site.NewRegistry()
 	registry.Register("esjzone", func(cfg config.ResolvedSiteConfig) site.Site {

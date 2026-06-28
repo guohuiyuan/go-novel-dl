@@ -45,6 +45,7 @@ type HybridSearchResult struct {
 	Variants      []model.SearchResult `json:"variants"`
 	SourceCount   int                  `json:"source_count"`
 	Score         float64              `json:"score"`
+	Relevance     float64              `json:"relevance"`
 }
 
 type HybridSearchResponse struct {
@@ -61,10 +62,11 @@ type siteSearchResponse struct {
 }
 
 type hybridSearchGroup struct {
-	key       string
-	primary   model.SearchResult
-	variants  []model.SearchResult
-	bestScore float64
+	key           string
+	primary       model.SearchResult
+	variants      []model.SearchResult
+	bestScore     float64
+	bestRelevance float64
 }
 
 func (r *Runtime) DefaultSearchSites() []string {
@@ -274,6 +276,10 @@ func groupHybridSearchResults(items []model.SearchResult, keyword string, defaul
 
 		group.variants = append(group.variants, item)
 		score := searchResultScore(item, keyword, siteRank)
+		relevance := keywordRelevance(item, keyword)
+		if relevance > group.bestRelevance {
+			group.bestRelevance = relevance
+		}
 		if group.primary.BookID == "" || shouldPreferCandidate(item, score, group.primary, group.bestScore, siteRank) {
 			group.primary = item
 			group.bestScore = score
@@ -305,10 +311,15 @@ func groupHybridSearchResults(items []model.SearchResult, keyword string, defaul
 			Variants:      append([]model.SearchResult(nil), group.variants...),
 			SourceCount:   len(group.variants),
 			Score:         score,
+			Relevance:     group.bestRelevance,
 		})
 	}
 
 	sort.SliceStable(results, func(i, j int) bool {
+		// 关键字相关度优先：与搜索词匹配越紧密的书排在最前。
+		if !relevanceEqual(results[i].Relevance, results[j].Relevance) {
+			return results[i].Relevance > results[j].Relevance
+		}
 		if results[i].Score != results[j].Score {
 			return results[i].Score > results[j].Score
 		}
@@ -412,6 +423,46 @@ func searchResultScore(item model.SearchResult, keyword string, siteRank map[str
 	}
 	score += preferredSiteBonus(item.Site, siteRank)
 	return score
+}
+
+// keywordRelevance 衡量单条结果与搜索词的紧密程度，取值 [0,1]，
+// 与来源站点偏好、是否有封面/简介等无关，纯粹看书名/作者和关键字的匹配度。
+// 这是排序的首要依据：完全相同 > 标题包含关键字 > 模糊相近 > 仅作者匹配。
+func keywordRelevance(item model.SearchResult, keyword string) float64 {
+	keywordNorm := normalizeSearchText(keyword)
+	if keywordNorm == "" {
+		return 0
+	}
+	titleNorm := normalizeSearchText(item.Title)
+	authorNorm := normalizeSearchText(item.Author)
+
+	best := similarityScore(keywordNorm, titleNorm)
+
+	// 标题里完整出现关键字（子串）时给一个高保底分，确保“包含即更相关”，
+	// 不会被一个长度相近但内容不同的标题用编辑距离反超。
+	if titleNorm != "" && strings.Contains(titleNorm, keywordNorm) {
+		coverage := float64(len([]rune(keywordNorm))) / float64(len([]rune(titleNorm)))
+		if contained := 0.9 + coverage*0.1; contained > best {
+			best = contained
+		}
+	}
+
+	// 作者匹配权重低于标题，只在标题相关度不足时小幅托底。
+	if authorNorm != "" {
+		if authorMatch := similarityScore(keywordNorm, authorNorm) * 0.6; authorMatch > best {
+			best = authorMatch
+		}
+	}
+	return best
+}
+
+func relevanceEqual(a, b float64) bool {
+	const epsilon = 1e-9
+	diff := a - b
+	if diff < 0 {
+		diff = -diff
+	}
+	return diff < epsilon
 }
 
 func preferredSiteBonus(siteKey string, siteRank map[string]int) float64 {

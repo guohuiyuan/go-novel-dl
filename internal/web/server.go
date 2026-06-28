@@ -1023,6 +1023,7 @@ func (s *Service) resolveURLSearch(ctx context.Context, rawURL string) (paginate
 			Variants:      []model.SearchResult{primary},
 			SourceCount:   1,
 			Score:         1,
+			Relevance:     1,
 		}},
 	}
 	return paginateSearchResponse(response, 1, 1), nil

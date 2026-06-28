@@ -53,7 +53,46 @@ func NewCiweimaoSite(cfg config.ResolvedSiteConfig) *CiweimaoSite {
 	}
 	jar, _ := cookiejar.New(nil)
 	client := &http.Client{Timeout: timeout, Jar: jar}
-	return &CiweimaoSite{cfg: cfg, html: NewHTMLSite(client), client: client}
+	site := &CiweimaoSite{cfg: cfg, html: NewHTMLSite(client), client: client}
+	site.injectCookieString(cfg.Cookie)
+	return site
+}
+
+func (s *CiweimaoSite) injectCookieString(raw string) {
+	raw = strings.TrimSpace(raw)
+	if len(raw) >= len("Cookie:") && strings.EqualFold(raw[:len("Cookie:")], "Cookie:") {
+		raw = strings.TrimSpace(raw[len("Cookie:"):])
+	}
+	if raw == "" || s.client == nil || s.client.Jar == nil {
+		return
+	}
+	cookies := make([]*http.Cookie, 0)
+	for _, part := range strings.Split(raw, ";") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		name, value, ok := strings.Cut(part, "=")
+		if !ok {
+			continue
+		}
+		name = strings.TrimSpace(name)
+		value = strings.TrimSpace(value)
+		if name == "" {
+			continue
+		}
+		cookies = append(cookies, &http.Cookie{Name: name, Value: value, Path: "/", Domain: ".ciweimao.com"})
+	}
+	if len(cookies) == 0 {
+		return
+	}
+	for _, rawURL := range []string{ciweimaoBaseURL + "/", ciweimaoWapBaseURL + "/"} {
+		u, err := url.Parse(rawURL)
+		if err != nil {
+			continue
+		}
+		s.client.Jar.SetCookies(u, cookies)
+	}
 }
 
 func (s *CiweimaoSite) Key() string         { return "ciweimao" }
