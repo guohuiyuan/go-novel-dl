@@ -674,6 +674,8 @@ function bootstrap() {
   backToTopButton.addEventListener("click", () => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   });
+
+  window.setTimeout(() => void restoreReaderSession(), 0);
 }
 
 function activateTab(tabName) {
@@ -1280,7 +1282,17 @@ function renderResults(results) {
 
   results.forEach((result) => {
     const card = document.createElement("article");
-    card.className = "result-card";
+    card.className = "result-card is-clickable";
+    card.setAttribute("tabindex", "0");
+    card.setAttribute("aria-label", `查看 ${displayResultTitle(result)} 的详情`);
+    const open = () => openDetail(result, result.primary);
+    card.addEventListener("click", open);
+    card.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        open();
+      }
+    });
 
     const coverButton = document.createElement("button");
     coverButton.type = "button";
@@ -1292,25 +1304,13 @@ function renderResults(results) {
     overlay.className = "result-cover-overlay";
     overlay.textContent = "查看详情";
     coverButton.appendChild(overlay);
-    coverButton.addEventListener("click", () => openDetail(result, result.primary));
 
     const body = document.createElement("div");
     body.className = "result-body";
 
     const title = document.createElement("h3");
     title.className = "result-title";
-    const sourceURL = displayResultURL(result);
-    if (sourceURL) {
-      const titleLink = document.createElement("a");
-      titleLink.className = "result-title-link";
-      titleLink.href = sourceURL;
-      titleLink.target = "_blank";
-      titleLink.rel = "noopener noreferrer";
-      titleLink.textContent = displayResultTitle(result);
-      title.appendChild(titleLink);
-    } else {
-      title.textContent = displayResultTitle(result);
-    }
+    title.textContent = displayResultTitle(result);
 
     const author = document.createElement("p");
     author.className = "result-author";
@@ -1867,9 +1867,11 @@ const readerContent = document.getElementById("readerContent");
 const readerBody = document.getElementById("readerBody");
 const readerProgress = document.getElementById("readerProgress");
 
-const readerState = { chapters: [], loadedMin: 0, loadedMax: -1, currentIndex: 0, loadingUp: false, loadingDown: false, canAutoLoad: false, token: 0, cache: new Map(), pending: new Map() };
+const READER_SESSION_KEY = "novel-dl:reader-session";
+const readerState = { chapters: [], loadedMin: 0, loadedMax: -1, currentIndex: 0, loadingUp: false, loadingDown: false, canAutoLoad: false, token: 0, pending: new Map() };
+let readerSessionPersistTimer = 0;
 
-function openReader(chapters, index) {
+function openReader(chapters, index, options = {}) {
   readerState.chapters = chapters;
   readerState.loadedMin = index;
   readerState.loadedMax = index - 1;
@@ -1877,6 +1879,9 @@ function openReader(chapters, index) {
   readerState.loadingUp = false;
   readerState.loadingDown = false;
   readerState.canAutoLoad = false;
+  const scrollOffset = Number.isFinite(Number(options.scrollOffset)) && Number(options.scrollOffset) >= 0
+    ? Number(options.scrollOffset)
+    : 0;
   const token = ++readerState.token;
   readerOverlay.hidden = false;
   setReaderControlsVisible(false);
@@ -1890,50 +1895,57 @@ function openReader(chapters, index) {
   updateReaderTitle(index);
   renderReaderWindow(index).then(() => {
     if (token !== readerState.token || readerOverlay.hidden) return;
-    setReaderScrollTop(readerChapterTop(index));
+    setReaderScrollTop(readerChapterTop(index) + scrollOffset);
+    persistReaderSession();
     requestAnimationFrame(() => {
       if (token !== readerState.token || readerOverlay.hidden) return;
       setReaderScrollLocked(false);
       readerState.canAutoLoad = true;
+      ensureReaderScrollable();
     });
   });
 }
 
 async function renderReaderWindow(centerIndex) {
-  const min = Math.max(centerIndex - 3, 0);
-  const max = Math.min(centerIndex + 3, readerState.chapters.length - 1);
-  const indices = [];
-  for (let i = min; i <= max; i++) indices.push(i);
+  const ch = readerState.chapters[centerIndex];
+  if (!ch) return;
 
   readerContent.innerHTML = "";
-  readerContent.appendChild(createReaderBoundaryHint(min > 0 ? "正在预加载上方章节" : "已经是第一章", min > 0));
+  readerContent.appendChild(createReaderBoundaryHint(centerIndex > 0 ? "继续上滑加载上一章" : "已经是第一章", false));
   const loading = document.createElement("div");
   loading.className = "reader-loading";
-  loading.textContent = "正在加载当前章节和前后 3 章...";
+  loading.textContent = "正在加载当前章节...";
   readerContent.appendChild(loading);
-  readerContent.appendChild(createReaderBoundaryHint(max < readerState.chapters.length - 1 ? "正在预加载下方章节" : "已经是最后一章", max < readerState.chapters.length - 1));
 
-  await Promise.allSettled(indices.map((i) => fetchChapterContentForReader(readerState.chapters[i], i)));
+  let content = "";
+  let loadError = "";
+  try {
+    content = await fetchChapterContentForReader(ch, centerIndex);
+  } catch (error) {
+    loadError = error && error.message ? error.message : "加载失败";
+  }
 
-  readerState.loadedMin = min;
-  readerState.loadedMax = min - 1;
   readerContent.innerHTML = "";
-
-  const topHint = createReaderBoundaryHint(min > 0 ? "正在预加载上方章节" : "已经是第一章", min > 0);
-  readerContent.appendChild(topHint);
-
-  const tasks = [];
-  indices.forEach((i) => tasks.push(appendChapter(i)));
-
-  const bottomHint = createReaderBoundaryHint(max < readerState.chapters.length - 1 ? "正在预加载下方章节" : "已经是最后一章", max < readerState.chapters.length - 1);
-  readerContent.appendChild(bottomHint);
-
-  await Promise.allSettled(tasks);
-  topHint.textContent = min > 0 ? `已预加载上方 ${centerIndex - min} 章` : "已经是第一章";
-  bottomHint.textContent = max < readerState.chapters.length - 1 ? `已预加载下方 ${max - centerIndex} 章` : "已经是最后一章";
-  topHint.classList.remove("is-loading");
-  bottomHint.classList.remove("is-loading");
-  preloadCache(centerIndex, 3);
+  const topHint = createReaderBoundaryHint(centerIndex > 0 ? "继续上滑加载上一章" : "已经是第一章", false);
+  const divider = document.createElement("div");
+  divider.className = "reader-chapter-divider";
+  divider.dataset.chapterIndex = centerIndex;
+  divider.textContent = ch.title || `第 ${centerIndex + 1} 章`;
+  const block = document.createElement("div");
+  block.className = "reader-chapter-block";
+  block.dataset.chapterIndex = centerIndex;
+  const bottomHint = createReaderBoundaryHint(
+    centerIndex < readerState.chapters.length - 1 ? "继续下滑加载下一章" : "已经是最后一章",
+    false,
+  );
+  readerContent.append(topHint, divider, block, bottomHint);
+  if (loadError) {
+    block.innerHTML = `<div class="reader-error">加载失败：${loadError}</div>`;
+  } else {
+    renderChapterBlock(block, content);
+  }
+  readerState.loadedMin = centerIndex;
+  readerState.loadedMax = centerIndex;
 }
 
 function createReaderBoundaryHint(text, loading) {
@@ -1975,6 +1987,7 @@ function closeReader() {
   setReaderScrollLocked(false);
   readerState.canAutoLoad = false;
   readerState.token += 1;
+  clearReaderSession();
   if (appState.reader) {
     appState.reader.site = "";
     appState.reader.bookID = "";
@@ -2106,8 +2119,6 @@ async function prependChapter(idx) {
 }
 
 async function loadChapterContent(ch, index, block) {
-  const cached = readerState.cache.get(chapterReaderCacheKey(ch, index));
-  if (cached) { renderChapterBlock(block, cached); return; }
   block.innerHTML = '<div class="reader-loading">正在加载...</div>';
   try {
     const content = await fetchChapterContentForReader(ch, index);
@@ -2154,18 +2165,13 @@ function createReaderImage(src, alt) {
 }
 
 async function fetchChapterContentForReader(ch, index) {
-  const key = chapterReaderCacheKey(ch, index);
-  const cached = readerState.cache.get(key);
-  if (cached) return cached;
+  const key = chapterReaderPendingKey(ch, index);
   const pending = readerState.pending.get(key);
   if (pending) return pending;
   const variant = appState.activeDetailVariant || (appState.detailResult && appState.detailResult.primary) || {};
   const site = variant.site || ""; const bookID = variant.book_id || "";
   if (!site || !bookID) throw new Error("缺少站点信息");
-  const task = fetchChapterContentText(site, bookID, ch).then((content) => {
-    readerState.cache.set(key, content);
-    return content;
-  }).finally(() => {
+  const task = fetchChapterContentText(site, bookID, ch).finally(() => {
     readerState.pending.delete(key);
   });
   readerState.pending.set(key, task);
@@ -2252,22 +2258,11 @@ function shouldWarmupDetail(site) {
   }
 }
 
-function chapterReaderCacheKey(ch, index) {
-  return ch.id || ch.url || `${index}:${ch.title || ""}`;
-}
-
-function preloadCache(centerIndex, radius = 2) {
+function chapterReaderPendingKey(ch, index) {
   const variant = appState.activeDetailVariant || (appState.detailResult && appState.detailResult.primary) || {};
-  const site = variant.site || ""; const bookID = variant.book_id || "";
-  if (!site || !bookID) return;
-  for (let offset = -radius; offset <= radius; offset++) {
-    const i = centerIndex + offset;
-    if (i < 0 || i >= readerState.chapters.length) continue;
-    const ch = readerState.chapters[i];
-    const key = chapterReaderCacheKey(ch, i);
-    if (readerState.cache.has(key) || readerState.pending.has(key)) continue;
-    void fetchChapterContentForReader(ch, i).catch(() => {});
-  }
+  const site = (variant && variant.site) || "";
+  const bookID = (variant && variant.book_id) || "";
+  return `${site}::${bookID}::${ch.id || ch.url || `${index}:${ch.title || ""}`}`;
 }
 
 readerCloseButton.addEventListener("click", closeReader);
@@ -2278,17 +2273,142 @@ readerBody.addEventListener("click", handleReaderBodyClick);
 
 readerBody.addEventListener("scroll", () => {
   if (!readerState.canAutoLoad) return;
+  if (readerSessionPersistTimer) {
+    window.clearTimeout(readerSessionPersistTimer);
+  }
+  readerSessionPersistTimer = window.setTimeout(() => {
+    readerSessionPersistTimer = 0;
+    persistReaderSession();
+  }, 300);
+  const nearBottom = readerBody.scrollHeight - readerBody.scrollTop - readerBody.clientHeight <= 80;
+  const next = readerState.loadedMax + 1;
+  if (nearBottom && next < readerState.chapters.length) {
+    void appendChapter(next).then(() => {
+      requestAnimationFrame(ensureReaderScrollable);
+    });
+  }
+  if (readerBody.scrollTop <= 1) {
+    const prev = readerState.loadedMin - 1;
+    if (prev >= 0) void prependChapter(prev);
+  }
   const blocks = readerContent.querySelectorAll("[data-chapter-index]");
+  const bodyRect = readerBody.getBoundingClientRect();
   for (let i = blocks.length - 1; i >= 0; i--) {
     const rect = blocks[i].getBoundingClientRect();
-    const bodyRect = readerBody.getBoundingClientRect();
     if (rect.top <= bodyRect.top + 60) {
       const visIdx = parseInt(blocks[i].dataset.chapterIndex, 10);
       updateReaderTitle(visIdx);
-      preloadCache(visIdx, 3);
       break;
     }
   }
+});
+
+function ensureReaderScrollable() {
+  if (!readerState.canAutoLoad || readerOverlay.hidden) return;
+  const nearBottom = readerBody.scrollHeight - readerBody.scrollTop - readerBody.clientHeight <= 80;
+  const next = readerState.loadedMax + 1;
+  if (nearBottom && next < readerState.chapters.length) {
+    void appendChapter(next).then(() => {
+      requestAnimationFrame(ensureReaderScrollable);
+    });
+  }
+}
+
+function currentReaderSnapshot() {
+  const tracker = appState.reader;
+  const chapter = readerState.chapters[readerState.currentIndex];
+  if (!tracker || !tracker.site || !tracker.bookID || !chapter) return null;
+  return {
+    site: tracker.site,
+    book_id: tracker.bookID,
+    title: tracker.title,
+    author: tracker.author,
+    cover_url: tracker.coverURL,
+    description: tracker.description,
+    latest_chapter: tracker.latestChapter,
+    source_url: tracker.sourceURL,
+    local_only: tracker.localOnly,
+    chapter_id: String((chapter && (chapter.chapter_id || chapter.id)) || "").trim(),
+    chapter_url: String((chapter && chapter.url) || "").trim(),
+    chapter_title: (chapter && chapter.title) || "",
+    chapter_index: Math.max(0, readerState.currentIndex || 0),
+    scroll_offset: Math.max(0, readerBody.scrollTop - readerChapterTop(readerState.currentIndex)),
+  };
+}
+
+function persistReaderSession() {
+  if (!readerOverlay || readerOverlay.hidden || !readerState.chapters.length) return;
+  const snapshot = currentReaderSnapshot();
+  if (!snapshot) return;
+  try {
+    window.sessionStorage.setItem(READER_SESSION_KEY, JSON.stringify(snapshot));
+  } catch (_) {
+  }
+}
+
+function clearReaderSession() {
+  try {
+    window.sessionStorage.removeItem(READER_SESSION_KEY);
+  } catch (_) {
+  }
+}
+
+function readReaderSession() {
+  try {
+    const raw = window.sessionStorage.getItem(READER_SESSION_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function restoreReaderScrollFromSession() {
+  if (!readerOverlay || readerOverlay.hidden || !readerState.chapters.length) return;
+  const saved = readReaderSession();
+  if (!saved) return;
+  const index = Math.min(Math.max(0, Number(saved.chapter_index) || 0), readerState.chapters.length - 1);
+  updateReaderTitle(index);
+  setReaderScrollTop(readerChapterTop(index) + Math.max(0, Number(saved.scroll_offset) || 0));
+}
+
+async function restoreReaderSession() {
+  const saved = readReaderSession();
+  if (!saved) return;
+  if (!readerOverlay || !readerOverlay.hidden || readerState.chapters.length) return;
+  const item = {
+    site: saved.site,
+    book_id: saved.book_id,
+    title: saved.title,
+    author: saved.author,
+    cover_url: saved.cover_url,
+    description: saved.description,
+    latest_chapter: saved.latest_chapter,
+    source_url: saved.source_url,
+    last_read_chapter_id: saved.chapter_id || saved.chapter_url,
+    last_read_chapter_index: saved.chapter_index,
+    last_read_chapter_title: saved.chapter_title,
+    local_only: saved.local_only,
+  };
+  try {
+    const restored = await openBookshelfReader(item, null, {
+      readerOptions: { scrollOffset: Math.max(0, Number(saved.scroll_offset) || 0) },
+    });
+    if (!restored) clearReaderSession();
+  } catch (_) {
+    clearReaderSession();
+  }
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") {
+    persistReaderSession();
+  } else if (document.visibilityState === "visible") {
+    restoreReaderScrollFromSession();
+  }
+});
+window.addEventListener("pagehide", persistReaderSession);
+window.addEventListener("pageshow", (event) => {
+  if (event.persisted) restoreReaderScrollFromSession();
 });
 
 // Reader background color picker
@@ -3129,7 +3249,6 @@ async function saveGeneralConfig(options = {}) {
   appState.detailTimings.clear();
   appState.readerCatalogCache.clear();
   appState.readerCatalogPending.clear();
-  readerState.cache.clear();
   readerState.pending.clear();
   renderGeneralConfigForm(appState.generalConfig);
   renderPaging();
@@ -3171,7 +3290,6 @@ async function saveSiteConfig(options = {}) {
   appState.detailTimings.clear();
   appState.readerCatalogCache.clear();
   appState.readerCatalogPending.clear();
-  readerState.cache.clear();
   readerState.pending.clear();
   siteWarnings = Array.isArray(data.site_warnings) ? data.site_warnings : [];
   siteStats = Array.isArray(data.site_stats) ? data.site_stats : [];
@@ -3703,7 +3821,7 @@ async function addCurrentDetailToBookshelf(result, variant, detail, button, opti
   }
 }
 
-async function openBookshelfReader(item, button) {
+async function openBookshelfReader(item, button, options = {}) {
   const original = button ? button.textContent : "";
   if (button) { button.disabled = true; button.textContent = "加载中..."; }
   try {
@@ -3740,7 +3858,7 @@ async function openBookshelfReader(item, button) {
       sourceURL: item.source_url || "",
     });
     const startIndex = resolveBookshelfStartIndex(chapters, item);
-    openReader(chapters, startIndex);
+    openReader(chapters, startIndex, (options && options.readerOptions) || {});
     const sourceTag = localOnly ? "本地缓存" : "在线";
     if (startIndex > 0) {
       const startChapter = chapters[startIndex];
@@ -3749,8 +3867,10 @@ async function openBookshelfReader(item, button) {
     } else {
       setStatus(`已打开《${item.title || item.book_id}》（${sourceTag}）`);
     }
+    return true;
   } catch (error) {
     setStatus(`加载阅读器失败：${error.message}`);
+    return false;
   } finally {
     if (button) { button.disabled = false; button.textContent = original; }
   }
