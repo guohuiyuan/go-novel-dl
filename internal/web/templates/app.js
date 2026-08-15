@@ -2838,8 +2838,8 @@ function buildTaskCard(task) {
       link.className = "task-file-chip";
       link.href = `${root}/api/download-file?path=${encodeURIComponent(p)}`;
       link.title = p;
-      link.download = "";
       const basename = p.split(/[/\\]/).pop() || p;
+      link.download = basename;
       const dot = basename.lastIndexOf(".");
       const hasExt = dot > 0 && dot < basename.length - 1;
       const stem = hasExt ? basename.slice(0, dot) : basename;

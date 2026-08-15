@@ -1092,46 +1092,128 @@ func (s *Service) startExportTask(taskID string, req downloadRequest) {
 		s.Tasks.MarkLoadingChapters(taskID, req.Site, req.BookID)
 
 		runtime := s.newTaskRuntime(taskID)
-		results, err := runtime.Download(context.Background(), req.Site, []model.BookRef{{
-			BookID: req.BookID,
-		}}, req.Formats, false)
+		result, err := s.runExportTask(taskID, runtime, req)
 		if err != nil {
 			s.Tasks.MarkFailed(taskID, err)
 			return
 		}
-		if len(results) == 0 {
+		if len(result.Exported) == 0 {
 			s.Tasks.MarkFailed(taskID, fmt.Errorf("export returned no result"))
 			return
 		}
-
-		exported := make([]string, 0)
-		title := results[0].Book.Title
-		totalChapters := 0
-		cachedChapters := 0
-		for _, result := range results {
-			exported = append(exported, result.Exported...)
-			if result.Book == nil {
-				continue
-			}
-			if strings.TrimSpace(title) == "" {
-				title = result.Book.Title
-			}
-			if chCount := len(result.Book.Chapters); chCount > totalChapters {
-				totalChapters = chCount
-			}
-			for _, chapter := range result.Book.Chapters {
-				if chapter.Downloaded || strings.TrimSpace(chapter.Content) != "" {
-					cachedChapters++
-				}
-			}
-		}
-		if totalChapters > 0 {
-			if err := config.UpdateBookshelfCacheStats(req.Site, req.BookID, totalChapters, cachedChapters); err != nil {
+		if result.TotalChapters > 0 {
+			if err := config.UpdateBookshelfCacheStats(req.Site, req.BookID, result.TotalChapters, result.CachedChapters); err != nil {
 				fmt.Printf("warn: update bookshelf cache stats failed: %v\n", err)
 			}
 		}
-		s.Tasks.MarkCompleted(taskID, title, exported)
+		s.Tasks.MarkCompleted(taskID, result.Title, result.Exported)
 	}()
+}
+
+type webExportResult struct {
+	Title          string
+	TotalChapters  int
+	CachedChapters int
+	Exported       []string
+}
+
+// runExportTask prefers a complete local copy, then refreshes from the site,
+// and finally falls back to whatever is already cached so transient site
+// failures do not make a previously downloaded book impossible to export.
+func (s *Service) runExportTask(taskID string, runtime *app.Runtime, req downloadRequest) (webExportResult, error) {
+	ref := model.BookRef{BookID: req.BookID}
+
+	if book, ok := localBookReadyForExport(runtime, req.Site, req.BookID); ok {
+		s.Tasks.MarkExporting(taskID, len(book.Chapters), len(book.Chapters))
+		exported, err := runtime.Export(req.Site, []model.BookRef{ref}, "", req.Formats)
+		if err == nil {
+			return exportResultFromBook(book, exported), nil
+		}
+	}
+
+	results, err := runtime.Download(context.Background(), req.Site, []model.BookRef{ref}, req.Formats, false)
+	if err == nil {
+		if len(results) == 0 {
+			return webExportResult{}, fmt.Errorf("export returned no result")
+		}
+		return exportResultFromDownloadResults(results), nil
+	}
+
+	if book, ok := localBookReadyForExport(runtime, req.Site, req.BookID); ok {
+		s.Tasks.MarkExporting(taskID, len(book.Chapters), len(book.Chapters))
+	}
+	if exported, localErr := runtime.Export(req.Site, []model.BookRef{ref}, "", req.Formats); localErr == nil {
+		return s.exportResultFromLibrary(runtime, req.Site, req.BookID, exported), nil
+	}
+
+	return webExportResult{}, err
+}
+
+func localBookReadyForExport(runtime *app.Runtime, siteKey, bookID string) (*model.Book, bool) {
+	if runtime == nil || runtime.Library == nil {
+		return nil, false
+	}
+	book, _, err := runtime.Library.LoadBook(siteKey, bookID, "")
+	if err != nil || book == nil || len(book.Chapters) == 0 {
+		return nil, false
+	}
+	for _, chapter := range book.Chapters {
+		if strings.TrimSpace(chapter.Content) == "" {
+			return nil, false
+		}
+	}
+	return book, true
+}
+
+func exportResultFromDownloadResults(results []app.DownloadResult) webExportResult {
+	result := webExportResult{}
+	for _, item := range results {
+		result.Exported = append(result.Exported, item.Exported...)
+		if item.Book == nil {
+			continue
+		}
+		result = mergeWebExportBookStats(result, item.Book)
+	}
+	return result
+}
+
+func exportResultFromBook(book *model.Book, exported []string) webExportResult {
+	result := webExportResult{Exported: exported}
+	return mergeWebExportBookStats(result, book)
+}
+
+func (s *Service) exportResultFromLibrary(runtime *app.Runtime, siteKey, bookID string, exported []string) webExportResult {
+	result := webExportResult{Exported: exported}
+	if runtime == nil || runtime.Library == nil {
+		return result
+	}
+	book, _, err := runtime.Library.LoadBook(siteKey, bookID, "")
+	if err != nil {
+		return result
+	}
+	return mergeWebExportBookStats(result, book)
+}
+
+func mergeWebExportBookStats(result webExportResult, book *model.Book) webExportResult {
+	if book == nil {
+		return result
+	}
+	if strings.TrimSpace(result.Title) == "" {
+		result.Title = book.Title
+	}
+	if len(book.Chapters) > result.TotalChapters {
+		result.TotalChapters = len(book.Chapters)
+	}
+	cached := 0
+	for _, chapter := range book.Chapters {
+		if chapter.Downloaded || strings.TrimSpace(chapter.Content) != "" {
+			cached++
+		}
+	}
+	if cached > result.CachedChapters {
+		result.CachedChapters = cached
+	}
+	return result
 }
 
 func (s *Service) newTaskRuntime(taskID string) *app.Runtime {

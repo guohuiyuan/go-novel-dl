@@ -153,8 +153,8 @@ func (s *Service) Export(book *model.Book, site string, cfg config.OutputConfig,
 }
 
 func buildFilename(book *model.Book, site string, cfg config.OutputConfig, format string) string {
-	name := cfg.FilenameTemplate
-	if strings.TrimSpace(name) == "" {
+	name := strings.TrimSpace(cfg.FilenameTemplate)
+	if name == "" || looksLikeLocalPath(name) {
 		name = "{title}_{author}"
 	}
 	bookID := filenameBookID(book)

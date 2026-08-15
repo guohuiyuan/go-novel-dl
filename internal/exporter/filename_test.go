@@ -72,6 +72,16 @@ func TestBuildFilenameIgnoresPathLikeMetadata(t *testing.T) {
 	}
 }
 
+func TestBuildFilenameIgnoresPathLikeTemplate(t *testing.T) {
+	book := &model.Book{ID: "1", Title: "T", Author: "A"}
+	cfg := config.OutputConfig{FilenameTemplate: "/data/raw_data/20260816_013510"}
+
+	got := buildFilename(book, "site", cfg, "txt")
+	if got != "T_A.txt" {
+		t.Fatalf("expected path-like template to fall back to metadata filename, got %q", got)
+	}
+}
+
 func TestBuildFilenameAppendsTimestamp(t *testing.T) {
 	book := &model.Book{ID: "1", Title: "T", Author: "A"}
 	cfg := config.OutputConfig{AppendTimestamp: true}
