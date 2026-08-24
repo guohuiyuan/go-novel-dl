@@ -341,9 +341,9 @@ h3 { font-size: 14px; font-weight: 700; color: #334155; }
   display: flex; flex-direction: column; gap: 6px; padding: 12px 14px;
   border-radius: var(--radius-card); border: 1px solid var(--line); background: #fff;
 }
-.site-warning-card.site-warning-danger { border-left: 4px solid #ef4444; }
-.site-warning-card.site-warning-info { border-left: 4px solid var(--accent); }
-.site-warning-card.site-warning-config { border-left: 4px solid #0ea5e9; }
+.site-warning-card.site-warning-danger { border-color: #fecaca; background: #fffafa; }
+.site-warning-card.site-warning-info { border-color: #bfdbfe; background: #f8fbff; }
+.site-warning-card.site-warning-config { border-color: #bae6fd; background: #f8fcfe; }
 .site-warning-head { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 14px; }
 .site-warning-icon { font-size: 16px; }
 .site-warning-message { margin: 0; font-size: 14px; }
@@ -383,15 +383,15 @@ h3 { font-size: 14px; font-weight: 700; color: #334155; }
 }
 .app-toast {
   display: grid; grid-template-columns: minmax(0, 1fr) 28px; gap: 10px;
-  padding: 12px 12px 12px 14px; border-radius: var(--radius-card);
+  padding: 12px 14px; border-radius: var(--radius-card);
   border: 1px solid var(--line); background: rgba(255, 255, 255, 0.98);
   box-shadow: var(--shadow-hover); pointer-events: auto;
   animation: app-toast-in 0.18s ease-out; overflow: hidden;
 }
-.app-toast-success { border-left: 4px solid #10b981; }
-.app-toast-warning { border-left: 4px solid #f59e0b; }
-.app-toast-error { border-left: 4px solid #ef4444; }
-.app-toast-info { border-left: 4px solid #3b82f6; }
+.app-toast-success .app-toast-title { color: #047857; }
+.app-toast-warning .app-toast-title { color: #b45309; }
+.app-toast-error .app-toast-title { color: #b91c1c; }
+.app-toast-info .app-toast-title { color: #1d4ed8; }
 .app-toast-content { min-width: 0; display: grid; gap: 4px; }
 .app-toast-title { font-size: 14px; font-weight: 700; color: var(--text); line-height: 1.4; }
 .app-toast-message { font-size: 13px; color: var(--muted); line-height: 1.45; word-break: break-word; }
