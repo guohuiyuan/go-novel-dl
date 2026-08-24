@@ -190,6 +190,10 @@ h3 { font-size: 14px; font-weight: 700; color: #334155; }
 .control-panel { position: relative; z-index: 10; }
 .search-form { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-bottom: 20px; }
 .search-field { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 6px; }
+.search-actions { flex: 0 1 auto; min-width: 0; display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+.search-mode-field { flex: 0 0 auto; min-width: 0; width: auto; display: flex; flex-direction: column; gap: 6px; }
+.search-mode-select { width: auto; min-width: 0; max-width: 150px; }
+.search-actions .search-button { flex: 0 0 auto; width: auto; }
 .feedback-stack, .results-panel, .tasks-panel, .task-list, .detail-content { display: grid; gap: 12px; }
 
 /* 扩大输入框与按钮的热区 */
@@ -213,8 +217,6 @@ h3 { font-size: 14px; font-weight: 700; color: #334155; }
   box-shadow: 0 4px 12px var(--accent-glow); white-space: nowrap;
 }
 .search-button:hover, .download-button:hover { transform: translateY(-1px); background: var(--accent-strong); box-shadow: 0 6px 16px var(--accent-glow); }
-.exact-search-button { background: var(--accent-deep); }
-.exact-search-button:hover { background: #0f766e; }
 
 .page-button, .detail-close, .detail-source-button {
   min-height: 36px; padding: 0 14px; border-radius: 8px; cursor: pointer;

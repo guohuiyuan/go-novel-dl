@@ -160,7 +160,7 @@ func TestIndexPageIncludesDisableCacheControl(t *testing.T) {
 	}
 }
 
-func TestIndexPageIncludesExactSearchControl(t *testing.T) {
+func TestIndexPageIncludesSearchModeControl(t *testing.T) {
 	service := newTestService()
 	router := newRouter(service)
 
@@ -173,13 +173,10 @@ func TestIndexPageIncludesExactSearchControl(t *testing.T) {
 	}
 
 	body := resp.Body.String()
-	for _, needle := range []string{`type="submit">搜索</button>`, `id="exactSearchButton"`, `精确搜索`} {
+	for _, needle := range []string{`type="submit">搜索</button>`, `id="searchMode"`, `value="exact"`, `value="fuzzy" selected`} {
 		if !strings.Contains(body, needle) {
 			t.Fatalf("expected index page to contain %s, body=%s", needle, body)
 		}
-	}
-	if strings.Contains(body, `id="exactSearch"`) {
-		t.Fatalf("expected exact search to be a button, got checkbox control in body=%s", body)
 	}
 }
 

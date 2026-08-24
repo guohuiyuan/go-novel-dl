@@ -386,7 +386,7 @@ function markTransientSiteWarningSeen(warning) {
 }
 
 const keywordInput = document.getElementById("keyword");
-const exactSearchButton = document.getElementById("exactSearchButton");
+const searchModeSelect = document.getElementById("searchMode");
 const searchForm = document.getElementById("searchForm");
 const statusNode = document.getElementById("status");
 const warningsNode = document.getElementById("warnings");
@@ -619,14 +619,8 @@ function bootstrap() {
   searchForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     appState.page = 1;
-    await performSearch(false);
+    await performSearch(searchModeSelect ? searchModeSelect.value === "exact" : false);
   });
-  if (exactSearchButton) {
-    exactSearchButton.addEventListener("click", async () => {
-      appState.page = 1;
-      await performSearch(true);
-    });
-  }
 
   detailCloseButton.addEventListener("click", closeDetail);
   detailBackdrop.addEventListener("click", closeDetail);
@@ -713,6 +707,7 @@ async function performSearch(exact = appState.lastExact) {
   if (!keyword) return setStatus("请输入关键词。");
   if (appState.selectedSites.size === 0) return setStatus("请至少选择一个渠道。");
   const useExact = Boolean(exact);
+  if (searchModeSelect) searchModeSelect.value = useExact ? "exact" : "fuzzy";
 
   closeDetail();
   setSearchPageSize((appState.generalConfig && appState.generalConfig.web_page_size) || appState.pageSize);
@@ -720,7 +715,7 @@ async function performSearch(exact = appState.lastExact) {
   appState.lastExact = useExact;
   activateTab("search");
   renderWarnings([]);
-  setStatus(`正在${useExact ? "精确搜索" : "搜索"}“${keyword}”，第 ${appState.page} 页...`);
+  setStatus(`正在${useExact ? "精确搜索" : "模糊搜索"}“${keyword}”，第 ${appState.page} 页...`);
 
   try {
     const response = await fetch(`${root}/api/search`, {
@@ -754,7 +749,7 @@ async function performSearch(exact = appState.lastExact) {
 
     if (!appState.results.length) {
       const suffix = warnings.length ? `；${temporaryWarningSummary(warnings)}` : "";
-      return setStatus(`没有${useExact ? "精确搜索" : "搜索"}到“${keyword}”，可以换关键词、减少渠道标签筛选，或直接粘贴小说链接${suffix}。`, "empty");
+      return setStatus(`没有${useExact ? "精确搜索" : "模糊搜索"}到“${keyword}”，可以换关键词、减少渠道标签筛选，或直接粘贴小说链接${suffix}。`, "empty");
     }
     const warningSuffix = warnings.length ? `，${warnings.length} 个渠道临时跳过` : "";
     setStatus(`当前显示第 ${appState.page} 页，共 ${totalLabel(appState.total, appState.totalExact)} 条结果${warningSuffix}。`);
