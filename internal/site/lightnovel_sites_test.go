@@ -158,6 +158,17 @@ func TestShencouDownloadPlanAndFetchChapter(t *testing.T) {
 			w.Write([]byte(`<html><body><div class="zjbox"><h2>第一卷</h2></div><div class="zjlist4"><ol><li><a href="156328.html">第一章</a></li></ol></div></body></html>`))
 		case "/read/3/3540/156328.html":
 			w.Write([]byte(`<html><body><h1>第一章</h1><div id="BookSee_Right"></div>第一行<p>第二行</p><!--over--><p>广告</p></body></html>`))
+		case "/pserchs.php":
+			if r.Method != http.MethodPost {
+				t.Fatalf("unexpected method: %s", r.Method)
+			}
+			if err := r.ParseForm(); err != nil {
+				t.Fatal(err)
+			}
+			if r.Form.Get("s") != "神凑" || r.Form.Get("type") != "articlename" {
+				t.Fatalf("unexpected form: %v", r.Form)
+			}
+			w.Write([]byte(`<html><body><ul class="search_list"><li><a href="/info.php?aid=3540">神凑标题</a><a>轻小说</a><a>作者S</a><img src="/cover.jpg"></li></ul></body></html>`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -182,6 +193,13 @@ func TestShencouDownloadPlanAndFetchChapter(t *testing.T) {
 	}
 	if chapter.Title != "第一章" || !strings.Contains(chapter.Content, "第二行") || strings.Contains(chapter.Content, "广告") {
 		t.Fatalf("unexpected chapter: %#v", chapter)
+	}
+	results, err := s.Search(context.Background(), "神凑", 1)
+	if err != nil {
+		t.Fatalf("Search returned error: %v", err)
+	}
+	if len(results) != 1 || results[0].BookID != "3540" || results[0].Author != "作者S" {
+		t.Fatalf("unexpected search results: %#v", results)
 	}
 }
 

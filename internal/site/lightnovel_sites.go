@@ -560,7 +560,59 @@ func (s *ShencouSite) FetchChapter(ctx context.Context, bookID string, chapter m
 }
 
 func (s *ShencouSite) Search(ctx context.Context, keyword string, limit int) ([]model.SearchResult, error) {
-	return nil, nil
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" {
+		return nil, nil
+	}
+	form := url.Values{}
+	form.Set("s", keyword)
+	form.Set("type", "articlename")
+	form.Set("q", "0")
+	form.Set("submit", "")
+	markup, err := postFormHTML(ctx, s.client, shencouSearchURL(s.baseURL), form, nil)
+	if err != nil {
+		return nil, err
+	}
+	doc, err := parseHTML(markup)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]model.SearchResult, 0)
+	for _, row := range shencouSearchRows(doc) {
+		if limit > 0 && len(results) >= limit {
+			break
+		}
+		href := shencouSearchBookHref(row)
+		bookID := shencouBookIDFromHref(href)
+		if bookID == "" {
+			continue
+		}
+		anchors := findAll(row, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "a"
+		})
+		anchorTexts := lightNovelTexts(anchors)
+		title := ""
+		if len(anchorTexts) > 0 {
+			title = anchorTexts[0]
+		}
+		author := ""
+		if len(anchorTexts) >= 3 {
+			author = anchorTexts[2]
+		} else if len(anchorTexts) == 2 {
+			author = anchorTexts[1]
+		}
+		results = append(results, model.SearchResult{
+			Site:   s.Key(),
+			BookID: bookID,
+			Title:  title,
+			Author: author,
+			URL:    s.bookURL(bookID),
+			CoverURL: lightNovelAbsURL(s.baseURL, attrValue(findFirst(row, func(n *html.Node) bool {
+				return n.Type == html.ElementNode && n.Data == "img"
+			}), "src")),
+		})
+	}
+	return results, nil
 }
 
 func (s *ShencouSite) bookURL(bookID string) string {
@@ -575,6 +627,80 @@ func (s *ShencouSite) catalogURL(bookID string) string {
 func (s *ShencouSite) chapterURL(bookID, chapterID string) string {
 	bookID = strings.TrimSpace(bookID)
 	return s.baseURL + "/read/" + shencouPrefix(bookID) + "/" + url.PathEscape(bookID) + "/" + url.PathEscape(strings.TrimSpace(chapterID)) + ".html"
+}
+
+func shencouSearchURL(baseURL string) string {
+	parsed, err := url.Parse(baseURL)
+	if err != nil {
+		return baseURL + "/pserchs.php"
+	}
+	host := strings.ToLower(parsed.Host)
+	if host == "shencou.com" || strings.HasSuffix(host, ".shencou.com") {
+		return "http://m.shencou.com/pserchs.php"
+	}
+	return baseURL + "/pserchs.php"
+}
+
+func shencouSearchBookHref(node *html.Node) string {
+	if node == nil {
+		return ""
+	}
+	a := findFirst(node, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "a" && shencouBookIDFromHref(strings.TrimSpace(attrValue(n, "href"))) != ""
+	})
+	if a == nil {
+		return ""
+	}
+	return strings.TrimSpace(attrValue(a, "href"))
+}
+
+func shencouSearchRows(doc *html.Node) []*html.Node {
+	rows := make([]*html.Node, 0)
+	seen := make(map[*html.Node]struct{})
+	appendRow := func(row *html.Node) {
+		if row == nil || shencouSearchBookHref(row) == "" {
+			return
+		}
+		if _, ok := seen[row]; ok {
+			return
+		}
+		seen[row] = struct{}{}
+		rows = append(rows, row)
+	}
+	for _, list := range findAll(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && hasClass(n, "search_list")
+	}) {
+		if shencouSearchBookHref(list) != "" {
+			appendRow(list)
+			continue
+		}
+		for _, child := range directChildElements(list, "") {
+			appendRow(child)
+		}
+	}
+	if len(rows) > 0 {
+		return rows
+	}
+	for _, a := range findAll(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "a" && shencouBookIDFromHref(strings.TrimSpace(attrValue(n, "href"))) != ""
+	}) {
+		appendRow(a.Parent)
+	}
+	return rows
+}
+
+func shencouBookIDFromHref(href string) string {
+	parsed, err := url.Parse(strings.TrimSpace(href))
+	if err != nil {
+		return ""
+	}
+	if m := shencouBookRe.FindStringSubmatch(parsed.Path); len(m) == 2 {
+		return m[1]
+	}
+	if parsed.Path == "/info.php" || strings.HasSuffix(parsed.Path, "/info.php") {
+		return strings.TrimSpace(parsed.Query().Get("aid"))
+	}
+	return ""
 }
 
 type LnovelSite struct {
