@@ -139,9 +139,7 @@ func (s *Wenku8Site) DownloadPlan(ctx context.Context, ref model.BookRef) (*mode
 			return n.Type == html.ElementNode && n.Data == "b" && hasAncestorTag(n, "table")
 		}))),
 		Author: strings.TrimSpace(strings.TrimPrefix(extractTdValue(infoDoc, "小说作者"), "小说作者：")),
-		Description: cleanText(nodeText(findFirst(infoDoc, func(n *html.Node) bool {
-			return n.Type == html.ElementNode && n.Data == "span" && strings.Contains(nodeText(n.Parent), "内容简介")
-		}))),
+		Description: wenku8BookDescription(infoDoc),
 		SourceURL: infoURL,
 		CoverURL: absolutizeURL("https://www.wenku8.net", attrValue(findFirst(infoDoc, func(n *html.Node) bool {
 			return n.Type == html.ElementNode && n.Data == "img" && strings.Contains(attrValue(n, "src"), "/image/")
