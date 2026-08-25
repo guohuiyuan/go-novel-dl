@@ -496,6 +496,7 @@ sfacg
 shuhaige
 tianyabooks
 tongrenshe
+wenku8
 ```
 
 仅支持下载：
@@ -511,7 +512,6 @@ shencou
 syosetu
 syosetu18
 syosetu_org
-wenku8
 yibige
 ```
 
@@ -560,6 +560,7 @@ syosetu18
 syosetu_org
 tianyabooks
 tongrenshe
+wenku8
 ```
 
 这意味着：

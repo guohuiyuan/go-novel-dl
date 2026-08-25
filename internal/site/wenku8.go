@@ -1,16 +1,23 @@
 package site
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
+	"net/http/cookiejar"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
 	"golang.org/x/net/html"
+	charsetpkg "golang.org/x/net/html/charset"
+	"golang.org/x/text/encoding/simplifiedchinese"
 
 	"github.com/guohuiyuan/go-novel-dl/internal/config"
 	"github.com/guohuiyuan/go-novel-dl/internal/model"
@@ -26,9 +33,13 @@ var (
 const minWenku8RequestInterval = 3 * time.Second
 
 type Wenku8Site struct {
-	cfg    config.ResolvedSiteConfig
-	html   HTMLSite
-	client *http.Client
+	cfg           config.ResolvedSiteConfig
+	html          HTMLSite
+	client        *http.Client
+	jar           *cookiejar.Jar
+	sessionMu     sync.RWMutex
+	sessionValid  bool
+	lastAuthCheck time.Time
 }
 
 func NewWenku8Site(cfg config.ResolvedSiteConfig) *Wenku8Site {
@@ -36,14 +47,23 @@ func NewWenku8Site(cfg config.ResolvedSiteConfig) *Wenku8Site {
 	if cfg.General.Timeout > 0 {
 		timeout = time.Duration(cfg.General.Timeout * float64(time.Second))
 	}
-	client := &http.Client{Timeout: timeout}
-	return &Wenku8Site{cfg: cfg, html: NewHTMLSite(client), client: client}
+	jar, _ := cookiejar.New(nil)
+	// wenku8 套了 Cloudflare，Go 默认 TLS 指纹会被拦截，用 uTLS 模拟 Chrome
+	client := newWenku8HTTPClient(timeout, jar)
+	site := &Wenku8Site{cfg: cfg, html: NewHTMLSite(client), client: client, jar: jar}
+	if strings.TrimSpace(cfg.Cookie) != "" {
+		site.injectCookieString(cfg.Cookie)
+		if site.hasAuthCookies() {
+			site.markSessionValidAt(true, time.Now().UTC())
+		}
+	}
+	return site
 }
 
 func (s *Wenku8Site) Key() string         { return "wenku8" }
 func (s *Wenku8Site) DisplayName() string { return "Wenku8" }
 func (s *Wenku8Site) Capabilities() Capabilities {
-	return Capabilities{Download: true, Search: false, Login: false}
+	return Capabilities{Download: true, Search: true, Login: true}
 }
 
 func (s *Wenku8Site) ResolveURL(rawURL string) (*ResolvedURL, bool) {
@@ -84,6 +104,9 @@ func (s *Wenku8Site) Download(ctx context.Context, ref model.BookRef) (*model.Bo
 }
 
 func (s *Wenku8Site) DownloadPlan(ctx context.Context, ref model.BookRef) (*model.Book, error) {
+	if err := s.ensureLogin(ctx); err != nil {
+		return nil, err
+	}
 	prefix := wenku8Prefix(ref.BookID)
 	infoURL := fmt.Sprintf("https://www.wenku8.net/book/%s.htm", ref.BookID)
 	catalogURL := fmt.Sprintf("https://www.wenku8.net/novel/%s/%s/index.htm", prefix, ref.BookID)
@@ -150,6 +173,9 @@ func (s *Wenku8Site) DownloadPlan(ctx context.Context, ref model.BookRef) (*mode
 }
 
 func (s *Wenku8Site) FetchChapter(ctx context.Context, bookID string, chapter model.Chapter) (model.Chapter, error) {
+	if err := s.ensureLogin(ctx); err != nil {
+		return chapter, err
+	}
 	prefix := wenku8Prefix(bookID)
 	if err := s.waitRequestInterval(ctx); err != nil {
 		return chapter, err
@@ -197,10 +223,110 @@ func (s *Wenku8Site) FetchChapter(ctx context.Context, bookID string, chapter mo
 }
 
 func (s *Wenku8Site) Search(ctx context.Context, keyword string, limit int) ([]model.SearchResult, error) {
-	_ = ctx
-	_ = keyword
-	_ = limit
-	return nil, fmt.Errorf("wenku8 search is blocked by Cloudflare challenge")
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" {
+		return nil, fmt.Errorf("wenku8 搜索关键字不能为空")
+	}
+	// 搜索需要登录（Cloudflare + 会员搜索），可用 Cookie 或账号密码
+	if err := s.ensureLogin(ctx); err != nil {
+		return nil, err
+	}
+
+	// 页面是 GBK，搜索表单按 GBK 提交关键字（so.php 原样透传到 search.php）
+	gbkKeyword, err := simplifiedchinese.GBK.NewEncoder().String(keyword)
+	if err != nil {
+		return nil, fmt.Errorf("wenku8 搜索关键字编码失败：%v", err)
+	}
+	form := url.Values{}
+	form.Set("searchkey", gbkKeyword)
+	form.Set("searchtype", "articlename")
+	form.Set("charset", "gbk")
+	form.Set("Submit", "x")
+
+	// so.php 会 302 到 /modules/article/search.php?searchkey=...，客户端自动跟随
+	markup, err := s.wenku8PostForm(ctx, "https://www.wenku8.net/so.php", form, "https://www.wenku8.net/")
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "http 403") {
+			return nil, fmt.Errorf("wenku8 搜索被 Cloudflare 拦截（HTTP 403）：请更新站点配置中的 Cookie 或重新登录")
+		}
+		return nil, err
+	}
+	if isWenku8ChallengePage(markup) {
+		return nil, fmt.Errorf("wenku8 搜索被 Cloudflare 人机验证拦截：请更新站点配置中的 Cookie 或重新登录")
+	}
+	return parseWenku8SearchResults(markup, limit)
+}
+
+// parseWenku8SearchResults 解析 wenku8 搜索结果页：
+// 结果在 <table class="grid"> 内，每本书是 <a href="/book/<id>.htm">书名</a>。
+func parseWenku8SearchResults(markup string, limit int) ([]model.SearchResult, error) {
+	doc, err := parseHTML(markup)
+	if err != nil {
+		return nil, err
+	}
+	grid := findFirst(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "table" && hasClass(n, "grid")
+	})
+	if grid == nil {
+		return nil, nil
+	}
+
+	results := make([]model.SearchResult, 0, limit)
+	seen := make(map[string]struct{}, limit)
+	for _, a := range findAll(grid, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "a"
+	}) {
+		m := wenku8BookRe.FindStringSubmatch(normalizeESJPath(attrValue(a, "href")))
+		if len(m) != 2 {
+			continue
+		}
+		bookID := m[1]
+		title := cleanText(nodeText(a))
+		// 封面图链接无文本、阅读按钮是"我要阅读"，都跳过；
+		// 且要先过标题再标记 seen，避免空标题链接抢占书号。
+		if title == "" || title == "我要阅读" {
+			continue
+		}
+		if _, dup := seen[bookID]; dup {
+			continue
+		}
+		seen[bookID] = struct{}{}
+		row := wenku8SearchResultRow(a)
+		results = append(results, model.SearchResult{
+			Site:   "wenku8",
+			BookID: bookID,
+			Title:  title,
+			Author: wenku8SearchResultAuthor(row),
+			URL:    fmt.Sprintf("https://www.wenku8.net/book/%s.htm", bookID),
+		})
+		if limit > 0 && len(results) >= limit {
+			break
+		}
+	}
+	return results, nil
+}
+
+// wenku8SearchResultRow 向上找到包裹书籍链接的 <tr>，用于提取作者等字段。
+func wenku8SearchResultRow(node *html.Node) *html.Node {
+	for current := node.Parent; current != nil; current = current.Parent {
+		if current.Type == html.ElementNode && current.Data == "tr" {
+			return current
+		}
+	}
+	return nil
+}
+
+var wenku8AuthorLabelRe = regexp.MustCompile(`作者\s*[:：]\s*([^<|，,。\s/:：]+)`)
+
+func wenku8SearchResultAuthor(row *html.Node) string {
+	if row == nil {
+		return ""
+	}
+	text := cleanText(nodeTextPreserveLineBreaks(row))
+	if m := wenku8AuthorLabelRe.FindStringSubmatch(text); len(m) == 2 {
+		return strings.TrimSpace(m[1])
+	}
+	return ""
 }
 
 func (s *Wenku8Site) getWithRetry(ctx context.Context, rawURL, referer string) (string, error) {
@@ -229,6 +355,151 @@ func (s *Wenku8Site) getPage(ctx context.Context, rawURL, referer string) (strin
 		headers["Referer"] = referer
 	}
 	return s.html.GetWithHeaders(ctx, rawURL, headers)
+}
+
+// ensureLogin 保证请求前已有 wenku8 会话：优先用配置的账号密码登录（拿到新鲜会话），
+// 登录失败或未配置凭据时回退到配置的 Cookie。
+func (s *Wenku8Site) ensureLogin(ctx context.Context) error {
+	hasCookie := strings.TrimSpace(s.cfg.Cookie) != ""
+	hasCreds := strings.TrimSpace(s.cfg.Username) != "" && strings.TrimSpace(s.cfg.Password) != ""
+	if !hasCookie && !hasCreds && !s.hasAuthCookies() {
+		return fmt.Errorf("wenku8 未配置 Cookie 或账号密码，请先在站点配置中补全（账号密码或浏览器 Cookie 均可）")
+	}
+	if hasCreds {
+		if s.isSessionFresh(10*time.Minute) && s.hasAuthCookies() {
+			return nil
+		}
+		if err := s.login(ctx, s.cfg.Username, s.cfg.Password); err != nil {
+			if hasCookie && s.hasAuthCookies() {
+				return nil // 登录失败但已有可用 Cookie，回退使用
+			}
+			return err
+		}
+		s.markSessionValidAt(true, time.Now().UTC())
+		return nil
+	}
+	if hasCookie || s.hasAuthCookies() {
+		s.markSessionValidAt(true, time.Now().UTC())
+		return nil
+	}
+	return fmt.Errorf("wenku8 未配置 Cookie 或账号密码，请先在站点配置中补全（账号密码或浏览器 Cookie 均可）")
+}
+
+// wenku8PostForm 以最小浏览器请求头发送表单 POST（避免触发 Cloudflare 挑战页），
+// 返回解码后的响应文本。返回的响应体可能仍是挑战页，但 Set-Cookie 已生效。
+func (s *Wenku8Site) wenku8PostForm(ctx context.Context, rawURL string, form url.Values, referer string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rawURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if referer != "" {
+		req.Header.Set("Referer", referer)
+	}
+	req.Header.Set("Origin", "http://www.wenku8.net")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("http %d for %s", resp.StatusCode, rawURL)
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	reader, err := charsetpkg.NewReader(bytes.NewReader(data), resp.Header.Get("Content-Type"))
+	if err == nil {
+		if decoded, derr := io.ReadAll(reader); derr == nil {
+			return string(decoded), nil
+		}
+	}
+	return string(data), nil
+}
+
+// login 提交账号密码完成登录。协议要点（来自抓包分析）：
+//   - POST /login.php?do=submit&jumpurl=...
+//   - Body：username/password(明文)/usecookie/action=login
+//   - Origin/Referer 用 HTTP（页面本身 HTTP/HTTPS 混用，浏览器发的是 http://www.wenku8.net/）
+//   - 成功判定以 Cookie 出现 jieqiUserInfo 为准（响应可能是挑战页但 Set-Cookie 已生效，失败也返回 200）
+func (s *Wenku8Site) login(ctx context.Context, username, password string) error {
+	loginURL := "https://www.wenku8.net/login.php?do=submit&jumpurl=" + url.QueryEscape("http://www.wenku8.net/index.php")
+	form := url.Values{}
+	form.Set("username", username)
+	form.Set("password", password)
+	form.Set("usecookie", "315360000")
+	form.Set("action", "login")
+	gbkSubmit, _ := simplifiedchinese.GBK.NewEncoder().String("登录")
+	form.Set("submit", gbkSubmit)
+	markup, err := s.wenku8PostForm(ctx, loginURL, form, "http://www.wenku8.net/")
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "http 403") {
+			return fmt.Errorf("wenku8 登录被 Cloudflare 拦截（HTTP 403）：请改用站点配置中的浏览器 Cookie")
+		}
+		return fmt.Errorf("wenku8 登录请求失败：%v", err)
+	}
+	if s.hasAuthCookies() {
+		return nil
+	}
+	if isWenku8ChallengePage(markup) {
+		return fmt.Errorf("wenku8 登录被 Cloudflare 人机验证拦截：请改用站点配置中的浏览器 Cookie")
+	}
+	if strings.Contains(markup, "登录成功") || strings.Contains(markup, "退出登录") || strings.Contains(markup, username) {
+		return nil
+	}
+	return fmt.Errorf("wenku8 登录失败：请检查账号/密码是否正确")
+}
+
+// injectCookieString 把浏览器 Cookie 头注入 jar，供后续请求自动携带。
+func (s *Wenku8Site) injectCookieString(raw string) {
+	base, _ := url.Parse("https://www.wenku8.net")
+	for _, part := range strings.Split(raw, ";") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		kv := strings.SplitN(part, "=", 2)
+		if len(kv) != 2 || strings.TrimSpace(kv[0]) == "" {
+			continue
+		}
+		s.jar.SetCookies(base, []*http.Cookie{{
+			Name:   strings.TrimSpace(kv[0]),
+			Value:  strings.TrimSpace(kv[1]),
+			Domain: "wenku8.net",
+			Path:   "/",
+		}})
+	}
+}
+
+func (s *Wenku8Site) hasAuthCookies() bool {
+	if s.jar == nil {
+		return false
+	}
+	base, _ := url.Parse("https://www.wenku8.net")
+	for _, cookie := range s.jar.Cookies(base) {
+		if cookie.Name == "jieqiUserInfo" && cookie.Value != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Wenku8Site) isSessionFresh(maxAge time.Duration) bool {
+	s.sessionMu.RLock()
+	defer s.sessionMu.RUnlock()
+	if !s.sessionValid || s.lastAuthCheck.IsZero() {
+		return false
+	}
+	return time.Since(s.lastAuthCheck) <= maxAge
+}
+
+func (s *Wenku8Site) markSessionValidAt(valid bool, checkedAt time.Time) {
+	s.sessionMu.Lock()
+	defer s.sessionMu.Unlock()
+	s.sessionValid = valid
+	s.lastAuthCheck = checkedAt
 }
 
 func (s *Wenku8Site) waitRequestInterval(ctx context.Context) error {
@@ -285,7 +556,9 @@ func compactParagraphs(items []string) []string {
 }
 
 func isWenku8ChallengePage(markup string) bool {
-	return strings.Contains(markup, "Just a moment...") || strings.Contains(markup, "cf-browser-verification") || strings.Contains(markup, "challenge-platform")
+	// 注意：wenku8 普通页面也内嵌 Cloudflare RUM（cdn-cgi/challenge-platform、cf-browser-verification），
+	// 这些标记会出现在正常页面里，不能作为挑战判定。真正的挑战页标题是 "Just a moment..."。
+	return strings.Contains(markup, "Just a moment...") || strings.Contains(markup, "challenges.cloudflare.com")
 }
 
 func (s *Wenku8Site) buildSearchIndex(ctx context.Context) ([]model.SearchResult, error) {

@@ -247,7 +247,7 @@ func TestSettingsScriptLimitsSiteConfigChoices(t *testing.T) {
 	}
 	script := string(data)
 	for _, needle := range []string{
-		`const configurableSiteKeys = ["novalpie", "esjzone"];`,
+		`const configurableSiteKeys = ["novalpie", "esjzone", "wenku8"];`,
 		`.filter((item) => configurableSiteKeys.includes(item.key))`,
 	} {
 		if !strings.Contains(script, needle) {

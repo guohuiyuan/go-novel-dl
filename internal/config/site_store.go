@@ -144,6 +144,7 @@ var defaultSiteCatalog = []defaultSiteCatalogRow{
 	{Key: "tianyabooks", DisplayName: "天涯书库", WorkerLimit: 0, FetchImages: true},
 	{Key: "tongrenshe", DisplayName: "同人社", WorkerLimit: 0, FetchImages: true},
 	{Key: "ltxswu", DisplayName: "联天书屋", WorkerLimit: 0, FetchImages: true},
+	{Key: "wenku8", DisplayName: "轻小说文库", WorkerLimit: 0, FetchImages: true},
 }
 
 var supportedSiteKeys = func() map[string]struct{} {

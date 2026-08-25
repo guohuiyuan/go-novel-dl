@@ -1,7 +1,7 @@
 const root = window.__NOVEL_DL__.root;
 const defaultSources = window.__NOVEL_DL__.defaultSources || [];
 const allSources = window.__NOVEL_DL__.allSources || [];
-const configurableSiteKeys = ["novalpie", "esjzone"];
+const configurableSiteKeys = ["novalpie", "esjzone", "wenku8"];
 const defaultPageSize = window.__NOVEL_DL__.pageSize || 50;
 const initialGeneralConfig = window.__NOVEL_DL__.generalConfig || {};
 const initialPageSize = normalizeSearchPageSize((initialGeneralConfig && initialGeneralConfig.web_page_size) || defaultPageSize, defaultPageSize);
@@ -3127,6 +3127,11 @@ function renderSiteConfigHelp(siteKey) {
   if (siteKey === "esjzone") {
     siteConfigHintNode.textContent = "ESJ Zone 只有账号章节或镜像访问不稳定时才需要配置。";
     siteCookieHelpNode.textContent = "可填写 Cookie，也可填写用户名和密码；成功登录后会复用 Cookie。";
+    return;
+  }
+  if (siteKey === "wenku8") {
+    siteConfigHintNode.textContent = "轻小说文库（wenku8）搜索与下载需登录（站点有 Cloudflare 保护）。";
+    siteCookieHelpNode.textContent = "可填写账号密码自动登录；也可从浏览器复制 Cookie（含 cf_clearance、PHPSESSID、jieqiUserInfo）直接使用。";
     return;
   }
   siteConfigHintNode.textContent = "";
