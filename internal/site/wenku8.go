@@ -254,7 +254,51 @@ func (s *Wenku8Site) Search(ctx context.Context, keyword string, limit int) ([]m
 	if isWenku8ChallengePage(markup) {
 		return nil, fmt.Errorf("wenku8 搜索被 Cloudflare 人机验证拦截：请更新站点配置中的 Cookie 或重新登录")
 	}
+	// wenku8 对唯一匹配会直接跳到书详情页（而非结果列表），此时按单书返回，
+	// 用详情页的完整简介/封面/作者
+	if !isWenku8SearchResultsPage(markup) {
+		if item, ok := parseWenku8SingleBookPage(markup); ok {
+			return []model.SearchResult{item}, nil
+		}
+	}
 	return parseWenku8SearchResults(markup, limit)
+}
+
+// isWenku8SearchResultsPage 通过结果标题 caption 判断是否为多结果页。
+func isWenku8SearchResultsPage(markup string) bool {
+	doc, err := parseHTML(markup)
+	if err != nil {
+		return false
+	}
+	return findFirst(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "caption" &&
+			strings.Contains(cleanText(nodeText(n)), "搜索结果")
+	}) != nil
+}
+
+// parseWenku8SingleBookPage 解析唯一匹配时跳转到的书详情页。
+func parseWenku8SingleBookPage(markup string) (model.SearchResult, bool) {
+	if isWenku8ChallengePage(markup) {
+		return model.SearchResult{}, false
+	}
+	bookID := wenku8DetailPageBookID(markup)
+	if bookID == "" {
+		return model.SearchResult{}, false
+	}
+	item, err := parseWenku8BookInfo(markup, bookID)
+	if err != nil {
+		return model.SearchResult{}, false
+	}
+	return item, true
+}
+
+var wenku8BookcaseRe = regexp.MustCompile(`addbookcase\.php\?bid=(\d+)`)
+
+func wenku8DetailPageBookID(markup string) string {
+	if m := wenku8BookcaseRe.FindStringSubmatch(markup); len(m) == 2 {
+		return m[1]
+	}
+	return ""
 }
 
 // parseWenku8SearchResults 解析 wenku8 搜索结果页：

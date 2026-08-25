@@ -168,3 +168,51 @@ func TestWenku8SearchFormGBKEncoding(t *testing.T) {
 		t.Fatalf("unexpected form body: %s", body)
 	}
 }
+
+func TestWenku8SearchSingleBookRedirect(t *testing.T) {
+	// 唯一匹配时 so.php 直接返回书详情页（含完整简介），应解析为单本书
+	detail := `<html><body>
+<table><tr><td width="90%"><span><b>弱角友崎同学(弱势角色友崎君)</b></span></td></tr>
+<tr><td width="19%">文库分类：小学馆</td><td width="24%">小说作者：屋久悠树</td><td width="19%">文章状态：连载中</td><td width="19%">最后更新：2024-01-01</td></tr></table>
+<table><tr><td width="20%"><img src="http://img.wenku8.com/image/2/2254/2254s.jpg"></td>
+<td width="48%"><span class="hottext">作品Tags：校园 游戏 恋爱</span><br/>
+<span class="hottext">内容简介：</span><br/><span style="font-size:14px;">人生是款粪作Game。这句随处可见的话语，很遗憾正是现实。</span><br/></td></tr></table>
+<a href="/modules/article/addbookcase.php?bid=2254">加入书架</a>
+</body></html>`
+
+	// 这是详情页而非结果列表页
+	if isWenku8SearchResultsPage(detail) {
+		t.Fatalf("expected detail page not to be search results page")
+	}
+	if got := wenku8DetailPageBookID(detail); got != "2254" {
+		t.Fatalf("expected book id 2254, got %q", got)
+	}
+	item, ok := parseWenku8SingleBookPage(detail)
+	if !ok {
+		t.Fatalf("expected single book parse to succeed")
+	}
+	if item.BookID != "2254" || item.Title != "弱角友崎同学(弱势角色友崎君)" || item.Author != "屋久悠树" {
+		t.Fatalf("unexpected single book result: %+v", item)
+	}
+	if !strings.Contains(item.Description, "人生是款粪作Game") {
+		t.Fatalf("expected full description, got: %q", item.Description)
+	}
+	if item.CoverURL != "http://img.wenku8.com/image/2/2254/2254s.jpg" {
+		t.Fatalf("unexpected cover: %q", item.CoverURL)
+	}
+}
+
+func TestWenku8IsSearchResultsPage(t *testing.T) {
+	multi := `<html><body><table class="grid"><caption>"零之使魔"搜索结果</caption><tr><td></td></tr></table></body></html>`
+	if !isWenku8SearchResultsPage(multi) {
+		t.Fatalf("expected multi-result page to be detected")
+	}
+	detail := `<html><body><table><tr><td width="90%"><b>某书</b></td></tr></table><a href="/modules/article/addbookcase.php?bid=1">加入书架</a></body></html>`
+	if isWenku8SearchResultsPage(detail) {
+		t.Fatalf("expected detail page not to be detected as results page")
+	}
+	noMatch := `<html><body><p>没有找到相关小说</p></body></html>`
+	if isWenku8SearchResultsPage(noMatch) {
+		t.Fatalf("expected no-match page not to be detected as results page")
+	}
+}
