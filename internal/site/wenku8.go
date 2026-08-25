@@ -291,13 +291,15 @@ func parseWenku8SearchResults(markup string, limit int) ([]model.SearchResult, e
 			continue
 		}
 		seen[bookID] = struct{}{}
-		row := wenku8SearchResultRow(a)
+		info := wenku8SearchResultInfo(a)
 		results = append(results, model.SearchResult{
-			Site:   "wenku8",
-			BookID: bookID,
-			Title:  title,
-			Author: wenku8SearchResultAuthor(row),
-			URL:    fmt.Sprintf("https://www.wenku8.net/book/%s.htm", bookID),
+			Site:        "wenku8",
+			BookID:      bookID,
+			Title:       title,
+			Author:      wenku8SearchResultAuthor(info),
+			Description: wenku8SearchResultDescription(info),
+			URL:         fmt.Sprintf("https://www.wenku8.net/book/%s.htm", bookID),
+			CoverURL:    wenku8SearchResultCoverURL(info),
 		})
 		if limit > 0 && len(results) >= limit {
 			break
@@ -306,27 +308,64 @@ func parseWenku8SearchResults(markup string, limit int) ([]model.SearchResult, e
 	return results, nil
 }
 
-// wenku8SearchResultRow 向上找到包裹书籍链接的 <tr>，用于提取作者等字段。
-func wenku8SearchResultRow(node *html.Node) *html.Node {
-	for current := node.Parent; current != nil; current = current.Parent {
-		if current.Type == html.ElementNode && current.Data == "tr" {
+// wenku8SearchResultInfo 从书名链接向上找到包含书名、作者、简介的信息块 div。
+// 结构：<a>书名</a> 包在 <b> 里，<b> 的父级是信息块 <div>。
+func wenku8SearchResultInfo(titleAnchor *html.Node) *html.Node {
+	for current := titleAnchor.Parent; current != nil; current = current.Parent {
+		if current.Type == html.ElementNode && current.Data == "div" {
 			return current
 		}
 	}
 	return nil
 }
 
-var wenku8AuthorLabelRe = regexp.MustCompile(`作者\s*[:：]\s*([^<|，,。\s/:：]+)`)
-
-func wenku8SearchResultAuthor(row *html.Node) string {
-	if row == nil {
-		return ""
-	}
-	text := cleanText(nodeTextPreserveLineBreaks(row))
-	if m := wenku8AuthorLabelRe.FindStringSubmatch(text); len(m) == 2 {
-		return strings.TrimSpace(m[1])
+// wenku8SearchResultAuthor 从信息块里取"作者:"字段（页面用 ASCII 冒号，作者后以 "/" 分隔分类）。
+func wenku8SearchResultAuthor(info *html.Node) string {
+	for _, p := range findAll(info, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "p"
+	}) {
+		text := cleanText(nodeText(p))
+		if strings.HasPrefix(text, "作者") {
+			rest := strings.TrimLeft(text, "作者:： ")
+			if idx := strings.IndexAny(rest, "/：:"); idx >= 0 {
+				rest = rest[:idx]
+			}
+			if trimmed := strings.TrimSpace(rest); trimmed != "" {
+				return trimmed
+			}
+		}
 	}
 	return ""
+}
+
+// wenku8SearchResultDescription 取"简介:"文本。
+func wenku8SearchResultDescription(info *html.Node) string {
+	for _, p := range findAll(info, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "p"
+	}) {
+		text := cleanText(nodeText(p))
+		if strings.HasPrefix(text, "简介") {
+			rest := strings.TrimLeft(text, "简介:： ")
+			if trimmed := strings.TrimSpace(rest); trimmed != "" {
+				return trimmed
+			}
+		}
+	}
+	return ""
+}
+
+// wenku8SearchResultCoverURL 从条目包装块（信息块的父级）里找封面图。
+func wenku8SearchResultCoverURL(info *html.Node) string {
+	wrapper := info
+	if info != nil && info.Parent != nil {
+		wrapper = info.Parent
+	}
+	if wrapper == nil {
+		return ""
+	}
+	return absolutizeURL("https://www.wenku8.net", attrValue(findFirst(wrapper, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "img"
+	}), "src"))
 }
 
 func (s *Wenku8Site) getWithRetry(ctx context.Context, rawURL, referer string) (string, error) {

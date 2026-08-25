@@ -16,8 +16,18 @@ func TestParseWenku8SearchResults(t *testing.T) {
 <div id="content">
 <table class="grid" width="100%" align="center">
 <caption>"魔法"搜索结果</caption>
-<tr><td><a href="/book/2835.htm">零之使魔</a>&nbsp;&nbsp;作者：山口升</td></tr>
-<tr><td><a href="/book/2489.htm">魔法禁书目录</a>&nbsp;&nbsp;作者：镰池和马</td></tr>
+<tr><td>
+<div style="width:373px;height:136px;float:left;">
+<div style="width:95px;float:left;"><a href="/book/2835.htm" title="零之使魔"><img src="http://img.wenku8.com/image/0/2835/2835s.jpg"/></a></div>
+<div style="margin-top:2px;"><b><a href="/book/2835.htm" title="零之使魔" target="_blank">零之使魔</a></b>
+<p>作者:山口升/分类:MF文库J</p><p>简介:一张开眼，我居然变成宠物！？</p></div>
+</div>
+<div style="width:373px;height:136px;float:left;">
+<div style="width:95px;float:left;"><a href="/book/2489.htm" title="魔法禁书目录"><img src="http://img.wenku8.com/image/0/2489/2489s.jpg"/></a></div>
+<div style="margin-top:2px;"><b><a href="/book/2489.htm" title="魔法禁书目录" target="_blank">魔法禁书目录</a></b>
+<p>作者:镰池和马/分类:电击文库</p><p>简介:科学与魔法交织的故事。</p></div>
+</div>
+</td></tr>
 </table>
 </div>
 </body></html>`
@@ -35,8 +45,18 @@ func TestParseWenku8SearchResults(t *testing.T) {
 	if results[0].Site != "wenku8" || results[0].URL != "https://www.wenku8.net/book/2835.htm" {
 		t.Fatalf("unexpected first result meta: %+v", results[0])
 	}
-	if results[1].BookID != "2489" || results[1].Author != "镰池和马" {
-		t.Fatalf("unexpected second result: %+v", results[1])
+	if !strings.Contains(results[0].Description, "变成宠物") {
+		t.Fatalf("unexpected first result description: %+v", results[0])
+	}
+	if results[0].CoverURL != "http://img.wenku8.com/image/0/2835/2835s.jpg" {
+		t.Fatalf("unexpected first result cover: %+v", results[0])
+	}
+	// 每个结果应有各自的作者，不应全是第一个
+	if results[1].Author != "镰池和马" {
+		t.Fatalf("expected second result author 镰池和马, got %+v", results[1])
+	}
+	if results[1].CoverURL != "http://img.wenku8.com/image/0/2489/2489s.jpg" {
+		t.Fatalf("unexpected second result cover: %+v", results[1])
 	}
 }
 
@@ -106,15 +126,25 @@ func TestWenku8SearchRequiresCookie(t *testing.T) {
 }
 
 func TestWenku8SearchResultAuthorRegex(t *testing.T) {
-	doc, err := parseHTML(`<html><body><table><tr><td><a href="/book/1.htm">标题</a>&nbsp;&nbsp;作者：某作者<br/>简介……</td></tr></table></body></html>`)
+	doc, err := parseHTML(`<html><body><div style="width:373px;">
+<div style="width:95px;"><a href="/book/1.htm"><img src="http://img.wenku8.com/image/0/1/1s.jpg"/></a></div>
+<div style="margin-top:2px;"><b><a href="/book/1.htm" title="标题">标题</a></b>
+<p>作者:某作者/分类:轻小说</p><p>简介:一本好书</p></div>
+</div></body></html>`)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	row := findFirst(doc, func(n *html.Node) bool {
-		return n.Type == html.ElementNode && n.Data == "tr"
+	info := findFirst(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "div" && strings.Contains(attrValue(n, "style"), "margin-top")
 	})
-	if got := wenku8SearchResultAuthor(row); got != "某作者" {
+	if got := wenku8SearchResultAuthor(info); got != "某作者" {
 		t.Fatalf("expected author 某作者, got %q", got)
+	}
+	if got := wenku8SearchResultDescription(info); got != "一本好书" {
+		t.Fatalf("expected description 一本好书, got %q", got)
+	}
+	if got := wenku8SearchResultCoverURL(info); got != "http://img.wenku8.com/image/0/1/1s.jpg" {
+		t.Fatalf("expected cover URL, got %q", got)
 	}
 }
 
