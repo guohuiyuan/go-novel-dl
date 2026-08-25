@@ -143,6 +143,7 @@ var defaultSiteCatalog = []defaultSiteCatalogRow{
 	{Key: "syosetu_org", DisplayName: "ハーメルン", WorkerLimit: 0, FetchImages: true},
 	{Key: "tianyabooks", DisplayName: "天涯书库", WorkerLimit: 0, FetchImages: true},
 	{Key: "tongrenshe", DisplayName: "同人社", WorkerLimit: 0, FetchImages: true},
+	{Key: "ltxswu", DisplayName: "联天书屋", WorkerLimit: 0, FetchImages: true},
 }
 
 var supportedSiteKeys = func() map[string]struct{} {

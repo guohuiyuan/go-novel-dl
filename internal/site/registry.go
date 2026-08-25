@@ -200,6 +200,16 @@ func NewDefaultRegistry() *Registry {
 	registry.RegisterWithHosts("shuhaige", []string{"shuhaige.net"}, func(cfg config.ResolvedSiteConfig) Site {
 		return NewShuhaigeSite(cfg)
 	})
+	// 17mb 手机模板站点：必须使用手机 UA 访问
+	registry.RegisterWithHosts("ltxswu", []string{"m.ltxswu.net", "m.ltxswu.me"}, func(cfg config.ResolvedSiteConfig) Site {
+		return NewLtxswuSite(cfg)
+	})
+	// banzhu66666（版主小说）适配器代码保留但入口隐藏：
+	// 站点被 Cloudflare 人机验证全量拦截，普通 HTTP 客户端与无头浏览器均无法直连，
+	// 需浏览器获取 cf_clearance Cookie 后才能访问。需要时可恢复注册：
+	// registry.RegisterWithHosts("banzhu66666", []string{"banzhu66666.com", "www.banzhu66666.com"}, func(cfg config.ResolvedSiteConfig) Site {
+	// 	return NewBanzhu66666Site(cfg)
+	// })
 	return registry
 }
 

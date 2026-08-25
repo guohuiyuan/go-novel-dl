@@ -398,6 +398,7 @@ kadokado
 linovel
 linovelib
 lnovel
+ltxswu
 mjyhb
 n17k
 n69shuba
@@ -446,6 +447,7 @@ kadokado
 haiwaishubao
 mjyhb
 novelpia
+ltxswu
 ```
 
 代码中保留但当前未注册启用的站点包括：
@@ -484,6 +486,7 @@ ixdzs8
 kadokado
 linovel
 linovelib
+ltxswu
 n17k
 n8novel
 novalpie
@@ -537,6 +540,7 @@ ixdzs8
 linovelib
 linovel
 lnovel
+ltxswu
 shencou
 ruochu
 fanqienovel

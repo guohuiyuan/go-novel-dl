@@ -163,6 +163,9 @@ func DefaultConfig() Config {
 			"shuhaige": {
 				BookIDs: []model.BookRef{{BookID: "126726"}},
 			},
+			"ltxswu": {
+				BookIDs: []model.BookRef{{BookID: "1"}},
+			},
 			"tianyabooks": {
 				BookIDs: []model.BookRef{{BookID: "cn/chandelizhi"}},
 			},

@@ -92,6 +92,10 @@ var siteMetadata = map[string]SiteMetadata{
 		Title: "轻小说百科",
 		Tags:  []string{"简体中文", "繁体中文", "轻小说", "转载站"},
 	},
+	"ltxswu": {
+		Title: "联天书屋",
+		Tags:  []string{"简体中文", "转载站", "成人向", "NSFW"},
+	},
 	"haiwaishubao": {
 		Title: "海外书包",
 		Tags:  []string{"简体中文", "转载站", "成人向", "NSFW"},

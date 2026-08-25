@@ -29,6 +29,7 @@ var defaultAvailableSiteKeys = []string{
 	"ixdzs8",
 	"alicesw",
 	"fsshu",
+	"ltxswu",
 }
 
 func DefaultAvailableSiteKeys() []string {
