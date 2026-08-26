@@ -27,6 +27,7 @@ var defaultAvailableSiteKeys = []string{
 	"shuhaige",
 	"tianyabooks",
 	"ixdzs8",
+	"yibige",
 	"alicesw",
 	"fsshu",
 	"ltxswu",

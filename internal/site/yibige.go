@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/http/cookiejar"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -15,8 +17,10 @@ import (
 )
 
 var (
-	yibigeBookRe    = regexp.MustCompile(`^/(\d+)/$`)
-	yibigeChapterRe = regexp.MustCompile(`^/(\d+)/(\d+)\.html$`)
+	yibigeBookRe           = regexp.MustCompile(`^/(\d+)/$`)
+	yibigeChapterRe        = regexp.MustCompile(`^/(\d+)/(\d+)\.html$`)
+	yibigeSovoteRe         = regexp.MustCompile(`javascript:sovote\((\d+),'([^']+)'\)`)
+	yibigeEncryptedValueRe = regexp.MustCompile(`encryptedCookieValue\s*=\s*"([^"]+)"`)
 )
 
 type YibigeSite struct {
@@ -32,14 +36,15 @@ func NewYibigeSite(cfg config.ResolvedSiteConfig) *YibigeSite {
 		timeout = time.Duration(cfg.General.Timeout * float64(time.Second))
 	}
 	baseURL := "https://www.yibige.org"
-	client := &http.Client{Timeout: timeout}
+	jar, _ := cookiejar.New(nil)
+	client := newSiteHTTPClient(timeout, siteHTTPClientOptions{Jar: jar})
 	return &YibigeSite{cfg: cfg, html: NewHTMLSite(client), client: client, baseURL: baseURL}
 }
 
 func (s *YibigeSite) Key() string         { return "yibige" }
 func (s *YibigeSite) DisplayName() string { return "Yibige" }
 func (s *YibigeSite) Capabilities() Capabilities {
-	return Capabilities{Download: true, Search: false, Login: false}
+	return Capabilities{Download: true, Search: true, Login: false}
 }
 
 func (s *YibigeSite) ResolveURL(rawURL string) (*ResolvedURL, bool) {
@@ -149,9 +154,8 @@ func (s *YibigeSite) FetchChapter(ctx context.Context, bookID string, chapter mo
 }
 
 func (s *YibigeSite) getWithMirrors(ctx context.Context, path string) (string, error) {
-	hosts := []string{"https://www.yibige.org", "https://tw.yibige.org", "https://sg.yibige.org", "https://hk.yibige.org"}
 	var lastErr error
-	for _, host := range hosts {
+	for _, host := range yibigeMirrorHosts() {
 		markup, err := s.html.Get(ctx, host+path)
 		if err != nil {
 			lastErr = err
@@ -171,10 +175,185 @@ func (s *YibigeSite) getWithMirrors(ctx context.Context, path string) (string, e
 }
 
 func (s *YibigeSite) Search(ctx context.Context, keyword string, limit int) ([]model.SearchResult, error) {
-	_ = ctx
-	_ = keyword
-	_ = limit
-	return nil, fmt.Errorf("yibige search is not implemented yet")
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" {
+		return nil, nil
+	}
+
+	markup, err := s.searchMarkup(ctx, keyword)
+	if err != nil {
+		return nil, err
+	}
+	results, err := parseYibigeSearchResults(markup)
+	if err != nil {
+		return nil, err
+	}
+	if limit > 0 && len(results) > limit {
+		results = results[:limit]
+	}
+	enrichSearchResultsParallel(ctx, results, 6, s.populateSearchDetail)
+	return results, nil
+}
+
+func (s *YibigeSite) searchMarkup(ctx context.Context, keyword string) (string, error) {
+	var lastErr error
+	for _, host := range yibigeMirrorHosts() {
+		markup, ok, err := s.requestYibigeSearch(ctx, host, keyword)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if !ok {
+			lastErr = fmt.Errorf("yibige search challenge not bypassed on %s", host)
+			continue
+		}
+		return markup, nil
+	}
+	if lastErr != nil {
+		return "", lastErr
+	}
+	return "", fmt.Errorf("yibige search request failed")
+}
+
+func (s *YibigeSite) requestYibigeSearch(ctx context.Context, host, keyword string) (string, bool, error) {
+	searchURL := host + "/modules/article/search.php?searchkey=" + url.QueryEscape(keyword) + "&searchtype=articlename"
+	markup, err := s.html.Get(ctx, searchURL)
+	if err != nil {
+		return "", false, err
+	}
+	if !isYibigeChallengeMarkup(markup) {
+		return markup, true, nil
+	}
+
+	match := yibigeEncryptedValueRe.FindStringSubmatch(markup)
+	if len(match) != 2 {
+		return "", false, fmt.Errorf("yibige search challenge token not found")
+	}
+	cookieValue := url.QueryEscape(unquoteJSString(match[1]))
+	parsed, err := url.Parse(searchURL)
+	if err != nil {
+		return "", false, err
+	}
+	s.client.Jar.SetCookies(parsed, []*http.Cookie{{
+		Name:     "is_human",
+		Value:    cookieValue,
+		Path:     "/",
+		Domain:   parsed.Hostname(),
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+	}})
+
+	retry, err := s.html.Get(ctx, searchURL)
+	if err != nil {
+		return "", false, err
+	}
+	if isYibigeChallengeMarkup(retry) {
+		return "", false, fmt.Errorf("yibige search challenge not bypassed")
+	}
+	return retry, true, nil
+}
+
+func (s *YibigeSite) populateSearchDetail(ctx context.Context, item *model.SearchResult) error {
+	if item == nil || item.BookID == "" {
+		return nil
+	}
+	book, err := s.DownloadPlan(ctx, model.BookRef{BookID: item.BookID})
+	if err != nil {
+		return err
+	}
+	fillSearchResultFromBook(item, book)
+	return nil
+}
+
+func parseYibigeSearchResults(markup string) ([]model.SearchResult, error) {
+	doc, err := parseHTML(markup)
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]model.SearchResult, 0)
+	seen := map[string]struct{}{}
+	for _, row := range findAll(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "tr" && attrValue(n, "id") == "nr"
+	}) {
+		titleLink := findFirst(row, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "a"
+		})
+		if titleLink == nil {
+			continue
+		}
+		sovote := yibigeSovoteRe.FindStringSubmatch(attrValue(titleLink, "href"))
+		if len(sovote) != 3 {
+			continue
+		}
+		bookID := sovote[1]
+		title := cleanText(nodeText(titleLink))
+		if title == "" {
+			continue
+		}
+		if _, exists := seen[bookID]; exists {
+			continue
+		}
+		seen[bookID] = struct{}{}
+
+		cells := findAll(row, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "td"
+		})
+		author := ""
+		if len(cells) >= 2 {
+			author = cleanText(nodeText(cells[1]))
+		}
+		results = append(results, model.SearchResult{
+			Site:   "yibige",
+			BookID: bookID,
+			Title:  title,
+			Author: author,
+			URL:    fmt.Sprintf("https://www.yibige.org/%s/", bookID),
+		})
+	}
+	return results, nil
+}
+
+func isYibigeChallengeMarkup(markup string) bool {
+	return yibigeEncryptedValueRe.MatchString(markup) ||
+		strings.Contains(markup, "encryptedCookieValue") ||
+		strings.Contains(markup, `id="verifyBtn"`) ||
+		strings.Contains(markup, "访问验证")
+}
+
+func unquoteJSString(value string) string {
+	if value == "" {
+		return ""
+	}
+	var b strings.Builder
+	for i := 0; i < len(value); i++ {
+		if value[i] == '\\' && i+1 < len(value) {
+			i++
+			switch value[i] {
+			case '\\':
+				b.WriteByte('\\')
+			case '"':
+				b.WriteByte('"')
+			case '/':
+				b.WriteByte('/')
+			case 'n':
+				b.WriteByte('\n')
+			case 'r':
+				b.WriteByte('\r')
+			case 't':
+				b.WriteByte('\t')
+			default:
+				b.WriteByte(value[i])
+			}
+			continue
+		}
+		b.WriteByte(value[i])
+	}
+	return b.String()
+}
+
+func yibigeMirrorHosts() []string {
+	return []string{"https://www.yibige.org", "https://tw.yibige.org", "https://sg.yibige.org", "https://hk.yibige.org"}
 }
 
 func isYibigeAd(s string) bool {
