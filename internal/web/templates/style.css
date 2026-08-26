@@ -731,7 +731,7 @@ body.web-images-blurred .result-card:hover .result-cover { transform: scale(1.07
 .detail-description { white-space: pre-line; font-size: 14px; line-height: 1.6; color: #475569; }
 
 .chapter-list { display: grid; gap: 10px; }
-.chapter-list.cols-auto { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+.chapter-list.cols-auto { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
 .chapter-list.cols-1 { grid-template-columns: repeat(1, 1fr); }
 .chapter-list.cols-2 { grid-template-columns: repeat(2, 1fr); }
 .chapter-list.cols-3 { grid-template-columns: repeat(3, 1fr); }
@@ -998,10 +998,6 @@ body.web-images-blurred .result-card:hover .result-cover { transform: scale(1.07
 }
 .reader-progress { font-size: 13px; color: var(--muted); }
 .reader-end-hint { text-align: center; padding: 32px; color: var(--muted); font-size: 14px; }
-
-@media (min-width: 1200px) {
-  .chapter-list.cols-auto { grid-template-columns: repeat(auto-fill, minmax(145px, 1fr)); }
-}
 
 @media (max-width: 720px) {
   .reader-topbar {
