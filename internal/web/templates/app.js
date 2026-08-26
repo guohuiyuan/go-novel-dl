@@ -1851,7 +1851,6 @@ function isActiveDetailRequest(result, variant, chapterPage, chapterPageSize) {
 
 // ===== Chapter Reader =====
 const readerOverlay = document.getElementById("readerOverlay");
-const readerCloseButton = document.getElementById("readerCloseButton");
 const readerDetailButton = document.getElementById("readerDetailButton");
 const readerCatalogButton = document.getElementById("readerCatalogButton");
 const readerCatalogCloseButton = document.getElementById("readerCatalogCloseButton");
@@ -2260,7 +2259,6 @@ function chapterReaderPendingKey(ch, index) {
   return `${site}::${bookID}::${ch.id || ch.url || `${index}:${ch.title || ""}`}`;
 }
 
-readerCloseButton.addEventListener("click", closeReader);
 if (readerDetailButton) readerDetailButton.addEventListener("click", openReaderDetail);
 if (readerCatalogButton) readerCatalogButton.addEventListener("click", toggleReaderCatalog);
 if (readerCatalogCloseButton) readerCatalogCloseButton.addEventListener("click", hideReaderCatalog);
@@ -2413,7 +2411,7 @@ const readerThemes = [
   { key: "mint", label: "浅青", bg: "#eefaf5", text: "#243b3f" },
   { key: "blue", label: "浅蓝", bg: "#eef6ff", text: "#27364a" },
   { key: "rose", label: "浅粉", bg: "#fff1f2", text: "#4a2d35" },
-  { key: "night", label: "夜间", bg: "#111827", text: "#d1d5db", night: true },
+  { key: "night", label: "夜间", bg: "#000000", text: "#d9e2ec", night: true },
 ];
 
 function initReaderSettings() {

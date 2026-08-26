@@ -690,7 +690,7 @@ body.web-images-blurred .result-card:hover .result-cover { transform: scale(1.07
 }
 
 .detail-topbar {
-  display: flex; justify-content: flex-end; width: min(1320px, 100%);
+  display: flex; justify-content: flex-start; width: min(1320px, 100%);
   margin: 0 auto 16px; position: sticky; top: 0; z-index: 10;
   background: transparent; padding: 8px 0; border-bottom: 0;
 }
@@ -816,7 +816,7 @@ body.web-images-blurred .result-card:hover .result-cover { transform: scale(1.07
     left: 0;
     right: 0;
     display: flex;
-    justify-content: flex-end;
+    justify-content: flex-start;
     width: calc(100% + 24px);
     margin: -12px -12px 16px -12px;
     padding: 12px 16px;
@@ -905,13 +905,12 @@ body.web-images-blurred .result-card:hover .result-cover { transform: scale(1.07
 .reader-overlay[hidden] { display: none; }
 .reader-overlay { position: fixed; inset: 0; z-index: 120; background: var(--reader-bg, #f9f5ef); display: flex; flex-direction: column; color: var(--reader-text, #334155); }
 .reader-topbar {
-  display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto auto; align-items: center; gap: 12px; padding: 12px 16px;
+  display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 12px 16px;
   position: sticky; top: 0; z-index: 100;
   border-bottom: 1px solid var(--line); background: var(--reader-bg, #f9f5ef); flex-shrink: 0;
   color: var(--reader-text);
 }
 .reader-topbar .detail-close { min-width: 64px; }
-.reader-topbar #readerCloseButton { justify-self: end; }
 .reader-title { min-width: 0; font-size: 15px; font-weight: 600; color: currentColor; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .reader-bg-picker { display: flex; gap: 8px; align-items: center; justify-content: flex-end; flex-wrap: nowrap; }
 .reader-bg-dot {
@@ -926,14 +925,14 @@ body.web-images-blurred .result-card:hover .result-cover { transform: scale(1.07
 }
 .reader-night-toggle {
   min-height: 32px; padding: 0 12px; border-radius: 999px;
-  cursor: pointer; color: #f8fafc; background: #111827; font-size: 13px; font-weight: 700;
+  cursor: pointer; color: #f8fafc; background: #000000; font-size: 13px; font-weight: 700;
 }
-.reader-overlay.is-night .reader-topbar { background: rgba(17, 24, 39, 0.92); border-color: rgba(148, 163, 184, 0.28); }
+.reader-overlay.is-night .reader-topbar { background: rgba(0, 0, 0, 0.92); border-color: rgba(148, 163, 184, 0.28); }
 .reader-overlay.is-night .detail-close { color: #dbeafe; background: rgba(59, 130, 246, 0.18); border-color: rgba(147, 197, 253, 0.45); }
-.reader-overlay.is-night .reader-setting-select { background: rgba(15, 23, 42, 0.9); border-color: rgba(148, 163, 184, 0.36); }
-.reader-overlay.is-night .reader-night-toggle { color: #111827; background: #fde68a; }
-.reader-overlay.is-night .reader-catalog-card { background: rgba(17, 24, 39, 0.96); border-color: rgba(148, 163, 184, 0.32); }
-.reader-overlay.is-night .reader-catalog-item { color: #e5e7eb; background: rgba(15, 23, 42, 0.82); border-color: rgba(148, 163, 184, 0.24); }
+.reader-overlay.is-night .reader-setting-select { background: rgba(0, 0, 0, 0.9); border-color: rgba(148, 163, 184, 0.36); }
+.reader-overlay.is-night .reader-night-toggle { color: #000000; background: #fde68a; }
+.reader-overlay.is-night .reader-catalog-card { background: rgba(0, 0, 0, 0.96); border-color: rgba(148, 163, 184, 0.32); }
+.reader-overlay.is-night .reader-catalog-item { color: #e5e7eb; background: rgba(0, 0, 0, 0.82); border-color: rgba(148, 163, 184, 0.24); }
 .reader-nav-btn {
   min-height: 36px; padding: 0 16px; border-radius: 10px; cursor: pointer;
   color: var(--accent-deep); background: var(--accent-soft); border: 1px solid var(--accent);
@@ -1015,7 +1014,6 @@ body.web-images-blurred .result-card:hover .result-cover { transform: scale(1.07
   .reader-bg-picker { grid-column: 1 / -1; justify-content: flex-start; flex-wrap: wrap; display: none; }
   .reader-overlay.reader-controls-visible .reader-bg-picker { display: flex; }
   .reader-back-button { grid-column: 1; grid-row: 1; justify-self: start; }
-  .reader-topbar #readerCloseButton { grid-column: 4; grid-row: 1; justify-self: end; }
   .reader-nav-btn { min-height: 36px; padding: 0 12px; font-size: 13px; }
   .reader-catalog-panel { inset: 104px 12px auto 12px; width: auto; max-height: calc(100vh - 124px); }
   .reader-body { padding: 20px 16px; }

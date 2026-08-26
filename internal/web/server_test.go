@@ -338,10 +338,13 @@ func TestReaderMobileControlsRequireCenterTap(t *testing.T) {
 			t.Fatalf("expected reader styles to contain %s", needle)
 		}
 	}
-	for _, needle := range []string{`.reader-back-button`, `justify-self: start`, `.reader-topbar #readerCloseButton`, `justify-self: end`} {
+	for _, needle := range []string{`.reader-back-button`, `justify-self: start`} {
 		if !strings.Contains(style, needle) {
 			t.Fatalf("expected reader back/close styles to contain %s", needle)
 		}
+	}
+	if strings.Contains(style, `.reader-topbar #readerCloseButton`) {
+		t.Fatalf("did not expect top-right reader close button style")
 	}
 }
 
