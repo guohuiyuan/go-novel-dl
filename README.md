@@ -476,6 +476,7 @@ aaatxt
 alicesw
 biquge345
 biquge5
+buguxs
 ciyuanji
 ciweimao
 esjzone
@@ -532,6 +533,7 @@ ESJ Zone 搜索和详情无需预先登录；只有遇到需要认证的章节�
 aaatxt
 alicesw
 alphapolis
+buguxs
 esjzone
 faloo
 fsshu

@@ -84,6 +84,10 @@ var siteMetadata = map[string]SiteMetadata{
 		Title: "哔哩轻小说",
 		Tags:  []string{"简体中文", "轻小说", "转载站"},
 	},
+	"buguxs": {
+		Title: "布谷小说网",
+		Tags:  []string{"简体中文", "转载站"},
+	},
 	"linovel": {
 		Title: "轻之文库",
 		Tags:  []string{"简体中文", "轻小说", "原创"},

@@ -115,6 +115,9 @@ func NewDefaultRegistry() *Registry {
 	registry.RegisterWithHosts("linovelib", []string{"linovelib.com"}, func(cfg config.ResolvedSiteConfig) Site {
 		return NewLinovelibSite(cfg)
 	})
+	registry.RegisterWithHosts("buguxs", []string{"buguxs.com"}, func(cfg config.ResolvedSiteConfig) Site {
+		return NewBuguxsSite(cfg)
+	})
 	registry.RegisterWithHosts("linovel", []string{"linovel.net"}, func(cfg config.ResolvedSiteConfig) Site {
 		return NewLinovelSite(cfg)
 	})

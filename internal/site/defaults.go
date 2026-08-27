@@ -23,6 +23,7 @@ var defaultAvailableSiteKeys = []string{
 	"qidian",
 	"faloo",
 	"linovelib",
+	"buguxs",
 	"novalpie",
 	"shuhaige",
 	"tianyabooks",

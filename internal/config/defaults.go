@@ -94,6 +94,9 @@ func DefaultConfig() Config {
 			"linovelib": {
 				BookIDs: []model.BookRef{{BookID: "8"}},
 			},
+			"buguxs": {
+				BookIDs: []model.BookRef{{BookID: "67/195626"}},
+			},
 			"linovel": {
 				BookIDs: []model.BookRef{{BookID: "101752"}},
 			},

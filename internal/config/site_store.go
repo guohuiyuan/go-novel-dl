@@ -121,6 +121,7 @@ var defaultSiteCatalog = []defaultSiteCatalogRow{
 	{Key: "biquge5", DisplayName: "笔趣阁", WorkerLimit: 0, FetchImages: true},
 	{Key: "ixdzs8", DisplayName: "爱下电子书", WorkerLimit: 0, FetchImages: true},
 	{Key: "linovelib", DisplayName: "哔哩轻小说", WorkerLimit: 0, FetchImages: true},
+	{Key: "buguxs", DisplayName: "布谷小说网", WorkerLimit: 0, FetchImages: true},
 	{Key: "linovel", DisplayName: "轻之文库", WorkerLimit: 0, FetchImages: true},
 	{Key: "lnovel", DisplayName: "轻小说百科", WorkerLimit: 0, FetchImages: true, LocaleStyle: "simplified"},
 	{Key: "shencou", DisplayName: "神凑轻小说", WorkerLimit: 0, FetchImages: true},
