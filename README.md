@@ -111,20 +111,20 @@ docs/architecture.md 附加架构说明
 
 当前默认全局值来自 `internal/config/defaults.go`：
 
-| 项目 | 默认值 |
-| --- | --- |
-| 原始数据目录 | `./data/raw_data` |
-| 导出目录 | `./data/downloads` |
-| 缓存目录 | `./data/novel_cache` |
-| 禁用缓存 | `false` |
-| 全局并发 | `4` |
-| 最大连接数 | `10` |
-| 超时 | `10s` |
-| Web 每页 | `50` |
-| CLI 每页 | `30` |
-| Web 图片模糊化 | `false` |
-| 默认导出格式 | `txt`, `epub` |
-| 默认保留图片 | `true` |
+| 项目           | 默认值               |
+| -------------- | -------------------- |
+| 原始数据目录   | `./data/raw_data`    |
+| 导出目录       | `./data/downloads`   |
+| 缓存目录       | `./data/novel_cache` |
+| 禁用缓存       | `false`              |
+| 全局并发       | `4`                  |
+| 最大连接数     | `10`                 |
+| 超时           | `10s`                |
+| Web 每页       | `50`                 |
+| CLI 每页       | `30`                 |
+| Web 图片模糊化 | `false`              |
+| 默认导出格式   | `txt`, `epub`        |
+| 默认保留图片   | `true`               |
 
 也可以通过环境变量覆盖数据库位置：
 
@@ -615,7 +615,6 @@ http://localhost:8080/novel
 - 部分站点可能受限流、Cloudflare、登录态、反爬或网络连通性影响
 - 站点能力表表示“代码已实现”，不代表目标站点长期稳定可用
 
-
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/image?repos=guohuiyuan/go-novel-dl&type=date&legend=top-left)](https://www.star-history.com/?repos=guohuiyuan%2Fgo-novel-dl&type=date&legend=top-left)
+[![Star History Chart](https://star-history.dera.page/svg?repos=guohuiyuan/go-novel-dl&type=date&legend=top-left)](https://star-history.dera.page/#guohuiyuan/go-novel-dl&type=date&legend=top-left)
