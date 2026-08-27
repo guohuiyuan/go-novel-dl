@@ -250,3 +250,102 @@ func (t rewriteHostTransport) RoundTrip(req *http.Request) (*http.Response, erro
 	cloned.Host = t.target.Host
 	return t.base.RoundTrip(cloned)
 }
+
+func TestParseLinovelibSearchResults(t *testing.T) {
+	markup := `<html><head><meta charset="UTF-8"></head><body>
+<h3 class="module-title">"恋爱"相关共有 300 条记录</h3>
+<ul class="book-list">
+<li class="book-li"><a href="/novel/4971.html" class="book-layout">
+<div class="book-cover"><img data-src="https://www.bilinovel.com/files/article/image/4/4971/4971s.jpg" alt="与攻陷了无数女生的海王交换了身体"></div>
+<div class="book-cell"><div class="book-title-x"><h4 class="book-title">与攻陷了无数女生的海王交换了身体</h4></div>
+<p class="book-desc">和班级里最有人气的帅哥交换了身体。</p>
+<div class="book-meta"><span class="book-author"><svg><title>作者</title></svg>douyueling</span></div>
+</div></a></li>
+<li class="book-li"><a href="/novel/4649.html" class="book-layout">
+<div class="book-cover"><img data-src="https://www.bilinovel.com/files/article/image/4/4649/4649s.jpg" alt="玩乐关系"></div>
+<div class="book-cell"><div class="book-title-x"><h4 class="book-title">玩乐关系</h4></div>
+<p class="book-desc">人人皆有秘密。</p>
+<div class="book-meta"><span class="book-author"><svg><title>作者</title></svg>葵关南</span></div>
+</div></a></li>
+</ul>
+</body></html>`
+	results, err := parseLinovelibSearchResults(markup, 10)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d: %+v", len(results), results)
+	}
+	first := results[0]
+	if first.BookID != "4971" || first.Title != "与攻陷了无数女生的海王交换了身体" || first.Author != "douyueling" {
+		t.Fatalf("unexpected first result: %+v", first)
+	}
+	if first.Description != "和班级里最有人气的帅哥交换了身体。" {
+		t.Fatalf("unexpected description: %q", first.Description)
+	}
+	if first.URL != "https://www.linovelib.com/novel/4971.html" {
+		t.Fatalf("unexpected url: %q", first.URL)
+	}
+	if first.CoverURL != "https://www.bilinovel.com/files/article/image/4/4971/4971s.jpg" {
+		t.Fatalf("unexpected cover: %q", first.CoverURL)
+	}
+	if results[1].Author != "葵关南" {
+		t.Fatalf("expected per-result author, got %+v", results[1])
+	}
+}
+
+func TestParseLinovelibSearchResultsLimit(t *testing.T) {
+	markup := `<html><body><ul class="book-list">
+<li class="book-li"><a href="/novel/1.html"><div class="book-cover"><img data-src="/img/1.jpg"></div><div class="book-cell"><div class="book-title-x"><h4 class="book-title">书一</h4></div><p class="book-desc">简介一</p><span class="book-author">作者一</span></div></a></li>
+<li class="book-li"><a href="/novel/2.html"><div class="book-cover"><img data-src="/img/2.jpg"></div><div class="book-cell"><div class="book-title-x"><h4 class="book-title">书二</h4></div><p class="book-desc">简介二</p><span class="book-author">作者二</span></div></a></li>
+</ul></body></html>`
+	results, err := parseLinovelibSearchResults(markup, 1)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(results) != 1 || results[0].BookID != "1" {
+		t.Fatalf("expected limit 1 result, got %+v", results)
+	}
+}
+
+func TestLinovelibSearchJSRe(t *testing.T) {
+	js := `(function(){try{document.cookie="jieqiSearchJs=496609.lY0XoMCxDcmjOEN1Idf8KJUi_ZrglqyEsziQFzYSTI4; path=\/; max-age=3600; samesite=lax; secure";...})();`
+	if m := linovelibSearchJSRe.FindStringSubmatch(js); len(m) != 2 || m[1] != "496609.lY0XoMCxDcmjOEN1Idf8KJUi_ZrglqyEsziQFzYSTI4" {
+		t.Fatalf("unexpected regex match: %v", m)
+	}
+}
+
+func TestParseLinovelibSingleBook(t *testing.T) {
+	markup := `<html><head>
+<meta property="og:title" content="善于察言观色的我唯独读不懂妳的心意">
+<meta property="og:novel:book_name" content="善于察言观色的我唯独读不懂妳的心意">
+<meta property="og:novel:author" content="北星Tony">
+<meta property="og:url" content="https://www.bilinovel.com/novel/4832.html">
+<meta property="og:image" content="https://www.bilinovel.com/files/article/image/4/4832/4832s.jpg">
+<meta property="og:description" content="「鹤冈同学，你知道我现在心里在想什么吗？」鹤冈藤立在国中二年级时意外习得超能力。">
+</head><body></body></html>`
+	item, ok := parseLinovelibSingleBook(markup)
+	if !ok {
+		t.Fatalf("expected single book parse to succeed")
+	}
+	if item.BookID != "4832" || item.Title != "善于察言观色的我唯独读不懂妳的心意" || item.Author != "北星Tony" {
+		t.Fatalf("unexpected single book: %+v", item)
+	}
+	if item.URL != "https://www.linovelib.com/novel/4832.html" {
+		t.Fatalf("unexpected url: %q", item.URL)
+	}
+	if item.CoverURL != "https://www.bilinovel.com/files/article/image/4/4832/4832s.jpg" {
+		t.Fatalf("unexpected cover: %q", item.CoverURL)
+	}
+	if !strings.Contains(item.Description, "超能力") {
+		t.Fatalf("unexpected description: %q", item.Description)
+	}
+}
+
+func TestParseLinovelibSingleBookRejectsListPage(t *testing.T) {
+	// 无 og meta 的列表页不应被当作单书
+	markup := `<html><body><ul class="book-list"><li class="book-li"><a href="/novel/1.html"><h4 class="book-title">书一</h4></a></li></ul></body></html>`
+	if _, ok := parseLinovelibSingleBook(markup); ok {
+		t.Fatalf("expected list page not to be parsed as single book")
+	}
+}
