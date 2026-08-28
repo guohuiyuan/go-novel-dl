@@ -565,21 +565,9 @@ func (s *TianyabooksSite) chapterURL(bookID, chapterID string) string {
 }
 
 func (s *TianyabooksSite) getWithRetry(ctx context.Context, rawURL string) (string, error) {
-	var lastErr error
-	for attempt := 0; attempt < 4; attempt++ {
-		markup, err := s.getOnce(ctx, rawURL)
-		if err == nil {
-			return markup, nil
-		}
-		lastErr = err
-		if !shouldRetrySiteRequest(err) || ctx.Err() != nil || attempt == 3 {
-			return "", err
-		}
-		if err := sleepWithContext(ctx, siteRetryDelay(attempt)); err != nil {
-			return "", err
-		}
-	}
-	return "", lastErr
+	return getWithSiteRetry(ctx, func() (string, error) {
+		return s.getOnce(ctx, rawURL)
+	}, defaultSiteRetryAttempts)
 }
 
 func (s *TianyabooksSite) getOnce(ctx context.Context, rawURL string) (string, error) {

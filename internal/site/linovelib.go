@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math/rand"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -219,34 +218,9 @@ func (s *LinovelibSite) FetchChapter(ctx context.Context, bookID string, chapter
 }
 
 func (s *LinovelibSite) getWithRetry(ctx context.Context, rawURL string) (string, error) {
-	var lastErr error
-	for attempt := 0; attempt < 4; attempt++ {
-		markup, err := s.html.Get(ctx, rawURL)
-		if err == nil {
-			return markup, nil
-		}
-		lastErr = err
-		if strings.Contains(err.Error(), "http 403") {
-			return "", err
-		}
-		if !strings.Contains(err.Error(), "http 429") && !shouldRetrySiteRequest(err) {
-			return "", err
-		}
-		if ctx.Err() != nil || attempt == 3 {
-			return "", err
-		}
-		delay := siteRetryDelay(attempt)
-		if strings.Contains(err.Error(), "http 429") {
-			// 429 是站点限流，并发下载时多个请求同时重试会再次撞上同一限流窗口，
-			// 所以退避比默认更长（2s/4s/8s/16s）并叠加随机抖动错开重试时刻
-			delay = time.Duration(2<<uint(attempt)) * time.Second
-			delay += time.Duration(rand.Int63n(int64(1500 * time.Millisecond)))
-		}
-		if err := sleepWithContext(ctx, delay); err != nil {
-			return "", err
-		}
-	}
-	return "", lastErr
+	return getWithSiteRetry(ctx, func() (string, error) {
+		return s.html.Get(ctx, rawURL)
+	}, defaultSiteRetryAttempts)
 }
 
 func (s *LinovelibSite) parseChapterPage(markup string, doc *html.Node, chapterID string) []string {

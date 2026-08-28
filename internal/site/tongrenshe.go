@@ -263,21 +263,9 @@ func (s *TongrensheSite) chapterURL(bookID, chapterID string) string {
 }
 
 func (s *TongrensheSite) getWithRetry(ctx context.Context, rawURL string) (string, error) {
-	var lastErr error
-	for attempt := 0; attempt < 3; attempt++ {
-		markup, err := s.html.Get(ctx, rawURL)
-		if err == nil {
-			return markup, nil
-		}
-		lastErr = err
-		if !shouldRetrySiteRequest(err) || ctx.Err() != nil || attempt == 2 {
-			return "", err
-		}
-		if err := sleepWithContext(ctx, siteRetryDelay(attempt)); err != nil {
-			return "", err
-		}
-	}
-	return "", lastErr
+	return getWithSiteRetry(ctx, func() (string, error) {
+		return s.html.Get(ctx, rawURL)
+	}, 3)
 }
 
 func (s *TongrensheSite) fetchSearchPage(ctx context.Context, keyword string) (string, error) {

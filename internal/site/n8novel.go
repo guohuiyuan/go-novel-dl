@@ -263,27 +263,12 @@ func (s *N8NovelSite) Search(ctx context.Context, keyword string, limit int) ([]
 }
 
 func (s *N8NovelSite) getWithRetry(ctx context.Context, rawURL string) (string, error) {
-	var lastErr error
-	for attempt := 0; attempt < 4; attempt++ {
-		markup, err := s.getOnce(ctx, rawURL)
-		if err == nil {
-			return markup, nil
-		}
-		lastErr = err
-		if isN8novel403(err) {
-			return "", err
-		}
-		if !shouldRetrySiteRequest(err) {
-			return "", err
-		}
-		if ctx.Err() != nil || attempt == 3 {
-			return "", err
-		}
-		if err := sleepWithContext(ctx, siteRetryDelay(attempt)); err != nil {
-			return "", err
-		}
-	}
-	return "", lastErr
+	// 该站点的 403 是明确拒绝（非 Cloudflare 拦截），重试无意义
+	return getWithSiteRetryIf(ctx, func() (string, error) {
+		return s.getOnce(ctx, rawURL)
+	}, defaultSiteRetryAttempts, func(err error) bool {
+		return !isN8novel403(err) && shouldRetrySiteRequest(err)
+	})
 }
 
 func (s *N8NovelSite) getOnce(ctx context.Context, rawURL string) (string, error) {

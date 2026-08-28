@@ -308,7 +308,9 @@ func (s *BuguxsSite) FetchChapter(ctx context.Context, bookID string, chapter mo
 }
 
 func (s *BuguxsSite) getWithMobileUA(ctx context.Context, rawURL string) (string, error) {
-	return s.html.GetWithHeaders(ctx, rawURL, map[string]string{"User-Agent": buguxsMobileUA})
+	return getWithSiteRetry(ctx, func() (string, error) {
+		return s.html.GetWithHeaders(ctx, rawURL, map[string]string{"User-Agent": buguxsMobileUA})
+	}, defaultSiteRetryAttempts)
 }
 
 func splitBuguxsBookID(bookID string) (string, string) {

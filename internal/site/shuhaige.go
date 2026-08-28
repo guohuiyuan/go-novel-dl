@@ -321,21 +321,9 @@ func (s *ShuhaigeSite) Search(ctx context.Context, keyword string, limit int) ([
 }
 
 func (s *ShuhaigeSite) searchWithRetry(ctx context.Context, keyword string) (string, error) {
-	var lastErr error
-	for attempt := 0; attempt < 4; attempt++ {
-		markup, err := s.searchOnce(ctx, keyword)
-		if err == nil {
-			return markup, nil
-		}
-		lastErr = err
-		if !shouldRetrySiteRequest(err) || ctx.Err() != nil || attempt == 3 {
-			return "", err
-		}
-		if err := sleepWithContext(ctx, siteRetryDelay(attempt)); err != nil {
-			return "", err
-		}
-	}
-	return "", lastErr
+	return getWithSiteRetry(ctx, func() (string, error) {
+		return s.searchOnce(ctx, keyword)
+	}, defaultSiteRetryAttempts)
 }
 
 func (s *ShuhaigeSite) searchOnce(ctx context.Context, keyword string) (string, error) {
@@ -461,19 +449,7 @@ func parseShuhaigeSearchResults(markup, base string) ([]model.SearchResult, erro
 }
 
 func (s *ShuhaigeSite) getWithRetry(ctx context.Context, rawURL string) (string, error) {
-	var lastErr error
-	for attempt := 0; attempt < 4; attempt++ {
-		markup, err := s.html.GetWithHeaders(ctx, rawURL, map[string]string{"Referer": s.base + "/"})
-		if err == nil {
-			return markup, nil
-		}
-		lastErr = err
-		if !shouldRetrySiteRequest(err) || ctx.Err() != nil || attempt == 3 {
-			return "", err
-		}
-		if err := sleepWithContext(ctx, siteRetryDelay(attempt)); err != nil {
-			return "", err
-		}
-	}
-	return "", lastErr
+	return getWithSiteRetry(ctx, func() (string, error) {
+		return s.html.GetWithHeaders(ctx, rawURL, map[string]string{"Referer": s.base + "/"})
+	}, defaultSiteRetryAttempts)
 }

@@ -156,7 +156,9 @@ func (s *YibigeSite) FetchChapter(ctx context.Context, bookID string, chapter mo
 func (s *YibigeSite) getWithMirrors(ctx context.Context, path string) (string, error) {
 	var lastErr error
 	for _, host := range yibigeMirrorHosts() {
-		markup, err := s.html.Get(ctx, host+path)
+		markup, err := getWithSiteRetry(ctx, func() (string, error) {
+			return s.html.Get(ctx, host+path)
+		}, defaultSiteRetryAttempts)
 		if err != nil {
 			lastErr = err
 			continue

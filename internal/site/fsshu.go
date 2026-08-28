@@ -312,39 +312,15 @@ func (s *FsshuSite) FetchChapter(ctx context.Context, bookID string, chapter mod
 }
 
 func (s *FsshuSite) fetchChapterWithRetry(ctx context.Context, bookID string, chapter model.Chapter) (model.Chapter, error) {
-	var lastErr error
-	for attempt := 0; attempt < 3; attempt++ {
-		loaded, err := s.FetchChapter(ctx, bookID, chapter)
-		if err == nil {
-			return loaded, nil
-		}
-		lastErr = err
-		if !shouldRetrySiteRequest(err) || ctx.Err() != nil || attempt == 2 {
-			return chapter, err
-		}
-		if err := sleepWithContext(ctx, siteRetryDelay(attempt)); err != nil {
-			return chapter, err
-		}
-	}
-	return chapter, lastErr
+	return retryWithSiteBackoff(ctx, func() (model.Chapter, error) {
+		return s.FetchChapter(ctx, bookID, chapter)
+	}, 3, shouldRetrySiteRequest)
 }
 
 func (s *FsshuSite) getWithRetry(ctx context.Context, rawURL string) (string, error) {
-	var lastErr error
-	for attempt := 0; attempt < 3; attempt++ {
-		markup, err := s.html.Get(ctx, rawURL)
-		if err == nil {
-			return markup, nil
-		}
-		lastErr = err
-		if !shouldRetrySiteRequest(err) || ctx.Err() != nil || attempt == 2 {
-			return "", err
-		}
-		if err := sleepWithContext(ctx, siteRetryDelay(attempt)); err != nil {
-			return "", err
-		}
-	}
-	return "", lastErr
+	return getWithSiteRetry(ctx, func() (string, error) {
+		return s.html.Get(ctx, rawURL)
+	}, 3)
 }
 
 func (s *FsshuSite) Search(ctx context.Context, keyword string, limit int) ([]model.SearchResult, error) {

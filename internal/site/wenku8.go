@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"math/rand"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -441,30 +440,9 @@ func wenku8SearchResultCoverURL(info *html.Node) string {
 }
 
 func (s *Wenku8Site) getWithRetry(ctx context.Context, rawURL, referer string) (string, error) {
-	var lastErr error
-	for attempt := 0; attempt < 4; attempt++ {
-		markup, err := s.getPage(ctx, rawURL, referer)
-		if err == nil {
-			return markup, nil
-		}
-		lastErr = err
-	if !strings.Contains(err.Error(), "http 403") && !strings.Contains(err.Error(), "http 429") {
-		return "", err
-	}
-	// 429 是站点限流，并发下载时多个请求同时重试会再次撞上同一限流窗口，
-	// 所以退避比默认更长（2s/4s/8s/16s）并叠加随机抖动错开重试时刻
-	delay := time.Duration(attempt+1) * time.Second
-	if strings.Contains(err.Error(), "http 429") {
-		delay = time.Duration(2<<uint(attempt)) * time.Second
-		delay += time.Duration(rand.Int63n(int64(1500 * time.Millisecond)))
-	}
-	select {
-	case <-ctx.Done():
-		return "", ctx.Err()
-	case <-time.After(delay):
-	}
-	}
-	return "", lastErr
+	return getWithSiteRetry(ctx, func() (string, error) {
+		return s.getPage(ctx, rawURL, referer)
+	}, defaultSiteRetryAttempts)
 }
 
 func (s *Wenku8Site) getPage(ctx context.Context, rawURL, referer string) (string, error) {

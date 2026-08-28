@@ -93,7 +93,9 @@ func (s *mobile17Site) get(ctx context.Context, rawURL string) (string, error) {
 	if cookie := strings.TrimSpace(s.cfg.Cookie); cookie != "" {
 		headers["Cookie"] = cookie
 	}
-	markup, err := s.html.GetWithHeaders(ctx, rawURL, headers)
+	markup, err := getWithSiteRetry(ctx, func() (string, error) {
+		return s.html.GetWithHeaders(ctx, rawURL, headers)
+	}, defaultSiteRetryAttempts)
 	if err != nil {
 		if s.challengeable && strings.Contains(strings.ToLower(err.Error()), "http 403") {
 			return "", fmt.Errorf("%s 被 Cloudflare 人机验证拦截（HTTP 403）：请在站点设置中填入浏览器访问 %s 后获取的 Cookie（需含 cf_clearance）", s.displayName, s.baseURL)
