@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -202,6 +203,9 @@ func (s *Wenku8Site) FetchChapter(ctx context.Context, bookID string, chapter mo
 		if c.Type == html.ElementNode && c.Data == "ul" && attrValue(c, "id") == "contentdp" {
 			continue
 		}
+		// 插图章节（如卷首"插图"）只有图片没有正文，需保留图片引用，
+		// 否则会被判为无内容而失败
+		paragraphs = append(paragraphs, wenku8CollectImages(c)...)
 		text := cleanText(nodeTextPreserveLineBreaks(c))
 		if text == "" {
 			continue
@@ -218,6 +222,32 @@ func (s *Wenku8Site) FetchChapter(ctx context.Context, bookID string, chapter mo
 	chapter.Content = strings.Join(paragraphs, "\n")
 	chapter.Downloaded = true
 	return chapter, nil
+}
+
+// wenku8CollectImages 收集节点（含后代）里的插图，转成图片引用段落。
+func wenku8CollectImages(node *html.Node) []string {
+	images := make([]string, 0)
+	if node == nil {
+		return images
+	}
+	var walk func(n *html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.ElementNode && n.Data == "img" {
+			src := attrValue(n, "data-src")
+			if src == "" {
+				src = attrValue(n, "src")
+			}
+			if src != "" {
+				images = append(images, "[图片] "+absolutizeURL("https://www.wenku8.net", src))
+			}
+			return
+		}
+		for child := n.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+	walk(node)
+	return images
 }
 
 func (s *Wenku8Site) Search(ctx context.Context, keyword string, limit int) ([]model.SearchResult, error) {
@@ -418,14 +448,21 @@ func (s *Wenku8Site) getWithRetry(ctx context.Context, rawURL, referer string) (
 			return markup, nil
 		}
 		lastErr = err
-		if !strings.Contains(err.Error(), "http 403") && !strings.Contains(err.Error(), "http 429") {
-			return "", err
-		}
-		select {
-		case <-ctx.Done():
-			return "", ctx.Err()
-		case <-time.After(time.Duration(attempt+1) * time.Second):
-		}
+	if !strings.Contains(err.Error(), "http 403") && !strings.Contains(err.Error(), "http 429") {
+		return "", err
+	}
+	// 429 是站点限流，并发下载时多个请求同时重试会再次撞上同一限流窗口，
+	// 所以退避比默认更长（2s/4s/8s/16s）并叠加随机抖动错开重试时刻
+	delay := time.Duration(attempt+1) * time.Second
+	if strings.Contains(err.Error(), "http 429") {
+		delay = time.Duration(2<<uint(attempt)) * time.Second
+		delay += time.Duration(rand.Int63n(int64(1500 * time.Millisecond)))
+	}
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	case <-time.After(delay):
+	}
 	}
 	return "", lastErr
 }
