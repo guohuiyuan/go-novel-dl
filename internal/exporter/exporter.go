@@ -572,7 +572,7 @@ func buildEPUBContentLikeESJScript(book *model.Book) (*epubPackage, error) {
 		}
 		cacheMu.Unlock()
 
-		data, mediaType, err := downloadAssetForESJ(rawURL, "https://www.esjzone.cc/")
+		data, mediaType, err := downloadAssetForESJ(rawURL, esjExportReferer)
 		if err == nil {
 			data, mediaType, err = compressImageForESJ(data, mediaType)
 		}
@@ -621,7 +621,7 @@ func buildEPUBContentLikeESJScript(book *model.Book) (*epubPackage, error) {
 	coverImageHref := ""
 
 	if strings.TrimSpace(book.CoverURL) != "" {
-		coverData, coverType, err := downloadAssetForESJ(book.CoverURL, "https://www.esjzone.cc/")
+		coverData, coverType, err := downloadAssetForESJ(book.CoverURL, esjExportReferer)
 		if err == nil && len(coverData) > 0 {
 			ext := imageExtensionForESJ(coverType)
 			coverName := "cover." + ext
@@ -676,6 +676,10 @@ func buildEPUBContentLikeESJScript(book *model.Book) (*epubPackage, error) {
 
 	return &epubPackage{OPF: opf, Nav: nav, ChapterFiles: chapterFiles, Assets: assets}, nil
 }
+
+// esjExportReferer 是 ESJ Zone 资源下载的 Referer。
+// 站点域名已从 esjzone.cc 迁移到 esjzone.one。
+const esjExportReferer = "https://www.esjzone.one/"
 
 func downloadAssetForESJ(rawURL, referer string) ([]byte, string, error) {
 	rawURL = normalizeAssetURL(rawURL, referer)
@@ -1146,7 +1150,7 @@ func newEPUBAssetFetcher(book *model.Book) *epubAssetFetcher {
 		case "linovelib":
 			referer = "https://www.linovelib.com/"
 		case "esjzone":
-			referer = "https://www.esjzone.cc/"
+			referer = esjExportReferer
 			aggressiveES = true
 		}
 	}

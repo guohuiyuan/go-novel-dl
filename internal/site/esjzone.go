@@ -28,6 +28,10 @@ var (
 	redirectURLRe = regexp.MustCompile(`https?://[^'"\s<]+`)
 )
 
+// esjPrimaryHost 是当前可用域名。旧域名 esjzone.cc 已无法连接（连接超时），
+// 站点已迁移到 esjzone.one；isESJHost 仍兼容旧域名以便识别历史链接。
+const esjPrimaryHost = "https://www.esjzone.one"
+
 type ESJZoneSite struct {
 	cfg           config.ResolvedSiteConfig
 	html          HTMLSite
@@ -59,8 +63,8 @@ func NewESJZoneSite(cfg config.ResolvedSiteConfig) *ESJZoneSite {
 		timeout = time.Duration(cfg.General.Timeout * float64(time.Second))
 	}
 
-	bookAliases := []string{"https://www.esjzone.cc"}
-	searchAliases := []string{"https://www.esjzone.cc"}
+	bookAliases := []string{esjPrimaryHost}
+	searchAliases := []string{esjPrimaryHost}
 	for _, mirror := range cfg.MirrorHosts {
 		mirror = strings.TrimSpace(strings.TrimRight(mirror, "/"))
 		if mirror == "" {
@@ -79,7 +83,7 @@ func NewESJZoneSite(cfg config.ResolvedSiteConfig) *ESJZoneSite {
 		cfg:           cfg,
 		html:          NewHTMLSite(httpClient),
 		httpClient:    httpClient,
-		primaryHost:   "https://www.esjzone.cc",
+		primaryHost:   esjPrimaryHost,
 		searchAliases: searchAliases,
 		bookAliases:   uniqueStrings(bookAliases),
 		cookieFile:    cookieFile,
@@ -123,7 +127,7 @@ func (s *ESJZoneSite) ResolveURL(rawURL string) (*ResolvedURL, bool) {
 			SiteKey:   s.Key(),
 			BookID:    match[1],
 			Canonical: canonical,
-			Mirror:    host != "www.esjzone.cc" && host != "esjzone.cc",
+			Mirror:    !isPrimaryESJHost(host),
 		}, true
 	}
 
@@ -134,7 +138,7 @@ func (s *ESJZoneSite) ResolveURL(rawURL string) (*ResolvedURL, bool) {
 			BookID:    match[1],
 			ChapterID: match[2],
 			Canonical: canonical,
-			Mirror:    host != "www.esjzone.cc" && host != "esjzone.cc",
+			Mirror:    !isPrimaryESJHost(host),
 		}, true
 	}
 
@@ -329,7 +333,8 @@ func (s *ESJZoneSite) fetchSearchFromAnyHost(ctx context.Context, encodedKeyword
 		host := host
 		go func() {
 			started := time.Now().UTC()
-			hostCtx, hostCancel := context.WithTimeout(ctx, s.perHostTimeout(5*time.Second))
+			// 站点响应偏慢（搜索页偶发 5s+ 才返回），放宽单主机超时避免误判失败。
+			hostCtx, hostCancel := context.WithTimeout(ctx, s.perHostTimeout(12*time.Second))
 			defer hostCancel()
 			pageURL := host + "/tags/" + encodedKeyword + "/"
 			markup, err := s.html.Get(hostCtx, pageURL)
@@ -1000,7 +1005,7 @@ func (s *ESJZoneSite) loadCookies() error {
 	for _, entry := range entries {
 		domain := entry.Domain
 		if domain == "" {
-			domain = "www.esjzone.cc"
+			domain = "www.esjzone.one"
 		}
 		grouped[domain] = append(grouped[domain], &http.Cookie{
 			Name:     entry.Name,
@@ -1381,7 +1386,7 @@ func parseESJChapterList(container *html.Node) ([]model.Chapter, error) {
 		chapters = append(chapters, model.Chapter{
 			ID:     match[2],
 			Title:  title,
-			URL:    absolutizeURL("https://www.esjzone.cc", href),
+			URL:    absolutizeURL(esjPrimaryHost, href),
 			Volume: currentVolume,
 			Order:  order,
 		})
@@ -1499,6 +1504,12 @@ func isESJHost(host string) bool {
 	return host == "esjzone.cc" || host == "esjzone.one"
 }
 
+// isPrimaryESJHost 判断是否为主域名（含 www 前缀）。
+func isPrimaryESJHost(host string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	return host == "esjzone.one" || host == "www.esjzone.one"
+}
+
 func extractMirrorRedirect(markup string) string {
 	if !strings.Contains(strings.ToLower(markup), "click here to enter") {
 		return ""
@@ -1543,8 +1554,11 @@ func chooseDefault(value, fallback string) string {
 	return value
 }
 
+// isLoginPage 判断是否是真正的登录页。
+// 不能用「登入 / 註冊」「/my/login」这类词：全站每个页面的导航栏都带登录链接，
+// 误判会把所有章节都当成需要登录。只有登录页才有 login-box 表单 / mem_login 提交入口。
 func isLoginPage(markup string) bool {
-	markers := []string{"會員登入", "登入 / 註冊", "/my/login"}
+	markers := []string{`class="login-box"`, `data-send="mem_login"`, `<h4 class="margin-bottom-1x">會員登入</h4>`}
 	for _, marker := range markers {
 		if strings.Contains(markup, marker) {
 			return true

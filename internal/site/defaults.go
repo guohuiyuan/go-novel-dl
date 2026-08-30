@@ -30,6 +30,7 @@ var defaultAvailableSiteKeys = []string{
 	"ixdzs8",
 	"yibige",
 	"alicesw",
+	"esjzone",
 	"fsshu",
 	"ltxswu",
 }

@@ -19,12 +19,12 @@ import (
 func TestESJZoneResolveURLSupportsMirror(t *testing.T) {
 	site := NewESJZoneSite(config.DefaultConfig().ResolveSiteConfig("esjzone"))
 
-	resolved, ok := site.ResolveURL("https://www.esjzone.cc/detail/1660702902.html")
-	if !ok || resolved.BookID != "1660702902" || resolved.ChapterID != "" {
+	resolved, ok := site.ResolveURL("https://www.esjzone.one/detail/1660702902.html")
+	if !ok || resolved.BookID != "1660702902" || resolved.ChapterID != "" || resolved.Mirror {
 		t.Fatalf("unexpected primary resolve result: %+v ok=%v", resolved, ok)
 	}
 
-	resolved, ok = site.ResolveURL("https://www.esjzone.one/forum/1660702902/294593.html")
+	resolved, ok = site.ResolveURL("https://www.esjzone.cc/forum/1660702902/294593.html")
 	if !ok || resolved.BookID != "1660702902" || resolved.ChapterID != "294593" || !resolved.Mirror {
 		t.Fatalf("unexpected mirror resolve result: %+v ok=%v", resolved, ok)
 	}
@@ -35,12 +35,12 @@ func TestESJZoneDefaultAliasesPreferPrimaryHost(t *testing.T) {
 	cfg.MirrorHosts = nil
 	site := NewESJZoneSite(cfg)
 
-	if len(site.searchAliases) == 0 || site.searchAliases[0] != "https://www.esjzone.cc" {
-		t.Fatalf("expected search aliases to prefer esjzone.cc, got %+v", site.searchAliases)
+	if len(site.searchAliases) == 0 || site.searchAliases[0] != esjPrimaryHost {
+		t.Fatalf("expected search aliases to prefer %s, got %+v", esjPrimaryHost, site.searchAliases)
 	}
 	for _, host := range site.searchAliases {
-		if strings.Contains(host, "esjzone.one") {
-			t.Fatalf("did not expect esjzone.one in default aliases, got %+v", site.searchAliases)
+		if strings.Contains(host, "esjzone.cc") {
+			t.Fatalf("did not expect esjzone.cc in default aliases, got %+v", site.searchAliases)
 		}
 	}
 }
@@ -139,7 +139,7 @@ func TestInjectCookieString(t *testing.T) {
 	cfg := config.DefaultConfig().ResolveSiteConfig("esjzone")
 	site := NewESJZoneSite(cfg)
 	site.injectCookieString("foo=bar; hello=world")
-	parsed, _ := url.Parse("https://www.esjzone.cc")
+	parsed, _ := url.Parse(esjPrimaryHost)
 	cookies := site.httpClient.Jar.Cookies(parsed)
 	if len(cookies) < 2 {
 		t.Fatalf("expected injected cookies, got %d", len(cookies))
@@ -152,7 +152,7 @@ func TestSaveAndLoadCookies(t *testing.T) {
 	site := NewESJZoneSite(cfg)
 	jar, _ := cookiejar.New(nil)
 	site.httpClient.Jar = jar
-	parsed, _ := url.Parse("https://www.esjzone.cc")
+	parsed, _ := url.Parse(esjPrimaryHost)
 	jar.SetCookies(parsed, []*http.Cookie{{Name: "session", Value: "abc", Path: "/"}})
 	if err := site.saveCookies(); err != nil {
 		t.Fatalf("save cookies: %v", err)
@@ -162,7 +162,7 @@ func TestSaveAndLoadCookies(t *testing.T) {
 	}
 
 	reloaded := NewESJZoneSite(cfg)
-	parsed2, _ := url.Parse("https://www.esjzone.cc")
+	parsed2, _ := url.Parse(esjPrimaryHost)
 	if len(reloaded.httpClient.Jar.Cookies(parsed2)) == 0 {
 		t.Fatalf("expected cookies to be loaded from disk")
 	}
@@ -233,6 +233,29 @@ func TestEnsureLoginStillRequiredWhenSiteFlagDisabled(t *testing.T) {
 	err := site.ensureLogin(context.Background())
 	if err == nil {
 		t.Fatalf("expected ensureLogin to require auth even when login_required flag is false")
+	}
+}
+
+func TestIsLoginPageOnlyMatchesRealLoginPage(t *testing.T) {
+	// 正常章节页：导航栏带着「登入 / 註冊」「/my/login」链接，但不应被判为登录页。
+	normalChapter := `<html><body>
+<nav><li><span><a href="/my/login">登入 / 註冊</a></span></li></nav>
+<div class="forum-content mt-3"><p>正文内容。</p></div>
+</body></html>`
+	if isLoginPage(normalChapter) {
+		t.Fatalf("normal chapter page must not be treated as a login page")
+	}
+
+	realLogin := `<html><body>
+<div class="col-md-6">
+	<form class="login-box">
+		<h4 class="margin-bottom-1x">會員登入</h4>
+		<a class="btn btn-primary margin-bottom-none btn-send" data-form="login-box" data-send="mem_login">登入</a>
+	</form>
+</div>
+</body></html>`
+	if !isLoginPage(realLogin) {
+		t.Fatalf("real login page must be detected")
 	}
 }
 
