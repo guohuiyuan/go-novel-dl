@@ -38,7 +38,12 @@ var (
 	aliceswChapterIDRe   = regexp.MustCompile(`chapter_id:\s*['"]([^'"]+)['"]`)
 	aliceswInitialTimeRe = regexp.MustCompile(`\bt:\s*['"]([^'"]+)['"]`)
 	aliceswSignRe        = regexp.MustCompile(`sign:\s*['"]([^'"]+)['"]`)
+	// aliceswHostRe 匹配该站轮换过的域名（alicesw.com、alicesw1.homes，未来可能是 alicesw2.homes）。
+	aliceswHostRe = regexp.MustCompile(`^alicesw(\d+)?\.(?:com|homes)$`)
 )
+
+// aliceswBaseURL 是当前可用的域名。alicesw.com 已无法连接，站点轮换到 alicesw1.homes。
+const aliceswBaseURL = "https://www.alicesw1.homes"
 
 const (
 	aliceswTokenPrefix   = "B3wlP9Tzo$0RIdlvX&^sg30^0&feAox%"
@@ -95,6 +100,39 @@ type AliceswSite struct {
 	html   HTMLSite
 	client *http.Client
 	base   string
+
+	// chapterMu 串行化章节页请求：站点对 /book/ 有严格风控，
+	// 并发大量抓章会触发长达 24 小时的 IP 封禁。
+	chapterMu     sync.Mutex
+	lastChapterAt time.Time
+}
+
+// aliceswChapterMinInterval 是章节页的最小请求间隔。
+// 实测连续快速抓章（约 2 次/秒）会被站点风控拦截并封禁 IP 24 小时
+// （章节页返回「访问异常，请稍后再试」提示页，且所有镜像域名同 IP 共享封禁），
+// 因此下载时宁可慢也要保证不触发封禁。可用渠道配置 request_interval 调大。
+var aliceswChapterMinInterval = 3 * time.Second
+
+// waitChapterSlot 串行化章节页请求并保证与上一次请求保持最小间隔。
+func (s *AliceswSite) waitChapterSlot(ctx context.Context) error {
+	s.chapterMu.Lock()
+	defer s.chapterMu.Unlock()
+	interval := time.Duration(s.cfg.General.RequestInterval * float64(time.Second))
+	if interval < aliceswChapterMinInterval {
+		interval = aliceswChapterMinInterval
+	}
+	if wait := interval - time.Since(s.lastChapterAt); wait > 0 {
+		if err := sleepContext(ctx, wait); err != nil {
+			return err
+		}
+	}
+	s.lastChapterAt = time.Now()
+	return nil
+}
+
+// isAliceswBlockedPage 判断章节页是否被站点风控拦截。
+func isAliceswBlockedPage(markup string) bool {
+	return strings.Contains(markup, "访问异常") && strings.Contains(markup, "请稍后再试")
 }
 
 type aliceswEncryptedChapterInitial struct {
@@ -139,7 +177,7 @@ func NewAliceswSite(cfg config.ResolvedSiteConfig) *AliceswSite {
 		cfg:    cfg,
 		html:   NewHTMLSite(client),
 		client: client,
-		base:   "https://www.alicesw.com",
+		base:   aliceswBaseURL,
 	}
 }
 
@@ -155,7 +193,7 @@ func (s *AliceswSite) ResolveURL(rawURL string) (*ResolvedURL, bool) {
 		return nil, false
 	}
 	host := strings.ToLower(strings.TrimPrefix(parsed.Host, "www."))
-	if host != "alicesw.com" {
+	if !aliceswHostRe.MatchString(host) {
 		return nil, false
 	}
 
@@ -250,9 +288,15 @@ func (s *AliceswSite) FetchChapter(ctx context.Context, bookID string, chapter m
 		return chapter, fmt.Errorf("alicesw chapter url is empty")
 	}
 
+	if err := s.waitChapterSlot(ctx); err != nil {
+		return chapter, err
+	}
 	markup, err := s.getWithRetry(ctx, rawURL)
 	if err != nil {
 		return chapter, err
+	}
+	if isAliceswBlockedPage(markup) {
+		return chapter, fmt.Errorf("alicesw 章节页被风控拦截（访问异常），请放慢下载速度并稍后重试")
 	}
 
 	title, paragraphs, err := parseAliceswChapterPage(markup)
@@ -300,6 +344,10 @@ func (s *AliceswSite) fetchEncryptedChapter(ctx context.Context, referer, markup
 }
 
 func (s *AliceswSite) requestAliceswChapterInfo(ctx context.Context, initial aliceswEncryptedChapterInitial, referer string) (aliceswEncryptedChapterPayload, error) {
+	// 加密章节接口与 /book/ 章节页共享同一套风控，同样限速。
+	if err := s.waitChapterSlot(ctx); err != nil {
+		return aliceswEncryptedChapterPayload{}, err
+	}
 	values := url.Values{}
 	values.Set("id", initial.SourceID)
 	values.Set("key", initial.ChapterID)
@@ -490,6 +538,7 @@ func (s *AliceswSite) Search(ctx context.Context, keyword string, limit int) ([]
 
 	results := make([]model.SearchResult, 0, target)
 	seen := make(map[string]struct{}, target)
+collect:
 	for page := 1; ; page++ {
 		markup, err := s.searchPage(ctx, keyword, page)
 		if err != nil {
@@ -507,14 +556,18 @@ func (s *AliceswSite) Search(ctx context.Context, keyword string, limit int) ([]
 			seen[item.BookID] = struct{}{}
 			results = append(results, item)
 			if len(results) >= target {
-				results = results[:target]
-				return results, nil
+				break collect
 			}
 		}
 		if !hasNext || len(pageResults) == 0 {
 			break
 		}
 	}
+	if len(results) > target {
+		results = results[:target]
+	}
+	// 补全简介/封面/最新章节，与其他渠道保持一致。
+	enrichSearchResultsParallel(ctx, results, 6, s.populateSearchDetail)
 	return results, nil
 }
 
@@ -572,6 +625,9 @@ func (s *AliceswSite) resolveChapterBookID(rawURL string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
 
+	if err := s.waitChapterSlot(ctx); err != nil {
+		return ""
+	}
 	markup, err := s.getWithRetry(ctx, rawURL)
 	if err != nil {
 		return ""
@@ -641,7 +697,7 @@ func parseAliceswSearchResults(markup string) ([]model.SearchResult, bool, error
 			Title:       title,
 			Author:      author,
 			Description: description,
-			URL:         "https://www.alicesw.com/novel/" + bookID + ".html",
+			URL:         aliceswBaseURL + "/novel/" + bookID + ".html",
 		})
 	}
 

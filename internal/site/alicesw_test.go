@@ -10,12 +10,23 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/guohuiyuan/go-novel-dl/internal/config"
 	"github.com/guohuiyuan/go-novel-dl/internal/model"
 )
+
+// withZeroAliceswChapterInterval 置零章节限速间隔，避免单测真实睡眠。
+func withZeroAliceswChapterInterval(t *testing.T) {
+	t.Helper()
+	original := aliceswChapterMinInterval
+	aliceswChapterMinInterval = 0
+	t.Cleanup(func() { aliceswChapterMinInterval = original })
+}
 
 func TestParseAliceswSearchResults(t *testing.T) {
 	markup := `<html><body>
@@ -73,11 +84,13 @@ func TestParseAliceswCatalogChaptersAndChapterPage(t *testing.T) {
 		t.Fatalf("unexpected first chapter: %+v", chapters[0])
 	}
 
+	// 结构与真实章节页一致：正文带全角缩进，内容区里还夹着空的 #user_ad 广告位。
 	chapterMarkup := `<html><body data-bid="/novel/50427.html">
 <h3 class="j_chapterName">第一章：从零开始</h3>
-<div class="read-content j_readContent">
-  <p>第一段。</p>
-  <p>第二段。</p>
+<div class="read-content j_readContent user_ad_content">
+  <p>　　第一段。</p>
+  <p>　　第二段。</p>
+  <div id="user_ad"></div>
 </div>
 </body></html>`
 
@@ -148,6 +161,28 @@ func TestExtractAliceswBookDetailFields(t *testing.T) {
 	}
 }
 
+func TestAliceswResolveURLDomainRotation(t *testing.T) {
+	cfg := config.DefaultConfig().ResolveSiteConfig("alicesw")
+	site := NewAliceswSite(cfg)
+
+	// 当前域名（alicesw1.homes）与旧域名（alicesw.com）都要能识别。
+	for _, raw := range []string{
+		"https://www.alicesw1.homes/novel/36155.html",
+		"https://alicesw1.homes/novel/36155.html",
+		"https://www.alicesw.com/novel/36155.html",
+		"https://alicesw.com/novel/36155.html",
+	} {
+		resolved, ok := site.ResolveURL(raw)
+		if !ok || resolved.BookID != "36155" {
+			t.Fatalf("expected %s to resolve book 36155, got %+v ok=%v", raw, resolved, ok)
+		}
+	}
+
+	if _, ok := site.ResolveURL("https://example.com/novel/36155.html"); ok {
+		t.Fatalf("expected unrelated host to be rejected")
+	}
+}
+
 func TestAliceswDownloadPlanUsesDetailPageChaptersBeforeCatalogEndpoint(t *testing.T) {
 	var catalogHits int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -185,6 +220,7 @@ func TestAliceswDownloadPlanUsesDetailPageChaptersBeforeCatalogEndpoint(t *testi
 }
 
 func TestAliceswFetchChapterUsesEncryptedChapterAPI(t *testing.T) {
+	withZeroAliceswChapterInterval(t)
 	payload := encryptAliceswTestPayload(t, "第一段。\n第二段。")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -246,6 +282,53 @@ book.initial = {
 	}
 	if !chapter.Downloaded {
 		t.Fatalf("expected chapter to be downloaded")
+	}
+}
+
+func TestAliceswFetchChapterDetectsBlockedPage(t *testing.T) {
+	withZeroAliceswChapterInterval(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`<!doctype html><html><body>
+<script>let msg = "访问异常，请稍后再试，请于 2026-08-31 18:28:52 后再试";</script>
+</body></html>`))
+	}))
+	defer server.Close()
+
+	cfg := config.DefaultConfig().ResolveSiteConfig("alicesw")
+	site := NewAliceswSite(cfg)
+	site.base = server.URL
+
+	_, err := site.FetchChapter(context.Background(), "34479", model.Chapter{ID: "36074-38005042dca69"})
+	if err == nil {
+		t.Fatalf("expected blocked page to return an error")
+	}
+	if !strings.Contains(err.Error(), "风控拦截") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestAliceswWaitChapterSlotSerializesRequests(t *testing.T) {
+	withZeroAliceswChapterInterval(t)
+	original := aliceswChapterMinInterval
+	aliceswChapterMinInterval = 200 * time.Millisecond
+	t.Cleanup(func() { aliceswChapterMinInterval = original })
+
+	site := NewAliceswSite(config.DefaultConfig().ResolveSiteConfig("alicesw"))
+	start := time.Now()
+	var wg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := site.waitChapterSlot(context.Background()); err != nil {
+				t.Errorf("waitChapterSlot: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+	elapsed := time.Since(start)
+	if elapsed < 3*200*time.Millisecond {
+		t.Fatalf("expected 4 slot acquisitions to be serialized over >=3 intervals, got %v", elapsed)
 	}
 }
 
