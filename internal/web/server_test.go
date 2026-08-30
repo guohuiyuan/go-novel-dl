@@ -19,6 +19,7 @@ import (
 	"github.com/guohuiyuan/go-novel-dl/internal/config"
 	"github.com/guohuiyuan/go-novel-dl/internal/model"
 	"github.com/guohuiyuan/go-novel-dl/internal/site"
+	"github.com/guohuiyuan/go-novel-dl/internal/store"
 	"github.com/guohuiyuan/go-novel-dl/internal/ui"
 )
 
@@ -615,6 +616,54 @@ func TestBookDetailEndpointAllowsDownloadOnlySite(t *testing.T) {
 	}
 	if payload.Book.Site != "westnovel" || payload.Book.Title != "Download Only" {
 		t.Fatalf("unexpected book detail: %+v", payload.Book)
+	}
+}
+
+func TestBookCachedEndpoint(t *testing.T) {
+	service := newTestService()
+	service.Runtime.Library = store.NewLibrary(t.TempDir())
+	router := newRouter(service)
+
+	fetchCached := func(query string) (int, bool) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, RoutePrefix+"/api/books/cached?"+query, nil)
+		resp := httptest.NewRecorder()
+		router.ServeHTTP(resp, req)
+		var payload struct {
+			Cached bool `json:"cached"`
+		}
+		if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+			t.Fatalf("decode cached payload: %v", err)
+		}
+		return resp.Code, payload.Cached
+	}
+
+	if code, cached := fetchCached("site=esjzone&book_id=001"); code != http.StatusOK || cached {
+		t.Fatalf("expected not cached initially, got code=%d cached=%v", code, cached)
+	}
+
+	book := &model.Book{
+		Site:   "esjzone",
+		ID:     "001",
+		Title:  "Test Book",
+		Author: "Tester",
+		Chapters: []model.Chapter{
+			{ID: "1", Title: "One", Content: "Alpha", Order: 1, Downloaded: true},
+		},
+	}
+	if err := service.Runtime.Library.SaveBookStage("esjzone", "raw", book); err != nil {
+		t.Fatalf("save book: %v", err)
+	}
+
+	if code, cached := fetchCached("site=esjzone&book_id=001"); code != http.StatusOK || !cached {
+		t.Fatalf("expected cached after save, got code=%d cached=%v", code, cached)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, RoutePrefix+"/api/books/cached?site=esjzone", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing book_id, got %d", resp.Code)
 	}
 }
 

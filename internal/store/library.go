@@ -152,6 +152,28 @@ func (l *Library) SaveBookStage(site, stage string, book *model.Book) error {
 	return nil
 }
 
+// BookCached 判断服务器本地是否已缓存该书。
+// 只查书籍目录下的元数据文件（book_info.*.json），不读取章节，适合轻量状态查询。
+func (l *Library) BookCached(site, bookID string) (bool, error) {
+	if site == "" || bookID == "" {
+		return false, nil
+	}
+	entries, err := os.ReadDir(l.bookDir(site, bookID))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if !entry.IsDir() && strings.HasPrefix(name, "book_info.") && strings.HasSuffix(name, ".json") {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (l *Library) LoadBook(site, bookID, stage string) (*model.Book, string, error) {
 	if site == "" || bookID == "" {
 		return nil, "", fmt.Errorf("site and book id are required")

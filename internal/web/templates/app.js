@@ -1483,12 +1483,14 @@ function renderDetail(result, variant, detail, loading, errorMessage) {
 
   const actions = document.createElement("div");
   actions.className = "detail-actions";
-  const downloadButton = document.createElement("button");
-  downloadButton.type = "button";
-  downloadButton.className = "download-button";
-  downloadButton.textContent = "下载到本地";
-  downloadButton.addEventListener("click", () => void startDownloadTask({ site: activeVariant.site, book_id: activeVariant.book_id }, downloadButton));
-  actions.appendChild(downloadButton);
+  const cacheButton = document.createElement("button");
+  cacheButton.type = "button";
+  cacheButton.className = "tool-button";
+  cacheButton.textContent = "缓存";
+  cacheButton.title = "缓存（下载）到服务器本地";
+  cacheButton.addEventListener("click", () => void handleCacheButtonClick(cacheButton, activeVariant.site, activeVariant.book_id));
+  actions.appendChild(cacheButton);
+  void refreshCacheButtonState(cacheButton, activeVariant.site, activeVariant.book_id);
 
   const exportButton = document.createElement("button");
   exportButton.type = "button";
@@ -2543,6 +2545,34 @@ function renderResultMeta() {
   resultMetaNode.textContent = `关键词“${appState.lastKeyword}”当前显示 ${start}-${end}，共 ${totalLabel(appState.total, appState.totalExact)} 条。`;
 }
 
+// bookCached 查询服务器本地是否已缓存该书（轻量接口，只查元数据）。
+async function bookCached(site, bookID) {
+  if (!site || !bookID) return false;
+  try {
+    const response = await fetch(`${root}/api/books/cached?site=${encodeURIComponent(site)}&book_id=${encodeURIComponent(bookID)}`);
+    if (!response.ok) return false;
+    const payload = await response.json();
+    return !!payload.cached;
+  } catch { return false; }
+}
+
+// refreshCacheButtonState 打开详情时刷新「缓存」按钮的已缓存状态。
+async function refreshCacheButtonState(button, site, bookID) {
+  if (!button) return;
+  const cached = await bookCached(site, bookID);
+  if (!button.isConnected) return;
+  button.textContent = cached ? "已缓存" : "缓存";
+  button.dataset.cached = cached ? "1" : "0";
+  button.title = cached ? "已缓存到服务器本地，点击可重新缓存" : "缓存（下载）到服务器本地";
+}
+
+// handleCacheButtonClick 点击「缓存」按钮：已缓存时二次确认后允许重新缓存。
+async function handleCacheButtonClick(button, site, bookID) {
+  const cached = await bookCached(site, bookID);
+  if (cached && !window.confirm("这本书已缓存到服务器本地，确定要重新缓存吗？")) return;
+  await startDownloadTask({ site, book_id: bookID }, button, { buttonLoadingText: "正在缓存..." });
+}
+
 async function startDownloadTask(target, button, options = {}) {
   const site = target.site || (target.primary && target.primary.site);
   const bookID = target.book_id || (target.primary && target.primary.book_id);
@@ -2550,7 +2580,7 @@ async function startDownloadTask(target, button, options = {}) {
 
   const taskTarget = options.target === "export" ? "export" : "local";
   const originalText = button ? button.textContent : "";
-  if (button) { button.disabled = true; button.textContent = taskTarget === "export" ? "正在导出..." : "正在下载..."; }
+  if (button) { button.disabled = true; button.textContent = options.buttonLoadingText || (taskTarget === "export" ? "正在导出..." : "正在下载..."); }
 
   try {
     const body = { site, book_id: bookID, target: taskTarget };

@@ -38,3 +38,31 @@ func TestLibraryUsesSQLiteForChapters(t *testing.T) {
 		t.Fatalf("unexpected loaded book: stage=%s chapters=%+v", stage, loaded.Chapters)
 	}
 }
+
+func TestLibraryBookCached(t *testing.T) {
+	base := t.TempDir()
+	library := NewLibrary(base)
+	now := time.Now().UTC().Round(time.Second)
+	book := &model.Book{
+		Site:         "esjzone",
+		ID:           "001",
+		Title:        "Test Book",
+		Author:       "Tester",
+		DownloadedAt: now,
+		UpdatedAt:    now,
+		Chapters:     []model.Chapter{{ID: "1", Title: "One", Content: "Alpha", Order: 1, Downloaded: true}},
+	}
+
+	if cached, err := library.BookCached("esjzone", "001"); err != nil || cached {
+		t.Fatalf("expected not cached before save, got cached=%v err=%v", cached, err)
+	}
+	if err := library.SaveBookStage("esjzone", "raw", book); err != nil {
+		t.Fatalf("save book: %v", err)
+	}
+	if cached, err := library.BookCached("esjzone", "001"); err != nil || !cached {
+		t.Fatalf("expected cached after save, got cached=%v err=%v", cached, err)
+	}
+	if cached, err := library.BookCached("esjzone", "missing"); err != nil || cached {
+		t.Fatalf("expected not cached for missing book, got cached=%v err=%v", cached, err)
+	}
+}

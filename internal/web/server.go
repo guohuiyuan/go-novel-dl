@@ -530,6 +530,20 @@ func newRouter(service *Service) *gin.Engine {
 		chapterPageSize := queryPositiveInt(c, "chapter_page_size", defaultWebChapterPageSize)
 		c.JSON(http.StatusOK, paginateBookDetail(book, chapterPage, chapterPageSize))
 	})
+	group.GET("/api/books/cached", func(c *gin.Context) {
+		siteKey := strings.TrimSpace(c.Query("site"))
+		bookID := strings.TrimSpace(c.Query("book_id"))
+		if siteKey == "" || bookID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "site and book_id are required"})
+			return
+		}
+		cached, err := service.bookCachedStatus(siteKey, bookID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"cached": cached})
+	})
 	group.POST("/api/search", func(c *gin.Context) {
 		var req searchRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -1224,6 +1238,14 @@ func (s *Service) newTaskRuntime(taskID string) *app.Runtime {
 		taskID: taskID,
 	}
 	return runtime
+}
+
+// bookCachedStatus 轻量查询本地缓存状态（不读取章节内容）。
+func (s *Service) bookCachedStatus(siteKey, bookID string) (bool, error) {
+	if s.Runtime == nil || s.Runtime.Library == nil {
+		return false, fmt.Errorf("local library is not available")
+	}
+	return s.Runtime.Library.BookCached(siteKey, bookID)
 }
 
 func (s *Service) localBookDetail(siteKey, bookID string) (*model.Book, error) {
