@@ -100,7 +100,7 @@ func searchTimeoutSecondsForSites(sites []string) float64 {
 			if timeout < 90 {
 				timeout = 90
 			}
-		case "tongrenshe", "n8novel", "biquge5", "piaotia", "qbtr":
+		case "tongrenshe", "n8novel", "biquge345", "biquge5", "piaotia", "qbtr":
 			if timeout < 45 {
 				timeout = 45
 			}
@@ -165,7 +165,7 @@ func interactiveSiteVisible(descriptor site.SiteDescriptor) bool {
 		return false
 	}
 	switch strings.ToLower(strings.TrimSpace(descriptor.Key)) {
-	case "biquge345", "tongrenshe":
+	case "tongrenshe":
 		return false
 	default:
 		return true

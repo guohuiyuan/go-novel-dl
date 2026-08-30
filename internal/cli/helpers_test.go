@@ -39,7 +39,7 @@ func TestInteractiveSitesMatchWebVisibleSources(t *testing.T) {
 
 	sites := interactiveSites(runtime)
 
-	if strings.Join(sites, ",") != "linovelib,ruochu" {
+	if strings.Join(sites, ",") != "biquge345,linovelib,ruochu" {
 		t.Fatalf("unexpected interactive sites: %v", sites)
 	}
 }
@@ -53,6 +53,9 @@ func TestSearchTimeoutSecondsForSites(t *testing.T) {
 	}
 	if got := searchTimeoutSecondsForSites([]string{"qbtr"}); got != 45 {
 		t.Fatalf("expected qbtr timeout, got %v", got)
+	}
+	if got := searchTimeoutSecondsForSites([]string{"biquge345"}); got != 45 {
+		t.Fatalf("expected biquge345 timeout, got %v", got)
 	}
 	if got := searchTimeoutSecondsForSites([]string{"tianyabooks"}); got != 180 {
 		t.Fatalf("expected tianyabooks timeout, got %v", got)

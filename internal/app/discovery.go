@@ -241,6 +241,9 @@ func defaultHybridSearchPerSiteTimeout(siteKey string, multiSite bool) time.Dura
 		return 3 * time.Minute
 	case "esjzone":
 		return 50 * time.Second
+	case "biquge345":
+		// 搜索被软限流，空结果要等满冷却窗口后重试，单渠道需要更长时间。
+		return 40 * time.Second
 	case "tongrenshe", "n8novel", "biquge5", "piaotia", "qbtr":
 		return 45 * time.Second
 	default:
