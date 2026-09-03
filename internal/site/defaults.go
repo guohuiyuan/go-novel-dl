@@ -33,6 +33,7 @@ var defaultAvailableSiteKeys = []string{
 	"esjzone",
 	"fsshu",
 	"ltxswu",
+	"fanqienovel",
 }
 
 func DefaultAvailableSiteKeys() []string {

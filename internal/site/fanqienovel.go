@@ -1,11 +1,15 @@
 package site
 
 import (
+	"bytes"
 	"context"
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"net/http/cookiejar"
+	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
@@ -13,6 +17,7 @@ import (
 	"time"
 
 	"golang.org/x/net/html"
+	charsetpkg "golang.org/x/net/html/charset"
 
 	"github.com/guohuiyuan/go-novel-dl/internal/config"
 	"github.com/guohuiyuan/go-novel-dl/internal/model"
@@ -24,14 +29,18 @@ var (
 	fanqieInitialStateRe = regexp.MustCompile(`window\.__INITIAL_STATE__\s*=\s*({.*});`)
 )
 
+const fanqieChapterAPI = "http://101.35.133.34:5000/api/raw_full"
+
 //go:embed resources/fanqienovel.json
 var fanqieMapRaw string
 
 var fanqieMap = mustLoadSubstMap(fanqieMapRaw)
 
 type FanqieNovelSite struct {
-	cfg  config.ResolvedSiteConfig
-	html HTMLSite
+	cfg          config.ResolvedSiteConfig
+	html         HTMLSite
+	client       *http.Client
+	searchURL    string
 }
 
 func NewFanqieNovelSite(cfg config.ResolvedSiteConfig) *FanqieNovelSite {
@@ -39,13 +48,20 @@ func NewFanqieNovelSite(cfg config.ResolvedSiteConfig) *FanqieNovelSite {
 	if cfg.General.Timeout > 0 {
 		timeout = time.Duration(cfg.General.Timeout * float64(time.Second))
 	}
-	return &FanqieNovelSite{cfg: cfg, html: NewHTMLSite(&http.Client{Timeout: timeout})}
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Timeout: timeout, Jar: jar}
+	return &FanqieNovelSite{
+		cfg:       cfg,
+		html:      NewHTMLSite(client),
+		client:    client,
+		searchURL: "http://101.35.133.34:5000/api/search",
+	}
 }
 
 func (s *FanqieNovelSite) Key() string         { return "fanqienovel" }
 func (s *FanqieNovelSite) DisplayName() string { return "FanqieNovel" }
 func (s *FanqieNovelSite) Capabilities() Capabilities {
-	return Capabilities{Download: true, Search: false, Login: false}
+	return Capabilities{Download: true, Search: true, Login: false}
 }
 
 func (s *FanqieNovelSite) ResolveURL(rawURL string) (*ResolvedURL, bool) {
@@ -83,7 +99,8 @@ func (s *FanqieNovelSite) Download(ctx context.Context, ref model.BookRef) (*mod
 }
 
 func (s *FanqieNovelSite) DownloadPlan(ctx context.Context, ref model.BookRef) (*model.Book, error) {
-	markup, err := s.html.Get(ctx, fmt.Sprintf("https://fanqienovel.com/page/%s", ref.BookID))
+	pageURL := fmt.Sprintf("https://fanqienovel.com/page/%s", ref.BookID)
+	markup, err := s.getHTML(ctx, pageURL, "")
 	if err != nil {
 		return nil, err
 	}
@@ -107,44 +124,23 @@ func (s *FanqieNovelSite) DownloadPlan(ctx context.Context, ref model.BookRef) (
 		UpdatedAt:    time.Now().UTC(),
 	}
 	book.Tags = fanqieCategoryTags(stringValue(page["categoryV2"]))
-	volumeNames := stringSliceValue(page["volumeNameList"])
-	chapterGroups := sliceValue(page["chapterListWithVolume"])
-	chapters := make([]model.Chapter, 0)
-	for i, group := range chapterGroups {
-		items := sliceValue(group)
-		if len(items) == 0 {
-			continue
-		}
-		volumeName := fmt.Sprintf("卷 %d", i+1)
-		if i < len(volumeNames) && strings.TrimSpace(volumeNames[i]) != "" {
-			volumeName = volumeNames[i]
-		}
-		mapped := make([]map[string]any, 0, len(items))
-		for _, item := range items {
-			if m := mapValue(item); m != nil {
-				mapped = append(mapped, m)
-			}
-		}
-		sort.SliceStable(mapped, func(i, j int) bool {
-			return fanqieSortKey(mapped[i]) < fanqieSortKey(mapped[j])
-		})
-		for _, item := range mapped {
-			cid := stringValue(item["itemId"])
-			if cid == "" {
-				continue
-			}
-			locked := boolValue(item["isChapterLock"])
-			if locked && !s.cfg.General.FetchInaccessible {
-				continue
-			}
-			chapters = append(chapters, model.Chapter{
-				ID:     cid,
-				Title:  stringValue(item["title"]),
-				URL:    fmt.Sprintf("https://fanqienovel.com/reader/%s", cid),
-				Volume: volumeName,
-				Order:  len(chapters) + 1,
-			})
-		}
+
+	// The book page only renders the first visible volume. The directory API
+	// returns the complete list (every volume), so it is the source of truth for
+	// the download plan. Chapter content is fetched through the public helper
+	// API, which already returns decoded text, so locked catalog chapters can
+	// still be downloaded without solving the site's captcha.
+	dirBody, err := s.getJSON(
+		ctx,
+		fmt.Sprintf("https://fanqienovel.com/api/reader/directory/detail?bookId=%s", ref.BookID),
+		fmt.Sprintf("https://fanqienovel.com/page/%s", ref.BookID),
+	)
+	if err != nil {
+		return nil, err
+	}
+	chapters, err := s.parseDirectory(dirBody)
+	if err != nil {
+		return nil, err
 	}
 	book.Chapters = applyChapterRange(chapters, ref)
 	return book, nil
@@ -152,23 +148,24 @@ func (s *FanqieNovelSite) DownloadPlan(ctx context.Context, ref model.BookRef) (
 
 func (s *FanqieNovelSite) FetchChapter(ctx context.Context, bookID string, chapter model.Chapter) (model.Chapter, error) {
 	_ = bookID
-	markup, err := s.html.Get(ctx, fmt.Sprintf("https://fanqienovel.com/reader/%s", chapter.ID))
+	body, err := s.getJSON(ctx, fmt.Sprintf("%s?item_id=%s", fanqieChapterAPI, chapter.ID), "")
 	if err != nil {
 		return chapter, err
 	}
-	state, err := extractFanqieInitialState(markup)
-	if err != nil {
+	var payload struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+		Data struct {
+			Content string `json:"content"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
 		return chapter, err
 	}
-	reader := mapValue(state, "reader")
-	if reader == nil {
-		return chapter, fmt.Errorf("fanqienovel reader state not found")
+	if payload.Code != 200 {
+		return chapter, fmt.Errorf("fanqienovel chapter api: %s", payload.Message)
 	}
-	chapterData := mapValue(reader, "chapterData")
-	if chapterData == nil {
-		return chapter, fmt.Errorf("fanqienovel chapterData not found")
-	}
-	rawContent := stringValue(chapterData["content"])
+	rawContent := payload.Data.Content
 	if strings.TrimSpace(rawContent) == "" {
 		return chapter, fmt.Errorf("fanqienovel chapter content not found")
 	}
@@ -178,8 +175,8 @@ func (s *FanqieNovelSite) FetchChapter(ctx context.Context, bookID string, chapt
 	}
 	paragraphs := make([]string, 0)
 	for _, p := range findAll(doc, func(n *html.Node) bool { return n.Type == html.ElementNode && n.Data == "p" }) {
-		text := applySubstMap(strings.TrimSpace(nodeText(p)), fanqieMap)
-		text = cleanText(text)
+		text := cleanText(nodeText(p))
+		text = fanqieStripVoiceMarkers(text)
 		if text != "" {
 			paragraphs = append(paragraphs, text)
 		}
@@ -187,19 +184,262 @@ func (s *FanqieNovelSite) FetchChapter(ctx context.Context, bookID string, chapt
 	if len(paragraphs) == 0 {
 		return chapter, fmt.Errorf("fanqienovel parsed paragraph content is empty")
 	}
-	if title := stringValue(chapterData["title"]); title != "" {
-		chapter.Title = title
-	}
 	chapter.Content = strings.Join(paragraphs, "\n")
 	chapter.Downloaded = true
 	return chapter, nil
 }
 
 func (s *FanqieNovelSite) Search(ctx context.Context, keyword string, limit int) ([]model.SearchResult, error) {
-	_ = ctx
-	_ = keyword
-	_ = limit
-	return nil, fmt.Errorf("fanqienovel search is not implemented yet")
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" {
+		return nil, fmt.Errorf("fanqienovel search keyword is empty")
+	}
+	if limit <= 0 {
+		limit = 10
+	}
+
+	// The official web search endpoint is protected by a slide captcha that
+	// cannot be solved server-side. This mirrors the public helper service used
+	// by the reference fanqienovel-downloader project.
+	endpoint := s.searchURL + "?key=" + url.QueryEscape(keyword) + "&offset=0"
+	body, err := s.getJSON(ctx, endpoint, "")
+	if err != nil {
+		return nil, err
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, err
+	}
+	if int64Value(payload["code"]) != 200 {
+		return nil, fmt.Errorf("fanqienovel search api: %s", stringValue(payload["message"]))
+	}
+	data := mapValue(payload, "data")
+	if data == nil {
+		return nil, nil
+	}
+
+	results := make([]model.SearchResult, 0, limit)
+	for _, tabRaw := range sliceValue(data["search_tabs"]) {
+		tab := mapValue(tabRaw)
+		for _, itemRaw := range sliceValue(tab["data"]) {
+			item := mapValue(itemRaw)
+			books := sliceValue(item["book_data"])
+			if len(books) == 0 {
+				continue
+			}
+			book := mapValue(books[0])
+			bookID := stringValue(book["book_id"])
+			title := stringValue(book["book_name"])
+			if title == "" {
+				title = stringValue(book["raw_book_name"])
+			}
+			if bookID == "" || title == "" {
+				continue
+			}
+			author := stringValue(book["author"])
+			description := stringValue(book["abstract"])
+			if description == "" {
+				description = stringValue(book["book_abstract_v2"])
+			}
+			cover := stringValue(book["thumb_url"])
+			if cover == "" {
+				cover = stringValue(book["horiz_thumb_url"])
+			}
+			results = append(results, model.SearchResult{
+				Site:          s.Key(),
+				BookID:        bookID,
+				Title:         title,
+				Author:        author,
+				Description:   description,
+				URL:           fmt.Sprintf("https://fanqienovel.com/page/%s", bookID),
+				LatestChapter: stringValue(book["last_chapter_title"]),
+				CoverURL:      cover,
+			})
+			if len(results) >= limit {
+				return results, nil
+			}
+		}
+	}
+	return results, nil
+}
+
+type fanqieDirectoryChapter struct {
+	ItemID           string `json:"itemId"`
+	Title            string `json:"title"`
+	NeedPay          int    `json:"needPay"`
+	IsChapterLock    bool   `json:"isChapterLock"`
+	RealChapterOrder string `json:"realChapterOrder"`
+}
+
+type fanqieDirectoryResponse struct {
+	Data struct {
+		VolumeNameList        []string                   `json:"volumeNameList"`
+		ChapterListWithVolume [][]fanqieDirectoryChapter `json:"chapterListWithVolume"`
+	} `json:"data"`
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+func (s *FanqieNovelSite) parseDirectory(body []byte) ([]model.Chapter, error) {
+	var dir fanqieDirectoryResponse
+	if err := json.Unmarshal(body, &dir); err != nil {
+		return nil, err
+	}
+	if dir.Code != 0 {
+		return nil, fmt.Errorf("fanqienovel directory api: %s", dir.Message)
+	}
+	chapters := make([]model.Chapter, 0)
+	for volIdx, group := range dir.Data.ChapterListWithVolume {
+		volumeName := fmt.Sprintf("第%d卷", volIdx+1)
+		if volIdx < len(dir.Data.VolumeNameList) && strings.TrimSpace(dir.Data.VolumeNameList[volIdx]) != "" {
+			volumeName = dir.Data.VolumeNameList[volIdx]
+		}
+		for _, item := range group {
+			if strings.TrimSpace(item.ItemID) == "" {
+				continue
+			}
+			chapters = append(chapters, model.Chapter{
+				ID:     item.ItemID,
+				Title:  item.Title,
+				URL:    fmt.Sprintf("https://fanqienovel.com/reader/%s", item.ItemID),
+				Volume: volumeName,
+				Order:  fanqieChapterNumber(item.RealChapterOrder),
+			})
+		}
+	}
+	sort.SliceStable(chapters, func(i, j int) bool {
+		oi, oj := chapters[i].Order, chapters[j].Order
+		if oi == 0 || oj == 0 {
+			return i < j
+		}
+		return oi < oj
+	})
+	return chapters, nil
+}
+
+func fanqieChapterNumber(raw string) int {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+func (s *FanqieNovelSite) getJSON(ctx context.Context, rawURL, referer string) ([]byte, error) {
+	var lastErr error
+	backoff := 400 * time.Millisecond
+	for attempt := 0; attempt < 3; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("User-Agent", defaultBrowserUserAgent)
+		req.Header.Set("Accept", "application/json, text/plain, */*")
+		req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9")
+		if referer != "" {
+			req.Header.Set("Referer", referer)
+		}
+		resp, err := s.client.Do(req)
+		if err != nil {
+			lastErr = err
+			if err := sleepContext(ctx, backoff); err != nil {
+				return nil, err
+			}
+			backoff *= 2
+			continue
+		}
+		status := resp.StatusCode
+		body, readErr := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if readErr != nil {
+			lastErr = readErr
+			if err := sleepContext(ctx, backoff); err != nil {
+				return nil, err
+			}
+			backoff *= 2
+			continue
+		}
+		if status == 403 && referer != "" && attempt == 0 {
+			_, _ = s.html.Get(ctx, referer)
+			lastErr = fmt.Errorf("http %d for %s", status, rawURL)
+			if err := sleepContext(ctx, backoff); err != nil {
+				return nil, err
+			}
+			backoff *= 2
+			continue
+		}
+		if status < 200 || status >= 300 {
+			return nil, fmt.Errorf("http %d for %s", status, rawURL)
+		}
+		return body, nil
+	}
+	return nil, lastErr
+}
+
+func (s *FanqieNovelSite) getHTML(ctx context.Context, rawURL, referer string) (string, error) {
+	var lastErr error
+	backoff := 500 * time.Millisecond
+	for attempt := 0; attempt < 4; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+		if err != nil {
+			return "", err
+		}
+		req.Header.Set("User-Agent", defaultBrowserUserAgent)
+		req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
+		req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+		req.Header.Set("Cache-Control", "no-cache")
+		req.Header.Set("Upgrade-Insecure-Requests", "1")
+		if referer != "" {
+			req.Header.Set("Referer", referer)
+		}
+		resp, err := s.client.Do(req)
+		if err != nil {
+			lastErr = err
+			if err := sleepContext(ctx, backoff); err != nil {
+				return "", err
+			}
+			backoff *= 2
+			continue
+		}
+		status := resp.StatusCode
+		contentType := resp.Header.Get("Content-Type")
+		body, readErr := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if readErr != nil {
+			lastErr = readErr
+			if err := sleepContext(ctx, backoff); err != nil {
+				return "", err
+			}
+			backoff *= 2
+			continue
+		}
+		if status == 403 && referer != "" {
+			// Re-fetch the book page to refresh anti-bot cookies, then retry
+			// after backoff. Some 403 responses are transient WAF blocks.
+			_, _ = s.html.Get(ctx, referer)
+			lastErr = fmt.Errorf("http %d for %s", status, rawURL)
+			if err := sleepContext(ctx, backoff); err != nil {
+				return "", err
+			}
+			backoff *= 2
+			continue
+		}
+		if status < 200 || status >= 300 {
+			return "", fmt.Errorf("http %d for %s", status, rawURL)
+		}
+		reader, err := charsetpkg.NewReader(bytes.NewReader(body), contentType)
+		if err == nil {
+			if decoded, derr := io.ReadAll(reader); derr == nil {
+				return string(decoded), nil
+			}
+		}
+		return string(body), nil
+	}
+	return "", lastErr
 }
 
 func extractFanqieInitialState(markup string) (map[string]any, error) {
@@ -440,11 +680,10 @@ func fanqieCategoryTags(raw string) []string {
 	return tags
 }
 
-func fanqieSortKey(item map[string]any) int64 {
-	if value := int64Value(item["realChapterOrder"]); value != 0 {
-		return value
-	}
-	return int64Value(item["itemId"])
+var fanqieVoiceMarkerRe = regexp.MustCompile(`\{!--\s*PGC_VOICE:.*?--\}`)
+
+func fanqieStripVoiceMarkers(text string) string {
+	return strings.TrimSpace(fanqieVoiceMarkerRe.ReplaceAllString(text, ""))
 }
 
 func mapValue(value any, keys ...string) map[string]any {
