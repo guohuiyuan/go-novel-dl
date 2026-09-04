@@ -200,64 +200,100 @@ func (s *FanqieNovelSite) Search(ctx context.Context, keyword string, limit int)
 
 	// The official web search endpoint is protected by a slide captcha that
 	// cannot be solved server-side. This mirrors the public helper service used
-	// by the reference fanqienovel-downloader project.
-	endpoint := s.searchURL + "?key=" + url.QueryEscape(keyword) + "&offset=0"
-	body, err := s.getJSON(ctx, endpoint, "")
-	if err != nil {
-		return nil, err
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return nil, err
-	}
-	if int64Value(payload["code"]) != 200 {
-		return nil, fmt.Errorf("fanqienovel search api: %s", stringValue(payload["message"]))
-	}
-	data := mapValue(payload, "data")
-	if data == nil {
-		return nil, nil
-	}
-
+	// by the reference fanqienovel-downloader project. The helper treats its own
+	// result as a fixed-size page, so walk the offsets until we either satisfy
+	// the requested limit or the helper reports there are no more books.
 	results := make([]model.SearchResult, 0, limit)
-	for _, tabRaw := range sliceValue(data["search_tabs"]) {
-		tab := mapValue(tabRaw)
-		for _, itemRaw := range sliceValue(tab["data"]) {
-			item := mapValue(itemRaw)
-			books := sliceValue(item["book_data"])
-			if len(books) == 0 {
+	seen := make(map[string]bool)
+	const helperPageSize = 10
+	const maxPages = 12
+	for page := 1; page <= maxPages && len(results) < limit; page++ {
+		if ctx.Err() != nil {
+			break
+		}
+		offset := (page - 1) * helperPageSize
+		endpoint := s.searchURL + "?key=" + url.QueryEscape(keyword) + "&offset=" + strconv.Itoa(offset)
+		body, err := s.getJSON(ctx, endpoint, "")
+		if err != nil {
+			if len(results) > 0 {
+				break
+			}
+			return nil, err
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(body, &payload); err != nil {
+			if len(results) > 0 {
+				break
+			}
+			return nil, err
+		}
+		if int64Value(payload["code"]) != 200 {
+			if len(results) > 0 {
+				break
+			}
+			return nil, fmt.Errorf("fanqienovel search api: %s", stringValue(payload["message"]))
+		}
+		data := mapValue(payload, "data")
+		if data == nil {
+			break
+		}
+
+		before := len(results)
+		hasMore := false
+		for _, tabRaw := range sliceValue(data["search_tabs"]) {
+			tab := mapValue(tabRaw)
+			tabData := sliceValue(tab["data"])
+			if len(tabData) == 0 {
 				continue
 			}
-			book := mapValue(books[0])
-			bookID := stringValue(book["book_id"])
-			title := stringValue(book["book_name"])
-			if title == "" {
-				title = stringValue(book["raw_book_name"])
+			if more, ok := tab["has_more"].(bool); ok {
+				hasMore = more
 			}
-			if bookID == "" || title == "" {
-				continue
+			for _, itemRaw := range tabData {
+				item := mapValue(itemRaw)
+				books := sliceValue(item["book_data"])
+				if len(books) == 0 {
+					continue
+				}
+				book := mapValue(books[0])
+				bookID := stringValue(book["book_id"])
+				title := stringValue(book["book_name"])
+				if title == "" {
+					title = stringValue(book["raw_book_name"])
+				}
+				if bookID == "" || title == "" || seen[bookID] {
+					continue
+				}
+				seen[bookID] = true
+				author := stringValue(book["author"])
+				description := stringValue(book["abstract"])
+				if description == "" {
+					description = stringValue(book["book_abstract_v2"])
+				}
+				cover := stringValue(book["thumb_url"])
+				if cover == "" {
+					cover = stringValue(book["horiz_thumb_url"])
+				}
+				results = append(results, model.SearchResult{
+					Site:          s.Key(),
+					BookID:        bookID,
+					Title:         title,
+					Author:        author,
+					Description:   description,
+					URL:           fmt.Sprintf("https://fanqienovel.com/page/%s", bookID),
+					LatestChapter: stringValue(book["last_chapter_title"]),
+					CoverURL:      cover,
+				})
+				if len(results) >= limit {
+					return results, nil
+				}
 			}
-			author := stringValue(book["author"])
-			description := stringValue(book["abstract"])
-			if description == "" {
-				description = stringValue(book["book_abstract_v2"])
-			}
-			cover := stringValue(book["thumb_url"])
-			if cover == "" {
-				cover = stringValue(book["horiz_thumb_url"])
-			}
-			results = append(results, model.SearchResult{
-				Site:          s.Key(),
-				BookID:        bookID,
-				Title:         title,
-				Author:        author,
-				Description:   description,
-				URL:           fmt.Sprintf("https://fanqienovel.com/page/%s", bookID),
-				LatestChapter: stringValue(book["last_chapter_title"]),
-				CoverURL:      cover,
-			})
-			if len(results) >= limit {
-				return results, nil
-			}
+			// The first tab that carries results is the primary book list; the
+			// remaining tabs are media/community views without novels.
+			break
+		}
+		if len(results) == before || !hasMore {
+			break
 		}
 	}
 	return results, nil
