@@ -24,6 +24,7 @@ import (
 
 var (
 	linovelibBookRe        = regexp.MustCompile(`^/novel/(\d+)\.html$`)
+	linovelibBookIDRe      = regexp.MustCompile(`/novel/(\d+)`)
 	linovelibVolRe         = regexp.MustCompile(`/novel/\d+/(vol_\d+)\.html`)
 	linovelibChapterRe     = regexp.MustCompile(`^/novel/(\d+)/(\d+)(?:_\d+)?\.html$`)
 	linovelibChapterPageRe = regexp.MustCompile(`^/novel/(\d+)/(\d+)(?:_(\d+))?\.html$`)
@@ -474,8 +475,8 @@ func (s *LinovelibSite) Search(ctx context.Context, keyword string, limit int) (
 		limit = 30
 	}
 
-	// 真实搜索接口在移动站 bilinovel.com：先完成 search_guard 反爬验证，
-	// 拿到 jieqiSearchTicket 票据后再 POST 搜索。若接口不可用则回退文库爬虫。
+	// 真实搜索接口在 PC 主站 linovelib.com/S6/：先完成 search_guard 反爬验证，
+	// 拿到 jieqiSearchTicket 票据后再 POST 搜索。命中单个书时服务端直接返回该书页。
 	if err := s.searchGuard(ctx); err != nil {
 		return nil, err
 	}
@@ -483,26 +484,25 @@ func (s *LinovelibSite) Search(ctx context.Context, keyword string, limit int) (
 	if err != nil {
 		return nil, err
 	}
-	results, err := parseLinovelibSearchResults(markup, limit)
-	if err != nil {
-		return nil, err
-	}
-	if len(results) > 0 {
+	if results := parseLinovelibS6SearchResults(markup, limit); len(results) > 0 {
 		return results, nil
 	}
-	// 唯一匹配时 bilinovel 直接跳到书详情页（页面带 og:novel:book_name），按单书返回
+	if results, err := parseLinovelibSearchResults(markup, limit); err == nil && len(results) > 0 {
+		return results, nil
+	}
+	// 唯一匹配时站点直接跳到书详情页（页面带 og:novel:book_name），按单书返回
 	if item, ok := parseLinovelibSingleBook(markup); ok {
 		return []model.SearchResult{item}, nil
 	}
 	return s.searchFromIndex(ctx, keyword, limit)
 }
 
-// searchGuard 执行 bilinovel 的 search_guard 反爬流程：
+// searchGuard 执行 linovelib.com/S6/ 的 search_guard 反爬流程：
 //  1. 加载搜索页，拿基础 Cookie（night/user_tz）
 //  2. 请求 ?search_guard=css / ?search_guard=js（js 响应里硬编码 jieqiSearchJs 值，需手动种 Cookie）
 //  3. 连续 3 次 ?search_guard=redeem，服务端校验后下发 jieqiSearchTicket
 func (s *LinovelibSite) searchGuard(ctx context.Context) error {
-	const base = "https://www.bilinovel.com"
+	const base = "https://www.linovelib.com"
 	headers := map[string]string{"User-Agent": linovelibChromeUA}
 	get := func(rawURL string) (string, error) {
 		markup, err := s.html.GetWithHeaders(ctx, rawURL, headers)
@@ -511,23 +511,23 @@ func (s *LinovelibSite) searchGuard(ctx context.Context) error {
 		}
 		return markup, nil
 	}
-	if _, err := get(base + "/search.html"); err != nil {
+	if _, err := get(base + "/S6/"); err != nil {
 		return err
 	}
-	if _, err := get(base + "/search.html?search_guard=css"); err != nil {
+	if _, err := get(base + "/S6/?search_guard=css"); err != nil {
 		return err
 	}
-	js, err := get(base + "/search.html?search_guard=js")
+	js, err := get(base + "/S6/?search_guard=js")
 	if err != nil {
 		return err
 	}
 	if m := linovelibSearchJSRe.FindStringSubmatch(js); len(m) == 2 {
 		u, _ := url.Parse(base)
-		s.jar.SetCookies(u, []*http.Cookie{{Name: "jieqiSearchJs", Value: m[1], Domain: "bilinovel.com", Path: "/"}})
+		s.jar.SetCookies(u, []*http.Cookie{{Name: "jieqiSearchJs", Value: m[1], Domain: "linovelib.com", Path: "/"}})
 	}
 	for i := 0; i < 3; i++ {
 		r := strconv.FormatInt(time.Now().UnixMilli(), 10) + strconv.Itoa(i)
-		if _, err := get(base + "/search.html?search_guard=redeem&r=" + r); err != nil {
+		if _, err := get(base + "/S6/?search_guard=redeem&r=" + r); err != nil {
 			return err
 		}
 	}
@@ -535,15 +535,15 @@ func (s *LinovelibSite) searchGuard(ctx context.Context) error {
 }
 
 func (s *LinovelibSite) searchPOST(ctx context.Context, keyword string) (string, error) {
-	const base = "https://www.bilinovel.com"
+	const base = "https://www.linovelib.com"
 	form := url.Values{}
 	form.Set("searchkey", keyword)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/search.html", strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/S6/", strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Referer", base+"/search.html")
+	req.Header.Set("Referer", base+"/S6/")
 	req.Header.Set("Origin", base)
 	req.Header.Set("User-Agent", linovelibChromeUA)
 	resp, err := s.client.Do(req)
@@ -552,7 +552,7 @@ func (s *LinovelibSite) searchPOST(ctx context.Context, keyword string) (string,
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("http %d for %s", resp.StatusCode, base+"/search.html")
+		return "", fmt.Errorf("http %d for %s", resp.StatusCode, base+"/S6/")
 	}
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -773,12 +773,7 @@ func parseLinovelibSingleBook(markup string) (model.SearchResult, bool) {
 	if title == "" {
 		return model.SearchResult{}, false
 	}
-	bookID := ""
-	if raw := metaProperty(doc, "og:url"); raw != "" {
-		if m := linovelibBookRe.FindStringSubmatch(normalizeESJPath(raw)); len(m) == 2 {
-			bookID = m[1]
-		}
-	}
+	bookID := linovelibSingleBookID(doc)
 	if bookID == "" {
 		return model.SearchResult{}, false
 	}
@@ -797,6 +792,114 @@ func parseLinovelibSingleBook(markup string) (model.SearchResult, bool) {
 		URL:         fmt.Sprintf("https://www.linovelib.com/novel/%s.html", bookID),
 		CoverURL:    metaProperty(doc, "og:image"),
 	}, true
+}
+
+// linovelibSingleBookID 从单书详情页提取书 ID。现代书页不一定带 og:url，
+// 因此会依次尝试 og:url、og:novel:read_url、<meta name="url"> 以及正文中的书链接。
+func linovelibSingleBookID(doc *html.Node) string {
+	sources := []string{
+		"og:url",
+		"og:novel:read_url",
+		"og:novel:latest_chapter_url",
+	}
+	for _, property := range sources {
+		if raw := metaProperty(doc, property); raw != "" {
+			if m := linovelibBookIDRe.FindStringSubmatch(normalizeESJPath(raw)); len(m) == 2 {
+				return m[1]
+			}
+		}
+	}
+	if raw := metaContentByName(doc, "url"); raw != "" {
+		if m := linovelibBookIDRe.FindStringSubmatch(normalizeESJPath(raw)); len(m) == 2 {
+			return m[1]
+		}
+	}
+	for _, a := range findAll(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "a"
+	}) {
+		if m := linovelibBookIDRe.FindStringSubmatch(normalizeESJPath(attrValue(a, "href"))); len(m) == 2 {
+			return m[1]
+		}
+	}
+	return ""
+}
+
+func metaContentByName(doc *html.Node, name string) string {
+	for _, node := range findAll(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "meta" && attrValue(n, "name") == name
+	}) {
+		if content := strings.TrimSpace(attrValue(node, "content")); content != "" {
+			return content
+		}
+	}
+	return ""
+}
+
+// parseLinovelibS6SearchResults 解析 PC 主站 /S6/ 的现代搜索结果结构：
+// 每个结果是一个 div.search-result-list，内含封面、h2.tit 标题、div.bookinfo 作者和 <p> 简介。
+func parseLinovelibS6SearchResults(markup string, limit int) []model.SearchResult {
+	doc, err := parseHTML(markup)
+	if err != nil {
+		return nil
+	}
+	results := make([]model.SearchResult, 0, limit)
+	for _, item := range findAll(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "div" && hasClass(n, "search-result-list")
+	}) {
+		titleNode := findFirst(item, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "h2" && hasClass(n, "tit")
+		})
+		titleLink := findFirst(titleNode, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "a"
+		})
+		match := linovelibBookIDRe.FindStringSubmatch(normalizeESJPath(attrValue(titleLink, "href")))
+		if len(match) != 2 {
+			continue
+		}
+		title := cleanText(nodeText(titleNode))
+		if title == "" {
+			continue
+		}
+		author := ""
+		if info := findFirst(item, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "div" && hasClass(n, "bookinfo")
+		}); info != nil {
+			if a := findFirst(info, func(n *html.Node) bool {
+				return n.Type == html.ElementNode && n.Data == "a"
+			}); a != nil {
+				author = cleanText(nodeText(a))
+			}
+		}
+		description := cleanText(nodeTextPreserveLineBreaks(findFirst(item, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "p"
+		})))
+		cover := ""
+		if box := findFirst(item, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "div" && hasClass(n, "se-result-book")
+		}); box != nil {
+			if img := findFirst(box, func(n *html.Node) bool {
+				return n.Type == html.ElementNode && n.Data == "img"
+			}); img != nil {
+				cover = attrValue(img, "data-original")
+				if cover == "" {
+					cover = attrValue(img, "src")
+				}
+			}
+		}
+		results = append(results, model.SearchResult{
+			Site:        "linovelib",
+			BookID:      match[1],
+			Title:       title,
+			Author:      author,
+			Description: description,
+			URL:         fmt.Sprintf("https://www.linovelib.com/novel/%s.html", match[1]),
+			CoverURL:    absolutizeURL("https://www.linovelib.com", cover),
+		})
+		if limit > 0 && len(results) >= limit {
+			break
+		}
+	}
+	return results
 }
 
 func parseLinovelibStorePage(markup string) ([]model.SearchResult, int, string, error) {	doc, err := parseHTML(markup)

@@ -349,3 +349,81 @@ func TestParseLinovelibSingleBookRejectsListPage(t *testing.T) {
 		t.Fatalf("expected list page not to be parsed as single book")
 	}
 }
+
+func TestParseLinovelibSingleBookWithoutOgURL(t *testing.T) {
+	// 现代 PC 主站书详情页不带 og:url，只有 name="url" 和 og:novel:read_url。
+	markup := `<html><head>
+<meta name="url" content="https://www.linovelib.com/novel/88.html">
+<meta property="og:type" content="novel">
+<meta property="og:title" content="文学少女">
+<meta property="og:novel:book_name" content="文学少女">
+<meta property="og:novel:author" content="野村美月">
+<meta property="og:novel:read_url" content="https://www.linovelib.com/novel/88/catalog">
+<meta property="og:image" content="https://www.linovelib.com/files/article/image/0/88/88s.jpg">
+<meta property="og:description" content="圣条学园的文艺社只有两名社员。">
+</head><body></body></html>`
+	item, ok := parseLinovelibSingleBook(markup)
+	if !ok {
+		t.Fatalf("expected modern single book parse to succeed")
+	}
+	if item.BookID != "88" || item.Title != "文学少女" || item.Author != "野村美月" {
+		t.Fatalf("unexpected single book: %+v", item)
+	}
+	if item.URL != "https://www.linovelib.com/novel/88.html" {
+		t.Fatalf("unexpected url: %q", item.URL)
+	}
+}
+
+func TestParseLinovelibS6SearchResults(t *testing.T) {
+	markup := `<html><head><meta charset="utf-8"></head><body>
+<div class="search-tips">共搜索到300部与"恋爱"相关结果</div>
+<div class="search-tab">
+  <div class="search-result-list clearfix">
+    <div class="imgbox fl se-result-book">
+      <a href="/novel/5317.html"><img src="https://www.linovelib.com/files/article/image/5/5317/5317s.jpg"></a>
+    </div>
+    <div class="fl se-result-infos">
+      <h2 class="tit"><a href="/novel/5317.html">放学后，她总会来到我的废弃小屋</a></h2>
+      <div class="bookinfo">
+        <a href="/author/827573.html">麦克白不白</a>
+        <em>|</em><a href="/wenku/chineselightnovel/1.html">华文轻小说</a>
+        <em>|</em><span>连载</span>
+      </div>
+      <p>扭曲 X 恋爱 X 男女主双视角。</p>
+    </div>
+    <div class="btn"><a href="/novel/5317.html" class="bkinfo">书籍详情</a></div>
+  </div>
+  <div class="search-result-list clearfix">
+    <div class="imgbox fl se-result-book">
+      <a href="/novel/5334.html"><img data-original="https://www.linovelib.com/files/article/image/5/5334/5334s.jpg"></a>
+    </div>
+    <div class="fl se-result-infos">
+      <h2 class="tit"><a href="/novel/5334.html">你好，身为魔女的我，被心上人委托制作迷情药。</a></h2>
+      <div class="bookinfo"><a href="/author/123.html">六つ花えいこ</a><em>|</em><span>连载</span></div>
+      <p>魔女恋爱心事。</p>
+    </div>
+  </div>
+</div>
+</body></html>`
+	results := parseLinovelibS6SearchResults(markup, 10)
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d: %+v", len(results), results)
+	}
+	first := results[0]
+	if first.BookID != "5317" || first.Title != "放学后，她总会来到我的废弃小屋" || first.Author != "麦克白不白" {
+		t.Fatalf("unexpected first result: %+v", first)
+	}
+	if first.CoverURL != "https://www.linovelib.com/files/article/image/5/5317/5317s.jpg" {
+		t.Fatalf("unexpected cover: %q", first.CoverURL)
+	}
+	second := results[1]
+	if second.BookID != "5334" || second.Author != "六つ花えいこ" {
+		t.Fatalf("unexpected second result: %+v", second)
+	}
+	if second.CoverURL != "https://www.linovelib.com/files/article/image/5/5334/5334s.jpg" {
+		t.Fatalf("unexpected cover from data-original: %q", second.CoverURL)
+	}
+	if limit := parseLinovelibS6SearchResults(markup, 1); len(limit) != 1 {
+		t.Fatalf("expected limit 1, got %d", len(limit))
+	}
+}
