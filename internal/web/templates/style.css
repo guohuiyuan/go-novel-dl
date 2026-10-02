@@ -494,10 +494,17 @@ h3 { font-size: 14px; font-weight: 700; color: #334155; }
 .status-card { padding: 12px 16px; font-weight: 600; font-size: 14px; color: var(--accent-deep); background: #eff6ff; border-color: #bfdbfe; }
 .status-card[data-tone="empty"] { color: #92400e; background: #fffbeb; border-color: #fde68a; }
 .status-card[data-tone="error"] { color: #b91c1c; background: #fef2f2; border-color: #fecaca; }
-.status-card, .panel-hint, .page-indicator, .result-title, .result-author, .result-source, .result-extra, .result-badge {
+/* 这些容器会填入站点错误原文（含 percent-encoded 长 URL，无空格可断），
+   不加断词规则会把卡片连同整行网格一起撑到远超屏幕宽度。 */
+.status-card, .panel-hint, .page-indicator, .result-title, .result-author, .result-source, .result-extra, .result-badge,
+.warning-item, .site-warning-card, .site-warning-head, .site-warning-message, .site-warning-detail,
+.task-message, .task-current, .app-toast-title, .app-toast-message, .detail-description {
   overflow-wrap: anywhere;
   word-break: break-word;
 }
+
+/* 网格子项默认 min-width:auto，长内容会反向撑开网格列；显式允许收缩。 */
+.results-panel > *, .feedback-stack > *, .warning-list > * { min-width: 0; }
 .warning-list { display: grid; gap: 8px; }
 .warning-list.is-empty { display: none; }
 .warning-item { padding: 12px 16px; font-size: 13px; color: var(--error); background: #fef2f2; border-color: #fecaca; border-radius: 10px;}
