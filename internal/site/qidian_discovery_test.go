@@ -119,6 +119,51 @@ func TestQidianDiscoveryBooklistMatchesCatalogAndReturnsBooks(t *testing.T) {
 	}
 }
 
+func TestQidianDiscoveryParsesTopCollectBooklists(t *testing.T) {
+	markup := qidianSSRMarkup(`{
+		"pageContext":{"pageProps":{"pageData":{
+			"featuredBookList":[],
+			"topCollectList":[{
+				"id":645000,
+				"bookListName":"Top Collection",
+				"bookListDesc":"Curated books",
+				"bookCount":8,
+				"collectCount":88,
+				"ownerName":"Curator",
+				"samples":[{"bookId":"1003461122"}]
+			}],
+			"recBookList":[]
+		}}}
+	}`)
+	site := newQidianDiscoveryTestSite(t, func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "m.qidian.com" || req.URL.Path != "/booklist/" {
+			return qidianDiscoveryResponse(req, http.StatusNotFound, ""), nil
+		}
+		if req.URL.Query().Get("source") != "pc_jump" {
+			t.Fatalf("expected pc_jump booklist source, got %q", req.URL.RawQuery)
+		}
+		return qidianDiscoveryResponse(req, http.StatusOK, markup), nil
+	})
+
+	lists, err := site.DiscoveryLists(context.Background())
+	if err != nil {
+		t.Fatalf("DiscoveryLists: %v", err)
+	}
+	if len(lists) != len(qidianDiscoveryLists)+1 {
+		t.Fatalf("expected one top collection booklist, got %+v", lists)
+	}
+	list := lists[len(qidianDiscoveryLists)]
+	if list.ID != "booklist:645000" || list.Name != "Top Collection" || list.BookCount != 8 {
+		t.Fatalf("unexpected top collection metadata: %+v", list)
+	}
+	if !strings.Contains(list.Description, "Curator") || !strings.Contains(list.Description, "收藏 88") {
+		t.Fatalf("expected owner and collection count, got %q", list.Description)
+	}
+	if list.CoverURL != "https://bookcover.yuewen.com/qdbimg/349573/1003461122/180" {
+		t.Fatalf("unexpected top collection cover: %q", list.CoverURL)
+	}
+}
+
 func newQidianDiscoveryTestSite(
 	t *testing.T,
 	respond func(*http.Request) (*http.Response, error),

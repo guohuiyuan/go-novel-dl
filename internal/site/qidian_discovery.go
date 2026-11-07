@@ -11,6 +11,8 @@ import (
 	"github.com/guohuiyuan/go-novel-dl/internal/model"
 )
 
+const qidianBooklistPageURL = "https://m.qidian.com/booklist/?source=pc_jump"
+
 var qidianDiscoveryLists = []DiscoveryList{
 	{ID: "yuepiao", Name: "月票榜", Description: "读者月票支持最多的连载作品", Kind: "ranking", UpdateFrequency: "实时更新"},
 	{ID: "hotsales", Name: "畅销榜", Description: "近期付费阅读与销售热度领先的作品", Kind: "ranking", UpdateFrequency: "实时更新"},
@@ -32,7 +34,7 @@ func (s *QidianSite) DiscoveryLists(ctx context.Context) ([]DiscoveryList, error
 	lists := append([]DiscoveryList(nil), qidianDiscoveryLists...)
 	markup, err := s.fetchQidianHTML(
 		ctx,
-		"https://m.qidian.com/booklist/",
+		qidianBooklistPageURL,
 		qidianMobileHeaders("https://m.qidian.com/"),
 	)
 	if err == nil {
@@ -83,22 +85,25 @@ type qidianBooklistCatalogPayload struct {
 			PageData struct {
 				RecBookList      []qidianBooklistMetadata `json:"recBookList"`
 				FeaturedBookList []qidianBooklistMetadata `json:"featuredBookList"`
+				TopCollectList   []qidianBooklistMetadata `json:"topCollectList"`
 			} `json:"pageData"`
 		} `json:"pageProps"`
 	} `json:"pageContext"`
 }
 
+type qidianBooklistSample struct {
+	BookID string `json:"bookId"`
+}
+
 type qidianBooklistMetadata struct {
-	ID           int64  `json:"id"`
-	Name         string `json:"bookListName"`
-	Description  string `json:"bookListDesc"`
-	BookCount    int    `json:"bookCount"`
-	CollectCount int    `json:"collectCount"`
-	Label        string `json:"label"`
-	OwnerName    string `json:"ownerName"`
-	Samples      []struct {
-		BookID string `json:"bookId"`
-	} `json:"samples"`
+	ID           int64                  `json:"id"`
+	Name         string                 `json:"bookListName"`
+	Description  string                 `json:"bookListDesc"`
+	BookCount    int                    `json:"bookCount"`
+	CollectCount int                    `json:"collectCount"`
+	Label        string                 `json:"label"`
+	OwnerName    string                 `json:"ownerName"`
+	Samples      []qidianBooklistSample `json:"samples"`
 }
 
 type qidianBooklistDetailPayload struct {
@@ -155,9 +160,11 @@ func parseQidianBooklistCatalog(markup string) []DiscoveryList {
 	if err := parseQidianSSRPageData(markup, &payload); err != nil {
 		return nil
 	}
-	items := make([]qidianBooklistMetadata, 0, len(payload.PageContext.PageProps.PageData.RecBookList)+len(payload.PageContext.PageProps.PageData.FeaturedBookList))
-	items = append(items, payload.PageContext.PageProps.PageData.FeaturedBookList...)
-	items = append(items, payload.PageContext.PageProps.PageData.RecBookList...)
+	pageData := payload.PageContext.PageProps.PageData
+	items := make([]qidianBooklistMetadata, 0, len(pageData.RecBookList)+len(pageData.FeaturedBookList)+len(pageData.TopCollectList))
+	items = append(items, pageData.FeaturedBookList...)
+	items = append(items, pageData.TopCollectList...)
+	items = append(items, pageData.RecBookList...)
 
 	lists := make([]DiscoveryList, 0, len(items))
 	seen := make(map[int64]struct{}, len(items))
@@ -174,11 +181,18 @@ func parseQidianBooklistCatalog(markup string) []DiscoveryList {
 			continue
 		}
 		description := cleanText(item.Description)
+		details := make([]string, 0, 2)
 		if owner := strings.TrimSpace(item.OwnerName); owner != "" {
+			details = append(details, "书单主："+owner)
+		}
+		if item.CollectCount > 0 {
+			details = append(details, fmt.Sprintf("收藏 %d", item.CollectCount))
+		}
+		if len(details) > 0 {
 			if description == "" {
-				description = "书单主：" + owner
+				description = strings.Join(details, " · ")
 			} else {
-				description += " · 书单主：" + owner
+				description += " · " + strings.Join(details, " · ")
 			}
 		}
 		lists = append(lists, DiscoveryList{
@@ -188,9 +202,19 @@ func parseQidianBooklistCatalog(markup string) []DiscoveryList {
 			Kind:            "booklist",
 			UpdateFrequency: "起点书单",
 			BookCount:       item.BookCount,
+			CoverURL:        qidianBooklistCoverURL(item.Samples),
 		})
 	}
 	return lists
+}
+
+func qidianBooklistCoverURL(samples []qidianBooklistSample) string {
+	for _, sample := range samples {
+		if bookID := strings.TrimSpace(sample.BookID); bookID != "" {
+			return qidianDiscoveryCoverURL(bookID)
+		}
+	}
+	return ""
 }
 
 func parseQidianBooklistBooks(markup string, limit int) ([]model.SearchResult, error) {
