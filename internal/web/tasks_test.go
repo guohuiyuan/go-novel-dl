@@ -9,7 +9,10 @@ import (
 
 func TestDownloadTaskStoreTracksLifecycle(t *testing.T) {
 	store := NewDownloadTaskStore()
-	task := store.Create("esjzone", "1755960125")
+	task := store.Create("esjzone", "1755960125", DownloadTaskOptions{
+		Title:    "queued title",
+		CoverURL: "https://example.com/queued-cover.jpg",
+	})
 
 	store.MarkRunning(task.ID, "esjzone", "1755960125", "example title", 12)
 	store.MarkProgress(task.ID, 3, 12, "chapter 3")
@@ -26,7 +29,7 @@ func TestDownloadTaskStoreTracksLifecycle(t *testing.T) {
 		t.Fatalf("expected progress to stay below 100%% while exporting, got %d/%d", exporting.CompletedChapters, exporting.TotalChapters)
 	}
 
-	store.MarkCompleted(task.ID, "example title", []string{"a.epub"})
+	store.MarkCompleted(task.ID, "example title", "https://example.com/final-cover.jpg", []string{"a.epub"})
 
 	snapshot, ok := store.Snapshot(task.ID)
 	if !ok {
@@ -40,6 +43,9 @@ func TestDownloadTaskStoreTracksLifecycle(t *testing.T) {
 	}
 	if snapshot.Title != "example title" {
 		t.Fatalf("expected title to be tracked, got %s", snapshot.Title)
+	}
+	if snapshot.CoverURL != "https://example.com/final-cover.jpg" {
+		t.Fatalf("expected cover URL to be tracked, got %s", snapshot.CoverURL)
 	}
 	if snapshot.CompletedChapters != snapshot.TotalChapters {
 		t.Fatalf("expected completed progress after finish, got %d/%d", snapshot.CompletedChapters, snapshot.TotalChapters)
@@ -105,7 +111,7 @@ func TestDownloadTaskStoreKeepsLocalSavingChapterTotal(t *testing.T) {
 		t.Fatalf("expected local save progress to stay at chapter count, got %d/%d", saving.CompletedChapters, saving.TotalChapters)
 	}
 
-	store.MarkCompleted(task.ID, "example title", nil)
+	store.MarkCompleted(task.ID, "example title", "", nil)
 	completed, ok := store.Snapshot(task.ID)
 	if !ok {
 		t.Fatalf("expected completed task snapshot")

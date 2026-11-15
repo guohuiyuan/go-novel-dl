@@ -2573,7 +2573,14 @@ function renderDetail(result, variant, detail, loading, errorMessage) {
   cacheButton.className = "tool-button";
   cacheButton.textContent = "缓存";
   cacheButton.title = "缓存（下载）到服务器本地";
-  cacheButton.addEventListener("click", () => void handleCacheButtonClick(cacheButton, activeVariant.site, activeVariant.book_id));
+  const taskTitle = title;
+  const taskCoverURL = (book && book.cover_url) || result.cover_url || activeVariant.cover_url || "";
+  cacheButton.addEventListener("click", () => void handleCacheButtonClick(
+    cacheButton,
+    activeVariant.site,
+    activeVariant.book_id,
+    { title: taskTitle, coverURL: taskCoverURL },
+  ));
   actions.appendChild(cacheButton);
   void refreshCacheButtonState(cacheButton, activeVariant.site, activeVariant.book_id);
 
@@ -2582,7 +2589,12 @@ function renderDetail(result, variant, detail, loading, errorMessage) {
   exportButton.className = "tool-button";
   exportButton.textContent = "导出";
   exportButton.title = "导出已下载到服务器本地的文件";
-  exportButton.addEventListener("click", () => void startDownloadTask({ site: activeVariant.site, book_id: activeVariant.book_id }, exportButton, { target: "export" }));
+  exportButton.addEventListener("click", () => void startDownloadTask({
+    site: activeVariant.site,
+    book_id: activeVariant.book_id,
+    title: taskTitle,
+    cover_url: taskCoverURL,
+  }, exportButton, { target: "export" }));
   actions.appendChild(exportButton);
 
   const addShelfButton = document.createElement("button");
@@ -4634,10 +4646,15 @@ async function refreshCacheButtonState(button, site, bookID) {
 }
 
 // handleCacheButtonClick 点击「缓存」按钮：已缓存时二次确认后允许重新缓存。
-async function handleCacheButtonClick(button, site, bookID) {
+async function handleCacheButtonClick(button, site, bookID, metadata = {}) {
   const cached = await bookCached(site, bookID);
   if (cached && !window.confirm("这本书已缓存到服务器本地，确定要重新缓存吗？")) return;
-  await startDownloadTask({ site, book_id: bookID }, button, { buttonLoadingText: "正在缓存..." });
+  await startDownloadTask({
+    site,
+    book_id: bookID,
+    title: metadata.title || "",
+    cover_url: metadata.coverURL || "",
+  }, button, { buttonLoadingText: "正在缓存..." });
 }
 
 async function startDownloadTask(target, button, options = {}) {
@@ -4651,6 +4668,10 @@ async function startDownloadTask(target, button, options = {}) {
 
   try {
     const body = { site, book_id: bookID, target: taskTarget };
+    const title = String(target.title || "").trim();
+    const coverURL = String(target.cover_url || target.coverURL || "").trim();
+    if (title) body.title = title;
+    if (coverURL) body.cover_url = coverURL;
     if (Array.isArray(options.formats) && options.formats.length) body.formats = options.formats;
     const response = await fetch(`${root}/api/download-tasks`, {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -4827,13 +4848,25 @@ function buildTaskCard(task) {
   const statusLabel = hasProgress && task.status === "running"
     ? `${statusText} · ${percent}%`
     : statusText;
+  const displayTitle = task.title || `${sourceLabel(task.site)}/${task.book_id}`;
 
-  // Head: title (left) + status pill + action (right)
+  const main = document.createElement("div");
+  main.className = "task-main";
+
+  const coverFrame = document.createElement("div");
+  coverFrame.className = "task-cover-frame";
+  coverFrame.appendChild(createCoverImage(task.cover_url, displayTitle, "task-cover"));
+  main.appendChild(coverFrame);
+
+  const content = document.createElement("div");
+  content.className = "task-content";
+
   const head = document.createElement("div");
   head.className = "task-head";
   const title = document.createElement("div");
   title.className = "task-title";
-  title.textContent = task.title || `${sourceLabel(task.site)}/${task.book_id}`;
+  title.textContent = displayTitle;
+  title.title = displayTitle;
   head.appendChild(title);
 
   const headRight = document.createElement("div");
@@ -4866,9 +4899,8 @@ function buildTaskCard(task) {
     headRight.appendChild(delBtn);
   }
   head.appendChild(headRight);
-  card.appendChild(head);
+  content.appendChild(head);
 
-  // Meta chips
   const chips = document.createElement("div");
   chips.className = "task-chips";
   const sourceChip = document.createElement("span");
@@ -4892,14 +4924,18 @@ function buildTaskCard(task) {
     curChip.title = task.current_chapter;
     chips.appendChild(curChip);
   }
-  card.appendChild(chips);
+  content.appendChild(chips);
 
-  // Progress bar
   if (hasProgress) {
     const wrap = document.createElement("div");
     wrap.className = "task-progress-row";
     const bar = document.createElement("div");
     bar.className = "task-progress-bar";
+    bar.setAttribute("role", "progressbar");
+    bar.setAttribute("aria-label", `${displayTitle} 进度`);
+    bar.setAttribute("aria-valuemin", "0");
+    bar.setAttribute("aria-valuemax", "100");
+    bar.setAttribute("aria-valuenow", String(percent));
     const fill = document.createElement("div");
     fill.className = "task-progress-fill";
     fill.style.width = `${percent}%`;
@@ -4909,18 +4945,22 @@ function buildTaskCard(task) {
     count.className = "task-progress-count";
     count.textContent = `${task.completed_chapters || 0} / ${task.total_chapters}`;
     wrap.appendChild(count);
-    card.appendChild(wrap);
+    content.appendChild(wrap);
   }
 
-  // Error
+  main.appendChild(content);
+  card.appendChild(main);
+
+  const support = document.createElement("div");
+  support.className = "task-support";
+
   if (task.error) {
     const error = document.createElement("div");
     error.className = "task-error";
     error.textContent = task.error;
-    card.appendChild(error);
+    support.appendChild(error);
   }
 
-  // Exported files as chips
   if (Array.isArray(task.exported) && task.exported.length) {
     const files = document.createElement("div");
     files.className = "task-files";
@@ -4947,10 +4987,9 @@ function buildTaskCard(task) {
       }
       files.appendChild(link);
     });
-    card.appendChild(files);
+    support.appendChild(files);
   }
 
-  // Messages: last 2 only
   if (Array.isArray(task.messages) && task.messages.length) {
     const messages = document.createElement("div");
     messages.className = "task-messages";
@@ -4960,9 +4999,10 @@ function buildTaskCard(task) {
       item.textContent = msg.text;
       messages.appendChild(item);
     });
-    card.appendChild(messages);
+    support.appendChild(messages);
   }
 
+  if (support.childElementCount) card.appendChild(support);
   return card;
 }
 
@@ -5074,7 +5114,12 @@ function openExportFormatPicker(task, anchor) {
     }
     confirm.disabled = true;
     confirm.textContent = "提交中…";
-    void startDownloadTask({ site: task.site, book_id: task.book_id }, confirm, {
+    void startDownloadTask({
+      site: task.site,
+      book_id: task.book_id,
+      title: task.title || "",
+      cover_url: task.cover_url || "",
+    }, confirm, {
       target: "export",
       formats: selected,
     }).finally(() => {
@@ -5870,14 +5915,24 @@ function renderBookshelfBookCard(item) {
   downloadButton.type = "button";
   downloadButton.className = "tool-button is-ghost";
   downloadButton.textContent = "下载";
-  downloadButton.addEventListener("click", () => void startDownloadTask({ site: item.site, book_id: item.book_id }, downloadButton));
+  downloadButton.addEventListener("click", () => void startDownloadTask({
+    site: item.site,
+    book_id: item.book_id,
+    title: item.title || "",
+    cover_url: item.cover_url || "",
+  }, downloadButton));
   actions.appendChild(downloadButton);
 
   const exportButton = document.createElement("button");
   exportButton.type = "button";
   exportButton.className = "tool-button is-ghost";
   exportButton.textContent = "导出";
-  exportButton.addEventListener("click", () => void startDownloadTask({ site: item.site, book_id: item.book_id }, exportButton, { target: "export" }));
+  exportButton.addEventListener("click", () => void startDownloadTask({
+    site: item.site,
+    book_id: item.book_id,
+    title: item.title || "",
+    cover_url: item.cover_url || "",
+  }, exportButton, { target: "export" }));
   actions.appendChild(exportButton);
 
   const deleteButton = document.createElement("button");

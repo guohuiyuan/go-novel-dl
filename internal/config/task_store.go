@@ -18,6 +18,7 @@ type downloadTaskRow struct {
 	Site              string `gorm:"size:64;index"`
 	BookID            string `gorm:"size:128;index"`
 	Title             string `gorm:"size:256"`
+	CoverURL          string `gorm:"type:text"`
 	Status            string `gorm:"size:32;index"`
 	Phase             string `gorm:"size:32"`
 	Target            string `gorm:"size:32;index"`
@@ -62,6 +63,7 @@ type DownloadTaskRecord struct {
 	Site              string                      `json:"site"`
 	BookID            string                      `json:"book_id"`
 	Title             string                      `json:"title,omitempty"`
+	CoverURL          string                      `json:"cover_url,omitempty"`
 	Status            string                      `json:"status"`
 	Phase             string                      `json:"phase"`
 	Target            string                      `json:"target,omitempty"`
@@ -242,6 +244,7 @@ func taskRowFromRecord(record DownloadTaskRecord) (downloadTaskRow, error) {
 		Site:              record.Site,
 		BookID:            record.BookID,
 		Title:             record.Title,
+		CoverURL:          record.CoverURL,
 		Status:            record.Status,
 		Phase:             record.Phase,
 		Target:            record.Target,
@@ -283,6 +286,7 @@ func taskRecordFromRow(row downloadTaskRow) (DownloadTaskRecord, error) {
 		Site:              row.Site,
 		BookID:            row.BookID,
 		Title:             row.Title,
+		CoverURL:          row.CoverURL,
 		Status:            row.Status,
 		Phase:             row.Phase,
 		Target:            row.Target,

@@ -977,21 +977,44 @@ func TestMobileDownloadTaskStylesPreventLongTextOverflow(t *testing.T) {
 	for _, needle := range []string{
 		`.task-card {`,
 		`min-width: 0; overflow: hidden;`,
+		`.task-main {`,
+		`grid-template-columns: 76px minmax(0, 1fr)`,
+		`.task-cover-frame {`,
+		`.task-cover { display: block; width: 100%; height: 100%; object-fit: cover;`,
 		`.task-title {`,
-		`white-space: nowrap; overflow: hidden; text-overflow: ellipsis`,
+		`-webkit-line-clamp: 2`,
 		`.task-chip {`,
 		`max-width: min(240px, 100%)`,
 		`.task-file-chip {`,
 		`max-width: min(280px, 100%)`,
 		`@media (max-width: 768px)`,
+		`.task-main { grid-template-columns: 58px minmax(0, 1fr); gap: 10px; }`,
 		`.task-head { align-items: flex-start; flex-wrap: wrap; gap: 8px; }`,
 		`.task-title {`,
 		`flex-basis: 100%; white-space: normal`,
 		`.task-chip-current { flex-basis: 100%; }`,
 		`.task-file-chip { width: 100%; max-width: 100%; }`,
+		`.task-support { margin-left: 0; }`,
 	} {
 		if !strings.Contains(style, needle) {
 			t.Fatalf("expected mobile task overflow guard style %s", needle)
+		}
+	}
+}
+
+func TestDownloadTaskCardsRenderBookCovers(t *testing.T) {
+	scriptData, err := templateFS.ReadFile("templates/app.js")
+	if err != nil {
+		t.Fatalf("read app.js: %v", err)
+	}
+	script := string(scriptData)
+	for _, needle := range []string{
+		`coverFrame.className = "task-cover-frame"`,
+		`createCoverImage(task.cover_url, displayTitle, "task-cover")`,
+		`if (coverURL) body.cover_url = coverURL`,
+	} {
+		if !strings.Contains(script, needle) {
+			t.Fatalf("expected download task cover rendering to contain %s", needle)
 		}
 	}
 }

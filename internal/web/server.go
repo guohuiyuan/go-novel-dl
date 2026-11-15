@@ -119,10 +119,12 @@ type searchRequest struct {
 }
 
 type downloadRequest struct {
-	Site    string   `json:"site"`
-	BookID  string   `json:"book_id"`
-	Formats []string `json:"formats"`
-	Target  string   `json:"target,omitempty"`
+	Site     string   `json:"site"`
+	BookID   string   `json:"book_id"`
+	Title    string   `json:"title,omitempty"`
+	CoverURL string   `json:"cover_url,omitempty"`
+	Formats  []string `json:"formats"`
+	Target   string   `json:"target,omitempty"`
 }
 
 type bookDetailResponse struct {
@@ -694,6 +696,8 @@ func newRouter(service *Service) *gin.Engine {
 		}
 		req.Site = strings.TrimSpace(req.Site)
 		req.BookID = strings.TrimSpace(req.BookID)
+		req.Title = strings.TrimSpace(req.Title)
+		req.CoverURL = strings.TrimSpace(req.CoverURL)
 		if req.Site == "" || req.BookID == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "site and book_id are required"})
 			return
@@ -707,8 +711,10 @@ func newRouter(service *Service) *gin.Engine {
 		}
 
 		task := service.Tasks.Create(req.Site, req.BookID, DownloadTaskOptions{
-			Target:  target,
-			Formats: formats,
+			Title:    req.Title,
+			CoverURL: req.CoverURL,
+			Target:   target,
+			Formats:  formats,
 		})
 		if target == DownloadTaskTargetExport || target == DownloadTaskTargetBrowser {
 			service.startExportTask(task.ID, req)
@@ -1156,7 +1162,8 @@ func (s *Service) startDownloadTask(taskID string, req downloadRequest) {
 		}
 
 		exported := make([]string, 0)
-		title := results[0].Book.Title
+		title := req.Title
+		coverURL := req.CoverURL
 		totalChapters := 0
 		cachedChapters := 0
 		for _, result := range results {
@@ -1166,6 +1173,9 @@ func (s *Service) startDownloadTask(taskID string, req downloadRequest) {
 			}
 			if strings.TrimSpace(title) == "" {
 				title = result.Book.Title
+			}
+			if strings.TrimSpace(coverURL) == "" {
+				coverURL = strings.TrimSpace(result.Book.CoverURL)
 			}
 			if chCount := len(result.Book.Chapters); chCount > totalChapters {
 				totalChapters = chCount
@@ -1181,7 +1191,7 @@ func (s *Service) startDownloadTask(taskID string, req downloadRequest) {
 				fmt.Printf("warn: update bookshelf cache stats failed: %v\n", err)
 			}
 		}
-		s.Tasks.MarkCompleted(taskID, title, exported)
+		s.Tasks.MarkCompleted(taskID, title, coverURL, exported)
 	}()
 }
 
@@ -1208,12 +1218,13 @@ func (s *Service) startExportTask(taskID string, req downloadRequest) {
 				fmt.Printf("warn: update bookshelf cache stats failed: %v\n", err)
 			}
 		}
-		s.Tasks.MarkCompleted(taskID, result.Title, result.Exported)
+		s.Tasks.MarkCompleted(taskID, result.Title, result.CoverURL, result.Exported)
 	}()
 }
 
 type webExportResult struct {
 	Title          string
+	CoverURL       string
 	TotalChapters  int
 	CachedChapters int
 	Exported       []string
@@ -1302,6 +1313,9 @@ func mergeWebExportBookStats(result webExportResult, book *model.Book) webExport
 	}
 	if strings.TrimSpace(result.Title) == "" {
 		result.Title = book.Title
+	}
+	if strings.TrimSpace(result.CoverURL) == "" {
+		result.CoverURL = strings.TrimSpace(book.CoverURL)
 	}
 	if len(book.Chapters) > result.TotalChapters {
 		result.TotalChapters = len(book.Chapters)

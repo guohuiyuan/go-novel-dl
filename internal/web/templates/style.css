@@ -1106,7 +1106,8 @@ h3 { font-size: 14px; font-weight: 700; color: #334155; }
 .result-card:hover .result-cover { transform: scale(1.03); }
 
 body.web-images-blurred .result-cover,
-body.web-images-blurred .detail-cover {
+body.web-images-blurred .detail-cover,
+body.web-images-blurred .task-cover {
   filter: blur(var(--image-blur-radius)); transform: scale(1.04); transform-origin: center; clip-path: inset(0 round 10px);
 }
 body.web-images-blurred .result-card:hover .result-cover { transform: scale(1.07); }
@@ -1124,11 +1125,14 @@ body.web-images-blurred .result-card:hover .result-cover { transform: scale(1.07
 .result-title-link:hover { color: var(--accent); text-decoration: underline; }
 .result-author, .result-source, .result-extra { font-size: 12px; color: var(--muted); }
 
-.task-list { display: grid; gap: 12px; }
+.task-list { display: grid; gap: 14px; }
 .task-card {
-  padding: 14px 16px; background: #fff; border-radius: 12px;
+  position: relative;
+  padding: 14px 16px 14px 14px;
+  background: linear-gradient(135deg, var(--card-strong), var(--card));
+  border-radius: 12px;
   border-left: 4px solid var(--accent);
-  display: grid; gap: 8px;
+  display: grid; gap: 10px;
   min-width: 0; overflow: hidden;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
@@ -1137,11 +1141,30 @@ body.web-images-blurred .result-card:hover .result-cover { transform: scale(1.07
 .task-card.is-failed { border-left-color: var(--error); }
 .task-card.is-queued { border-left-color: #d946ef; }
 
-.task-head { display: flex; align-items: center; gap: 10px; margin: 0; flex-wrap: nowrap; min-width: 0; }
+.task-main {
+  display: grid; grid-template-columns: 76px minmax(0, 1fr); align-items: start;
+  gap: 14px; min-width: 0;
+}
+.task-cover-frame {
+  position: relative; width: 76px; aspect-ratio: 3 / 4; overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+  border-radius: 9px; background: var(--bg-soft);
+  box-shadow: 0 7px 18px rgba(15, 23, 42, 0.13);
+}
+.task-cover-frame::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  border-radius: inherit; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+}
+.task-cover { display: block; width: 100%; height: 100%; object-fit: cover; background: var(--bg-soft); }
+.task-content { display: flex; flex-direction: column; gap: 9px; min-width: 0; padding: 1px 0; }
+
+.task-head { display: flex; align-items: flex-start; gap: 10px; margin: 0; flex-wrap: nowrap; min-width: 0; }
 .task-title {
   flex: 1 1 auto; min-width: 0;
-  font-weight: 700; font-size: 14px; color: #1e293b; line-height: 1.4;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 0;
+  font-weight: 750; font-size: 15px; color: #1e293b; line-height: 1.45;
+  display: -webkit-box; overflow: hidden; white-space: normal;
+  -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
+  overflow-wrap: anywhere; margin: 0;
 }
 .task-head-right { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; min-width: 0; }
 .task-delete-btn {
@@ -1188,15 +1211,28 @@ body.web-images-blurred .result-card:hover .result-cover { transform: scale(1.07
   display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px;
 }
 
-.task-status { font-weight: 700; font-size: 12px; padding: 4px 10px; border-radius: 999px; white-space: nowrap; }
+.task-status {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-weight: 700; font-size: 12px; padding: 4px 10px; border-radius: 999px; white-space: nowrap;
+}
+.task-status::before {
+  content: ""; width: 6px; height: 6px; flex: 0 0 auto;
+  border-radius: 50%; background: currentColor; opacity: 0.78;
+}
 .status-running { background: #eff6ff; color: #2563eb; }
 .status-completed { background: #ecfdf5; color: #10b981; }
 .status-failed { background: #fef2f2; color: #ef4444; }
 .status-queued { background: #fdf4ff; color: #d946ef; }
+.task-card.is-running .task-status::before,
+.task-card.is-queued .task-status::before { animation: taskStatusPulse 1.7s ease-in-out infinite; }
+@keyframes taskStatusPulse {
+  0%, 100% { opacity: 0.42; transform: scale(0.82); }
+  50% { opacity: 1; transform: scale(1); }
+}
 
-.task-chips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.task-chips { display: flex; flex-wrap: wrap; gap: 5px; min-width: 0; }
 .task-chip {
-  font-size: 12px; line-height: 1.6; padding: 2px 10px; border-radius: 999px;
+  font-size: 12px; line-height: 1.55; padding: 2px 9px; border-radius: 999px;
   background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0;
   max-width: min(240px, 100%); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
@@ -1205,8 +1241,14 @@ body.web-images-blurred .result-card:hover .result-cover { transform: scale(1.07
 .task-chip-current { background: #f0f9ff; color: #0369a1; border-color: #bae6fd; max-width: 320px; }
 
 .task-progress-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.task-progress-bar { flex: 1 1 auto; height: 6px; border-radius: 999px; background: #f1f5f9; overflow: hidden; }
+.task-progress-bar { flex: 1 1 auto; height: 7px; border-radius: 999px; background: #f1f5f9; overflow: hidden; }
 .task-progress-fill { height: 100%; border-radius: 999px; background: var(--accent); transition: width 0.4s ease; }
+.task-card.is-running .task-progress-fill {
+  background: linear-gradient(90deg, var(--accent-deep), #38bdf8, var(--accent));
+  background-size: 180% 100%;
+  animation: taskProgressFlow 2.2s linear infinite;
+}
+@keyframes taskProgressFlow { to { background-position: -180% 0; } }
 .task-progress-count {
   flex: 0 0 auto; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums;
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace;
@@ -1214,6 +1256,7 @@ body.web-images-blurred .result-card:hover .result-cover { transform: scale(1.07
 .task-card.is-completed .task-progress-fill { background: var(--success); }
 .task-card.is-failed .task-progress-fill { background: var(--error); }
 
+.task-support { display: grid; gap: 8px; min-width: 0; margin-left: 90px; }
 .task-error {
   font-size: 13px; line-height: 1.5; padding: 8px 12px; border-radius: 8px;
   background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca;
@@ -1236,7 +1279,10 @@ body.web-images-blurred .result-card:hover .result-cover { transform: scale(1.07
 }
 .task-file-chip:hover { background: #d1fae5; border-color: var(--success); }
 @media (max-width: 768px) {
-  .task-card { padding: 12px; gap: 10px; border-radius: 10px; }
+  .task-card { padding: 12px 12px 12px 10px; gap: 9px; border-radius: 10px; }
+  .task-main { grid-template-columns: 58px minmax(0, 1fr); gap: 10px; }
+  .task-cover-frame { width: 58px; border-radius: 7px; box-shadow: 0 5px 14px rgba(15, 23, 42, 0.12); }
+  .task-content { gap: 7px; padding-top: 0; }
   .task-head { align-items: flex-start; flex-wrap: wrap; gap: 8px; }
   .task-title {
     flex-basis: 100%; white-space: normal; overflow: visible; text-overflow: clip;
@@ -1248,6 +1294,7 @@ body.web-images-blurred .result-card:hover .result-cover { transform: scale(1.07
   .task-chip-current { flex-basis: 100%; }
   .task-progress-row { gap: 8px; }
   .task-file-chip { width: 100%; max-width: 100%; }
+  .task-support { margin-left: 0; }
 }
 
 .task-messages { display: grid; gap: 4px; }
@@ -2242,6 +2289,22 @@ html[data-app-theme="night"] .export-format-picker-options {
   background: var(--bg-soft);
   border-color: var(--line);
 }
+html[data-app-theme="night"] .status-running {
+  color: #bfdbfe;
+  background: #14263a;
+}
+html[data-app-theme="night"] .status-completed {
+  color: #a7f3d0;
+  background: #12281f;
+}
+html[data-app-theme="night"] .status-failed {
+  color: #fecaca;
+  background: #2b181b;
+}
+html[data-app-theme="night"] .status-queued {
+  color: #f5d0fe;
+  background: #2a1830;
+}
 html[data-app-theme="night"] .task-chip-current {
   color: #bae6fd;
   background: #11283a;
@@ -2809,7 +2872,11 @@ html[data-app-theme="night"] .discover-list-header {
 @media (prefers-reduced-motion: reduce) {
   .discover-list-card,
   .discover-section-tab,
-  .discover-site-tab {
+  .discover-site-tab,
+  .task-card,
+  .task-status::before,
+  .task-progress-fill {
     transition: none;
+    animation: none;
   }
 }

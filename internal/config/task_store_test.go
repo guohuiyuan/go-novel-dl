@@ -15,6 +15,7 @@ func TestSaveAndLoadDownloadTask(t *testing.T) {
 		Site:              "esjzone",
 		BookID:            "1755960125",
 		Title:             "无题",
+		CoverURL:          "https://example.com/cover.jpg",
 		Status:            "running",
 		Phase:             "downloading",
 		Target:            DownloadTaskTargetBrowser,
@@ -42,6 +43,9 @@ func TestSaveAndLoadDownloadTask(t *testing.T) {
 	}
 	if loaded.Target != DownloadTaskTargetBrowser {
 		t.Fatalf("expected target=browser, got %q", loaded.Target)
+	}
+	if loaded.CoverURL != record.CoverURL {
+		t.Fatalf("expected cover URL %q, got %q", record.CoverURL, loaded.CoverURL)
 	}
 	if len(loaded.Formats) != 2 || loaded.Formats[0] != "txt" || loaded.Formats[1] != "epub" {
 		t.Fatalf("expected formats persisted, got %+v", loaded.Formats)

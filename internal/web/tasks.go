@@ -34,6 +34,7 @@ type DownloadTask struct {
 	Site              string                `json:"site"`
 	BookID            string                `json:"book_id"`
 	Title             string                `json:"title,omitempty"`
+	CoverURL          string                `json:"cover_url,omitempty"`
 	Status            string                `json:"status"`
 	Phase             string                `json:"phase"`
 	Target            string                `json:"target,omitempty"`
@@ -75,8 +76,10 @@ const (
 
 // DownloadTaskOptions describes optional fields when creating a download task.
 type DownloadTaskOptions struct {
-	Target  string
-	Formats []string
+	Title    string
+	CoverURL string
+	Target   string
+	Formats  []string
 }
 
 // taskPersister abstracts the persistence layer so tests can run without a
@@ -155,6 +158,8 @@ func (s *DownloadTaskStore) Create(siteKey string, bookID string, opts ...Downlo
 		ID:        id,
 		Site:      strings.TrimSpace(siteKey),
 		BookID:    strings.TrimSpace(bookID),
+		Title:     strings.TrimSpace(opt.Title),
+		CoverURL:  strings.TrimSpace(opt.CoverURL),
 		Status:    "queued",
 		Phase:     "queued",
 		Target:    target,
@@ -407,7 +412,7 @@ func (s *DownloadTaskStore) MarkExporting(id string, done int, total int) {
 	})
 }
 
-func (s *DownloadTaskStore) MarkCompleted(id string, title string, exported []string) {
+func (s *DownloadTaskStore) MarkCompleted(id string, title string, coverURL string, exported []string) {
 	s.update(id, func(task *DownloadTask) {
 		now := time.Now().UTC()
 		task.Status = "completed"
@@ -420,6 +425,9 @@ func (s *DownloadTaskStore) MarkCompleted(id string, title string, exported []st
 		task.CompletedChapters = task.TotalChapters
 		if strings.TrimSpace(title) != "" {
 			task.Title = title
+		}
+		if strings.TrimSpace(coverURL) != "" {
+			task.CoverURL = strings.TrimSpace(coverURL)
 		}
 		task.Exported = append([]string(nil), exported...)
 		if len(exported) > 0 || task.Target == DownloadTaskTargetExport || task.Target == DownloadTaskTargetBrowser {
@@ -549,6 +557,7 @@ func taskRecordFromSnapshot(task DownloadTask) config.DownloadTaskRecord {
 		Site:              task.Site,
 		BookID:            task.BookID,
 		Title:             task.Title,
+		CoverURL:          task.CoverURL,
 		Status:            task.Status,
 		Phase:             task.Phase,
 		Target:            task.Target,
@@ -582,6 +591,7 @@ func recordToTask(record config.DownloadTaskRecord) *DownloadTask {
 		Site:              record.Site,
 		BookID:            record.BookID,
 		Title:             record.Title,
+		CoverURL:          record.CoverURL,
 		Status:            record.Status,
 		Phase:             record.Phase,
 		Target:            record.Target,
