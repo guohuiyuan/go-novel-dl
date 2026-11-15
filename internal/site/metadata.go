@@ -56,6 +56,10 @@ var siteMetadata = map[string]SiteMetadata{
 		Title: "番茄小说网",
 		Tags:  []string{"原创"},
 	},
+	"shuhuangdian": {
+		Title: "书荒殿",
+		Tags:  []string{"网络小说", "起点", "番茄小说"},
+	},
 	"qidian": {
 		Title: "起点中文网",
 		Tags:  []string{"原创", "阅文"},

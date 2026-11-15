@@ -28,6 +28,7 @@ var defaultDiscoverySiteKeys = []string{
 	"ciweimao",
 	"faloo",
 	"fanqienovel",
+	"shuhuangdian",
 	"n17k",
 	"sfacg",
 	"ciyuanji",

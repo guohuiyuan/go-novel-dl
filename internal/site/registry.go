@@ -179,6 +179,9 @@ func NewDefaultRegistry() *Registry {
 	registry.RegisterWithHosts("fanqienovel", []string{"fanqienovel.com"}, func(cfg config.ResolvedSiteConfig) Site {
 		return NewFanqieNovelSite(cfg)
 	})
+	registry.RegisterWithHosts("shuhuangdian", []string{"shuhuangdian.com"}, func(cfg config.ResolvedSiteConfig) Site {
+		return NewShuhuangdianSite(cfg)
+	})
 	registry.RegisterWithHosts("qidian", []string{"qidian.com", "book.qidian.com", "m.qidian.com"}, func(cfg config.ResolvedSiteConfig) Site {
 		return NewQidianSite(cfg)
 	})

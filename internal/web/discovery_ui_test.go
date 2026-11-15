@@ -16,6 +16,7 @@ func TestDiscoverySiteTabsUseChineseShortLabels(t *testing.T) {
 		`ciweimao: "刺猬猫"`,
 		`faloo: "飞卢"`,
 		`fanqienovel: "番茄"`,
+		`shuhuangdian: "书荒殿"`,
 		`n17k: "17K"`,
 		`sfacg: "SF轻文"`,
 		`ciyuanji: "次元姬"`,

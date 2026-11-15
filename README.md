@@ -26,7 +26,7 @@
 - **混合结果排序**：综合关键词匹配、站点优先级、简介完整度、封面可用性挑主结果
 - **URL 直达**：CLI 与 Web 都支持直接输入小说链接解析
 - **Web 阅读器**：按需拉章节正文，支持滚动续读、上下文预加载、主题/背景/字号/排版
-- **官方发现页**：聚合各渠道公开排行榜与真实书单，支持直接进入现有详情、阅读和下载流程
+- **官方发现页**：聚合各渠道公开排行榜、书荒殿热点榜与真实书单，支持直接进入现有详情、阅读和下载流程
 - **阅读历史**：在线读过但未入书架的书也会出现在「阅读历史」；从书架移除有进度的书会降级为隐式记录而非丢失
 - **异步下载任务**：前端轮询进度；下载速度走 30s 滑动窗口斜率估算，加减速/卡住/重试回退都能正确反映；非进行中任务可一键「📤 重新导出」换 txt/epub/html
 - **多格式导出**：`txt` / `html` / `epub`，文件名模板支持 `{title}` `{author}` `{site}` `{book_id}` 占位符
@@ -294,6 +294,9 @@ GET  /novel/api/site-configs
 PUT  /novel/api/site-configs/:site
 POST /novel/api/search
 POST /novel/api/sources/speedtest
+GET  /novel/api/discovery/catalog
+GET  /novel/api/discovery/list
+GET  /novel/api/discovery/trending
 GET  /novel/api/books/detail
 GET  /novel/api/chapter-content
 POST /novel/api/download-tasks
@@ -534,6 +537,7 @@ ESJ Zone 搜索和详情无需预先登录；只有遇到需要认证的章节�
 QQ 阅读的免费章节可直接下载；会员或已购章节需要把有权访问该书的 QQ Cookie 配置到 `qqreader` 渠道。
 QQ 阅读的发现页已接入官方男女频、出版分类排行榜以及多类真实书单，并会合并主推荐书与关联书、按页补齐结果。
 起点已接入移动端精选、推荐及热门收藏书单，并展示源站书单封面与收藏热度；刺猬猫只展示源站公开的 2 个官方书单。
+书荒殿作为聚合发现源接入，首页同步其排行榜与书单目录，并接入 `/desktop/attention` 对应的“值得关注的热点小说”。榜单结果会按 `qd`、`fq` 前缀映射回起点或番茄的原始书籍 ID，因此可直接进入现有详情、阅读和下载流程；书荒殿本身只提供发现索引，不作为正文下载渠道。
 番茄搜索通过官方免签名 App 搜索端点 `novel.snssdk.com`（备用 `api-lf.fanqiesdk.com`）完成，无需 Cookie，支持 offset 分页；目录和正文继续使用 `fanqienovel.com`。免费或账号已获授权的正文会从官方阅读页读取，锁定及付费章节不会绕过站点的账号与版权限制。目录请求会限频、重试，并在请求失败时回退到本地缓存。
 微信读书已接入公开搜索、6 个公开排行榜和正文下载。免费章节无需 Cookie 即可直接下载：网页端正文虽然带签名和载荷置换，但本地已完整复刻 `e()` 编码、参数签名、`unshuffle` 与 base64 解码，能还原成干净文本。付费章节仍会出现在章节列表里（标记为付费），点开只能看到站点提供的试读片段；下载时默认跳过，不会绕过账号与版权限制。配置 Cookie 或开启 `fetch_inaccessible` 后会尝试抓取付费章节，未购买时同样不会把试读片段写进导出文件。
 
@@ -559,6 +563,7 @@ shencou
 ruochu
 fanqienovel
 sfacg
+shuhuangdian
 ciyuanji
 ciweimao
 kadokado

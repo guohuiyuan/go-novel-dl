@@ -127,6 +127,7 @@ var defaultSiteCatalog = []defaultSiteCatalogRow{
 	{Key: "shencou", DisplayName: "神凑轻小说", WorkerLimit: 0, FetchImages: true},
 	{Key: "ruochu", DisplayName: "若初文学网", WorkerLimit: 0, FetchImages: true},
 	{Key: "fanqienovel", DisplayName: "番茄小说", WorkerLimit: 0, FetchImages: true},
+	{Key: "shuhuangdian", DisplayName: "书荒殿", WorkerLimit: 0, FetchImages: true},
 	{Key: "qidian", DisplayName: "起点中文网", WorkerLimit: 0, FetchImages: true},
 	{Key: "qqreader", DisplayName: "QQ阅读", WorkerLimit: 0, FetchImages: true},
 	{Key: "weread", DisplayName: "微信读书", WorkerLimit: 0, FetchImages: true},
