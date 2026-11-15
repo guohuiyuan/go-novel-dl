@@ -72,11 +72,23 @@ func parseFalooDiscoveryResults(markup string, limit int) ([]model.SearchResult,
 		seen[item.BookID] = struct{}{}
 	}
 	for _, card := range findAll(doc, func(n *html.Node) bool {
-		return n.Type == html.ElementNode && n.Data == "div" && hasClass(n, "c_de_rk_c_data")
+		return n.Type == html.ElementNode &&
+			n.Data == "div" &&
+			(hasClass(n, "c_de_rk_c_data") || hasClass(n, "c_td_d_data"))
 	}) {
 		titleLink := findFirst(card, func(n *html.Node) bool {
-			return n.Type == html.ElementNode && n.Data == "a" && hasClass(n, "c_de_rk_c_d_title")
+			return n.Type == html.ElementNode &&
+				n.Data == "a" &&
+				hasClass(n, "c_de_rk_c_d_title")
 		})
+		if titleLink == nil {
+			titleBox := findFirst(card, func(n *html.Node) bool {
+				return n.Type == html.ElementNode && n.Data == "div" && hasClass(n, "c_td_d_d_title")
+			})
+			titleLink = findFirst(titleBox, func(n *html.Node) bool {
+				return n.Type == html.ElementNode && n.Data == "a"
+			})
+		}
 		if titleLink == nil {
 			continue
 		}

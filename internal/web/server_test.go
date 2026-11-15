@@ -881,6 +881,10 @@ func TestReaderCatalogJumpUsesChapterTransition(t *testing.T) {
 		`const requestedTarget = Number(options.targetIndex)`,
 		`transitionReaderChapter(direction, { targetIndex: next, viaCatalog: true })`,
 		`showReaderTransition(step, targetIndex, targetCached, { viaCatalog })`,
+		`function centerReaderCatalogActive(index = readerState.currentIndex)`,
+		`window.requestAnimationFrame(scrollActiveIntoView)`,
+		`readerCatalogList.scrollTop = Math.max(0, target)`,
+		`button.setAttribute("aria-current", "true")`,
 		`章节跳转失败`,
 	} {
 		if !strings.Contains(script, needle) {
@@ -889,6 +893,38 @@ func TestReaderCatalogJumpUsesChapterTransition(t *testing.T) {
 	}
 	if strings.Contains(script, `openReader(readerState.chapters, next)`) {
 		t.Fatal("expected catalog jump to reuse the chapter transition instead of reopening the reader")
+	}
+}
+
+func TestDetailShelfButtonTogglesSavedBook(t *testing.T) {
+	scriptData, err := templateFS.ReadFile("templates/app.js")
+	if err != nil {
+		t.Fatalf("read app.js: %v", err)
+	}
+	script := string(scriptData)
+	for _, needle := range []string{
+		`toggleCurrentDetailBookshelf(result, activeVariant, detail, addShelfButton)`,
+		`async function toggleCurrentDetailBookshelf`,
+		"fetch(`${root}/api/bookshelf/items/${current.id}`, { method: \"DELETE\" })",
+		`setDetailShelfButtonState(button, true)`,
+		`button.textContent = onShelf ? "移出书架" : "加入书架"`,
+		`阅读历史和已下载内容会保留`,
+	} {
+		if !strings.Contains(script, needle) {
+			t.Fatalf("expected detail shelf toggle to contain %s", needle)
+		}
+	}
+}
+
+func TestFavoritesTabUsesBookshelfLabel(t *testing.T) {
+	data, err := templateFS.ReadFile("templates/index.html")
+	if err != nil {
+		t.Fatalf("read index.html: %v", err)
+	}
+	markup := string(data)
+	if !strings.Contains(markup, "id=\"favoritesTabButton\" class=\"tab-button\" data-tab=\"favorites\">\r\n        书架") &&
+		!strings.Contains(markup, "id=\"favoritesTabButton\" class=\"tab-button\" data-tab=\"favorites\">\n        书架") {
+		t.Fatal("expected the top-level favorites tab to be labelled as bookshelf")
 	}
 }
 

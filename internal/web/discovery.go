@@ -225,16 +225,20 @@ func (s *Service) handleDiscoveryList(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	lists, err := provider.DiscoveryLists(c.Request.Context())
-	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
-		return
-	}
 	var selected *site.DiscoveryList
-	for idx := range lists {
-		if lists[idx].ID == listID {
-			selected = &lists[idx]
-			break
+	if fallback, ok := discoveryDirectBooklistFallback(siteKey, listID); ok {
+		selected = &fallback
+	} else {
+		lists, err := provider.DiscoveryLists(c.Request.Context())
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			return
+		}
+		for idx := range lists {
+			if lists[idx].ID == listID {
+				selected = &lists[idx]
+				break
+			}
 		}
 	}
 	if selected == nil {
@@ -257,6 +261,34 @@ func (s *Service) handleDiscoveryList(c *gin.Context) {
 	}
 	s.getDiscoveryCache().set(cacheKey, response, discoveryCacheTTL)
 	c.JSON(http.StatusOK, response)
+}
+
+// Discovery catalogs for sites such as Qidian are assembled from a changing
+// recommendation payload. A booklist can therefore disappear from the current
+// catalog even though its direct detail page is still valid, which previously
+// turned saved URLs into false 404s. Direct booklist IDs can be resolved by the
+// provider without requiring a second catalog lookup.
+func discoveryDirectBooklistFallback(siteKey, listID string) (site.DiscoveryList, bool) {
+	if siteKey != "qidian" {
+		return site.DiscoveryList{}, false
+	}
+	listID = strings.TrimSpace(listID)
+	rawID, ok := strings.CutPrefix(listID, "booklist:")
+	rawID = strings.TrimSpace(rawID)
+	if !ok || rawID == "" {
+		return site.DiscoveryList{}, false
+	}
+	for _, char := range rawID {
+		if char < '0' || char > '9' {
+			return site.DiscoveryList{}, false
+		}
+	}
+	return site.DiscoveryList{
+		ID:              listID,
+		Name:            "书单 #" + rawID,
+		Kind:            "booklist",
+		UpdateFrequency: "原站书单",
+	}, true
 }
 
 func (s *Service) handleDiscoveryTrending(c *gin.Context) {

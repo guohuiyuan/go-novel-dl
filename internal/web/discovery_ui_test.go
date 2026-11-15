@@ -33,3 +33,20 @@ func TestDiscoverySiteTabsUseChineseShortLabels(t *testing.T) {
 		t.Fatal("alphapolis must not be exposed as a discovery ranking site")
 	}
 }
+
+func TestDiscoveryURLRestoresDirectQidianBooklists(t *testing.T) {
+	data, err := templateFS.ReadFile("templates/app.js")
+	if err != nil {
+		t.Fatalf("read app.js: %v", err)
+	}
+	script := string(data)
+	for _, needle := range []string{
+		`/^booklist:\d+$/.test(listID)`,
+		"name: `书单 #${rawID}`",
+		`await openDiscoverList(appState.discover.activeSite, list)`,
+	} {
+		if !strings.Contains(script, needle) {
+			t.Fatalf("expected direct discovery URL restore to contain %s", needle)
+		}
+	}
+}

@@ -2589,7 +2589,7 @@ function renderDetail(result, variant, detail, loading, errorMessage) {
   addShelfButton.type = "button";
   addShelfButton.className = "tool-button";
   addShelfButton.textContent = "加入书架";
-  addShelfButton.addEventListener("click", () => void addCurrentDetailToBookshelf(result, activeVariant, detail, addShelfButton));
+  addShelfButton.addEventListener("click", () => void toggleCurrentDetailBookshelf(result, activeVariant, detail, addShelfButton));
   actions.appendChild(addShelfButton);
   void syncDetailShelfState(addShelfButton, activeVariant.site, activeVariant.book_id);
 
@@ -3253,7 +3253,7 @@ async function restoreDiscoverFromURL(params) {
 
   await ensureDiscoverCatalog();
   const requestedSite = String(params.get("site") || "").trim();
-  if (requestedSite && appState.discover.catalog.some((item) => item.site === requestedSite)) {
+  if (requestedSite) {
     appState.discover.activeSite = requestedSite;
   }
   renderDiscoverCatalog();
@@ -3261,9 +3261,19 @@ async function restoreDiscoverFromURL(params) {
   const listID = String(params.get("list") || "").trim();
   if (!listID) return;
   const source = appState.discover.catalog.find((item) => item.site === appState.discover.activeSite);
-  const list = source && source.lists.find((item) => item.id === listID && item.kind === section);
+  let list = source && source.lists.find((item) => item.id === listID && item.kind === section);
+  if (!list && section === "booklist" && /^booklist:\d+$/.test(listID) && appState.discover.activeSite) {
+    const rawID = listID.slice("booklist:".length);
+    list = {
+      id: listID,
+      name: `书单 #${rawID}`,
+      description: "正在从原站直接加载书单…",
+      kind: "booklist",
+      update_frequency: "原站书单",
+    };
+  }
   if (!list) throw new Error("URL 中的榜单不存在或已下线");
-  await openDiscoverList(source.site, list);
+  await openDiscoverList(appState.discover.activeSite, list);
 }
 
 async function restoreDetailFromURL(params) {
@@ -3610,9 +3620,9 @@ function toggleReaderCatalog() {
 function showReaderCatalog() {
   if (!readerCatalogPanel || !readerCatalogList || !readerCatalogButton) return;
   setReaderControlsVisible(true, { autoHideMs: 0 });
-  renderReaderCatalog();
   readerCatalogPanel.hidden = false;
   readerCatalogButton.setAttribute("aria-expanded", "true");
+  renderReaderCatalog();
 }
 
 function hideReaderCatalog() {
@@ -3683,7 +3693,10 @@ function renderReaderCatalog() {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "reader-catalog-item";
-    if (index === readerState.currentIndex) button.classList.add("is-active");
+    if (index === readerState.currentIndex) {
+      button.classList.add("is-active");
+      button.setAttribute("aria-current", "true");
+    }
     button.textContent = `${index + 1}. ${chapter.title || `第 ${index + 1} 章`}`;
     if (chapter.locked) {
       button.classList.add("is-locked");
@@ -3693,12 +3706,39 @@ function renderReaderCatalog() {
     button.addEventListener("click", () => jumpReaderToChapter(index));
     readerCatalogList.appendChild(button);
   });
+  centerReaderCatalogActive(readerState.currentIndex);
 }
 
 function renderReaderCatalogActive(index) {
   if (!readerCatalogList || !readerCatalogPanel || readerCatalogPanel.hidden) return;
   const nodes = readerCatalogList.querySelectorAll(".reader-catalog-item");
-  nodes.forEach((node, idx) => node.classList.toggle("is-active", idx === index));
+  nodes.forEach((node, idx) => {
+    const active = idx === index;
+    node.classList.toggle("is-active", active);
+    if (active) node.setAttribute("aria-current", "true");
+    else node.removeAttribute("aria-current");
+  });
+  centerReaderCatalogActive(index);
+}
+
+function centerReaderCatalogActive(index = readerState.currentIndex) {
+  if (!readerCatalogList || !readerCatalogPanel || readerCatalogPanel.hidden) return;
+  const active = readerCatalogList.querySelectorAll(".reader-catalog-item")[index];
+  if (!active) return;
+  const scrollActiveIntoView = () => {
+    if (!active.isConnected || readerCatalogPanel.hidden) return;
+    const listRect = readerCatalogList.getBoundingClientRect();
+    const activeRect = active.getBoundingClientRect();
+    const target = readerCatalogList.scrollTop
+      + (activeRect.top - listRect.top)
+      - Math.max(0, (listRect.height - activeRect.height) / 2);
+    readerCatalogList.scrollTop = Math.max(0, target);
+  };
+  if (typeof window.requestAnimationFrame === "function") {
+    window.requestAnimationFrame(scrollActiveIntoView);
+  } else {
+    scrollActiveIntoView();
+  }
 }
 
 function jumpReaderToChapter(index) {
@@ -5912,13 +5952,20 @@ async function removeBookshelfItem(item) {
   }
 }
 
-async function addCurrentDetailToBookshelf(result, variant, detail, button, options = {}) {
+function setDetailShelfButtonState(button, onShelf) {
+  if (!button) return;
+  button.dataset.shelfState = onShelf ? "saved" : "idle";
+  button.textContent = onShelf ? "移出书架" : "加入书架";
+  button.title = onShelf ? "从书架中移出，阅读历史和已下载内容会保留" : "加入书架";
+}
+
+async function toggleCurrentDetailBookshelf(result, variant, detail, button, options = {}) {
   if (!result || !variant) return;
   const silent = Boolean(options && options.silent);
   const site = variant.site || (result.primary && result.primary.site);
   const bookID = variant.book_id || (result.primary && result.primary.book_id);
   if (!site || !bookID) {
-    if (!silent) setStatus("加入书架失败：缺少站点或 book_id。");
+    if (!silent) setStatus("更新书架失败：缺少站点或 book_id。");
     return;
   }
   const book = (detail && detail.book) || {};
@@ -5935,8 +5982,20 @@ async function addCurrentDetailToBookshelf(result, variant, detail, button, opti
   };
 
   const original = button ? button.textContent : "";
-  if (button) { button.disabled = true; button.textContent = "加入中..."; }
+  const originalTitle = button ? button.title : "";
+  if (button) { button.disabled = true; button.textContent = "处理中..."; }
   try {
+    const current = await fetchBookshelfProgress(site, bookID);
+    if (current && !current.implicit) {
+      const response = await fetch(`${root}/api/bookshelf/items/${current.id}`, { method: "DELETE" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "remove bookshelf failed");
+      appState.bookshelf.loaded = false;
+      setDetailShelfButtonState(button, false);
+      if (!silent) setStatus(`已从书架移出：${current.title || bookID}。阅读历史和已下载内容会保留。`);
+      return;
+    }
+
     const response = await fetch(`${root}/api/bookshelf/books`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -5946,10 +6005,16 @@ async function addCurrentDetailToBookshelf(result, variant, detail, button, opti
     if (!response.ok) throw new Error(data.error || "add bookshelf failed");
     appState.bookshelf.loaded = false;
     if (!silent) setStatus(`已加入书架：${data.item.title || data.item.book_id}。需要离线阅读时可点击「缓存」下载。`);
-    if (button) { button.disabled = false; button.textContent = "已在书架"; }
+    setDetailShelfButtonState(button, true);
   } catch (error) {
-    if (!silent) setStatus(`加入书架失败：${error.message}`);
-    if (button) { button.disabled = false; button.textContent = original; }
+    if (!silent) setStatus(`更新书架失败：${error.message}`);
+    if (button) {
+      button.disabled = false;
+      button.textContent = original;
+      button.title = originalTitle;
+    }
+  } finally {
+    if (button) button.disabled = false;
   }
 }
 
@@ -5966,12 +6031,12 @@ async function fetchBookshelfProgress(site, bookID) {
   }
 }
 
-// syncDetailShelfState 打开详情时标记「加入书架」按钮的已收藏状态。
+// syncDetailShelfState 打开详情时同步书架按钮的加入/移出状态。
 async function syncDetailShelfState(button, site, bookID) {
   if (!button || !site || !bookID) return;
   const item = await fetchBookshelfProgress(site, bookID);
-  if (!button.isConnected || !item || item.implicit) return;
-  button.textContent = "已在书架";
+  if (!button.isConnected || button.disabled) return;
+  setDetailShelfButtonState(button, Boolean(item && !item.implicit));
 }
 
 // continueReadingFromDetail 详情页「继续阅读」：有阅读进度则跳到上次章节，否则从第一章开始。

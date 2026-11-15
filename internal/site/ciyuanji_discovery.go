@@ -14,7 +14,7 @@ type ciyuanjiDiscoverySpec struct {
 }
 
 var ciyuanjiDiscoverySpecs = []ciyuanjiDiscoverySpec{
-	{List: DiscoveryList{ID: "best-sellers", Name: "畅销榜", Description: "次元姬近期畅销作品排行", Kind: "ranking", UpdateFrequency: "实时更新"}, Path: "/r_c_3_4_0_1.html"},
+	{List: DiscoveryList{ID: "best-sellers", Name: "畅销榜", Description: "次元姬近期畅销作品排行", Kind: "ranking", UpdateFrequency: "实时更新"}, Path: "/r_c_3_3_0_1.html"},
 	{List: DiscoveryList{ID: "clicks", Name: "点击榜", Description: "站内点击热度最高的作品", Kind: "ranking", UpdateFrequency: "实时更新"}, Path: "/r_c_11_4_0_1.html"},
 	{List: DiscoveryList{ID: "new", Name: "新书榜", Description: "近期上架新作中表现最亮眼的作品", Kind: "ranking", UpdateFrequency: "每日更新"}, Path: "/r_c_10_4_0_1.html"},
 	{List: DiscoveryList{ID: "recommend", Name: "推荐榜", Description: "读者推荐热度领先的作品", Kind: "ranking", UpdateFrequency: "每日更新"}, Path: "/r_c_2_4_0_1.html"},
@@ -102,6 +102,9 @@ func parseCiyuanjiDiscoveryResults(markup string, limit int) ([]model.SearchResu
 		if len(results) >= limit {
 			break
 		}
+	}
+	if len(results) == 0 {
+		return nil, fmt.Errorf("ciyuanji ranking has no books")
 	}
 	return results, nil
 }

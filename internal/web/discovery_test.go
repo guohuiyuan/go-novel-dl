@@ -173,6 +173,30 @@ func TestDiscoveryListReturnsSelectedBooks(t *testing.T) {
 	}
 }
 
+func TestDiscoveryListAcceptsDirectBooklistWithoutCatalogMetadata(t *testing.T) {
+	service := newTestService()
+	registerFakeDiscoverySite(service, "qidian", "起点", nil, map[string][]model.SearchResult{
+		"booklist:533326": {
+			{Site: "qidian", BookID: "533326-1", Title: "旧链接仍可读取"},
+		},
+	}, nil)
+
+	resp := discoveryTestGet(t, service, RoutePrefix+"/api/discovery/list?site=qidian&id=booklist%3A533326")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected direct booklist to be readable, got %d: %s", resp.Code, resp.Body.String())
+	}
+	var payload discoveryListResponse
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+	if payload.List.ID != "booklist:533326" || payload.List.Name != "书单 #533326" || payload.List.Kind != "booklist" {
+		t.Fatalf("unexpected fallback metadata: %+v", payload.List)
+	}
+	if len(payload.Books) != 1 || payload.Books[0].BookID != "533326-1" {
+		t.Fatalf("unexpected direct booklist books: %+v", payload.Books)
+	}
+}
+
 func TestDiscoveryListNotFound(t *testing.T) {
 	service := newTestService()
 	registerFakeDiscoverySite(service, "rank-a", "榜单 A", []site.DiscoveryList{

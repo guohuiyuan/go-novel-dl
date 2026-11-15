@@ -163,6 +163,38 @@ func TestParseFalooDiscoveryResultsUsesCompactRankingCards(t *testing.T) {
 	}
 }
 
+func TestParseFalooDiscoveryResultsUsesCurrentSalesCards(t *testing.T) {
+	markup := `<!doctype html>
+<html>
+<body>
+  <div class="c_td_d_data">
+    <div class="c_td_d_d_number1">01</div>
+    <div class="c_td_d_d_img">
+      <a href="//b.faloo.com/1529442.html"><img src="https://img.faloo.com/current.jpg"></a>
+    </div>
+    <div class="c_td_d_d_title">
+      <a href="//b.faloo.com/1529442.html" title="当前热销作品">当前热销作品</a>
+    </div>
+  </div>
+</body>
+</html>`
+
+	results, err := parseFalooDiscoveryResults(markup, 10)
+	if err != nil {
+		t.Fatalf("parse current faloo discovery results: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected one result, got %d", len(results))
+	}
+	item := results[0]
+	if item.BookID != "1529442" || item.Title != "当前热销作品" {
+		t.Fatalf("unexpected current faloo result: %+v", item)
+	}
+	if item.CoverURL != "https://img.faloo.com/current.jpg" {
+		t.Fatalf("unexpected current faloo cover: %q", item.CoverURL)
+	}
+}
+
 func TestFanqieDiscoveryResultsDecodePrivateUseGlyphs(t *testing.T) {
 	state := map[string]any{
 		"rank": map[string]any{

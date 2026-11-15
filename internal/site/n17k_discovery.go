@@ -34,8 +34,8 @@ var n17kDiscoverySpecs = []n17kDiscoverySpec{
 		Title: "礼物榜",
 	},
 	{
-		List:  DiscoveryList{ID: "new-clicks", Name: "新作品点击榜", Description: "近期新作中点击热度最高的作品", Kind: "ranking", UpdateFrequency: "每日更新"},
-		Title: "新作品点击榜",
+		List:  DiscoveryList{ID: "new-clicks", Name: "作品点击榜", Description: "站内点击热度最高的作品", Kind: "ranking", UpdateFrequency: "每日更新"},
+		Title: "作品点击榜",
 	},
 	{
 		List:  DiscoveryList{ID: "potential", Name: "潜力作品榜", Description: "17K 编辑与读者共同关注的高潜力作品", Kind: "ranking", UpdateFrequency: "每日更新"},
