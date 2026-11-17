@@ -12,6 +12,23 @@
 - Web UI 搜索、详情、任务队列与配置中心
 - 可选桌面壳层，底层仍复用同一套 Web 服务
 
+## 下载安装
+
+推荐优先下载与操作系统和 CPU 架构匹配的桌面版。所有下载项也可在
+[GitHub Releases](https://github.com/guohuiyuan/go-novel-dl/releases/latest) 查看和选择。
+
+| 平台 | 推荐下载 | 其它版本 |
+| --- | --- | --- |
+| Windows | [桌面版 x64](https://github.com/guohuiyuan/go-novel-dl/releases/latest/download/go-novel-dl-desktop-windows-amd64.zip) | [桌面版 ARM64](https://github.com/guohuiyuan/go-novel-dl/releases/latest/download/go-novel-dl-desktop-windows-arm64.zip) · [桌面版 32 位](https://github.com/guohuiyuan/go-novel-dl/releases/latest/download/go-novel-dl-desktop-windows-386.zip) · [CLI x64](https://github.com/guohuiyuan/go-novel-dl/releases/latest/download/go-novel-dl_windows_amd64.zip) |
+| macOS Apple Silicon | [DMG 安装包](https://github.com/guohuiyuan/go-novel-dl/releases/latest/download/go-novel-dl-desktop-macos-arm64.dmg) | [PKG 安装包](https://github.com/guohuiyuan/go-novel-dl/releases/latest/download/go-novel-dl-desktop-macos-arm64.pkg) · [CLI](https://github.com/guohuiyuan/go-novel-dl/releases/latest/download/go-novel-dl_darwin_arm64.tar.gz) |
+| macOS Intel | [DMG 安装包](https://github.com/guohuiyuan/go-novel-dl/releases/latest/download/go-novel-dl-desktop-macos-amd64.dmg) | [PKG 安装包](https://github.com/guohuiyuan/go-novel-dl/releases/latest/download/go-novel-dl-desktop-macos-amd64.pkg) · [CLI](https://github.com/guohuiyuan/go-novel-dl/releases/latest/download/go-novel-dl_darwin_amd64.tar.gz) |
+| Linux x64 | [AppImage](https://github.com/guohuiyuan/go-novel-dl/releases/latest/download/go-novel-dl-desktop-linux-amd64.AppImage) | [DEB](https://github.com/guohuiyuan/go-novel-dl/releases/latest/download/go-novel-dl-desktop-linux-amd64.deb) · [RPM](https://github.com/guohuiyuan/go-novel-dl/releases/latest/download/go-novel-dl-desktop-linux-amd64.rpm) · [TAR.GZ](https://github.com/guohuiyuan/go-novel-dl/releases/latest/download/go-novel-dl-desktop-linux-amd64.tar.gz) |
+| Android ARM64 | [推荐 APK](https://github.com/guohuiyuan/go-novel-dl/releases/latest/download/novel-dl_arm64-v8a.apk) | [全 ABI 兼容 APK](https://github.com/guohuiyuan/go-novel-dl/releases/latest/download/novel-dl.apk) · [x86_64 模拟器 APK](https://github.com/guohuiyuan/go-novel-dl/releases/latest/download/novel-dl_x86_64.apk) |
+| iOS | [未签名 IPA](https://github.com/guohuiyuan/go-novel-dl/releases/latest/download/novel-dl-ios-unsigned.ipa) | [SHA-256 校验文件](https://github.com/guohuiyuan/go-novel-dl/releases/latest/download/novel-dl-ios-unsigned.ipa.sha256) |
+
+Android 用户优先选择 `arm64-v8a`；只有分片 APK 无法安装时再使用全 ABI 兼容包。
+iOS 的 `unsigned IPA` 不能直接安装，需要使用 SideStore、AltStore 或自己的开发者证书重签。
+
 项目当前的核心形态不是“单个下载脚本”，而是一个统一运行时：
 
 - `internal/app.Runtime` 负责组装 `Config / Registry / Library / Pipeline / Exporter / State / Progress`
