@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -151,6 +152,12 @@ type paginatedSearchResponse struct {
 }
 
 func Start(port string, shouldOpenBrowser bool, configPath string, cliPageSize int) error {
+	return StartAt(":"+port, shouldOpenBrowser, configPath, cliPageSize)
+}
+
+// StartAt starts the Web UI on an explicit listen address. Desktop and mobile
+// shells use this to keep the embedded server on loopback only.
+func StartAt(address string, shouldOpenBrowser bool, configPath string, cliPageSize int) error {
 	service, err := newService(configPath)
 	if err != nil {
 		return err
@@ -161,7 +168,7 @@ func Start(port string, shouldOpenBrowser bool, configPath string, cliPageSize i
 	}
 
 	router := newRouter(service)
-	url := "http://localhost:" + port + RoutePrefix
+	url := "http://localhost" + routeListenAddress(address) + RoutePrefix
 	if shouldOpenBrowser {
 		go func() {
 			time.Sleep(500 * time.Millisecond)
@@ -170,7 +177,18 @@ func Start(port string, shouldOpenBrowser bool, configPath string, cliPageSize i
 	}
 
 	fmt.Printf("Web started at %s\n", url)
-	return router.Run(":" + port)
+	return router.Run(address)
+}
+
+func routeListenAddress(address string) string {
+	address = strings.TrimSpace(address)
+	if strings.HasPrefix(address, ":") {
+		return address
+	}
+	if _, port, err := net.SplitHostPort(address); err == nil && port != "" {
+		return ":" + port
+	}
+	return ""
 }
 
 func newService(configPath string) (*Service, error) {

@@ -599,6 +599,55 @@ go build ./...
 go build -o novel-dl ./cmd/novel-dl
 ```
 
+### Android APK
+
+移动端使用 Gio 承载系统 WebView，在应用进程内启动现有 Web UI，默认只监听
+`127.0.0.1:37889`。应用数据、SQLite 配置、缓存和下载文件都保存在应用私有目录，
+下载链接会交给系统浏览器处理。
+
+Windows 本地打包前置条件：
+
+- Go 1.25
+- JDK 17，并通过 `JAVA_HOME` 指向该 JDK
+- Android SDK、平台工具、build-tools 34 和 NDK 27
+- 环境变量 `ANDROID_HOME`，默认脚本也会尝试 `C:\Android`
+
+执行：
+
+```bat
+package_app.bat
+```
+
+脚本会先构建仓库内的自定义 `gogio`，然后生成：
+
+```text
+novel-dl.apk
+novel-dl_arm64-v8a.apk
+novel-dl_x86_64.apk
+```
+
+真机推荐安装 `novel-dl_arm64-v8a.apk`，x86_64 分片主要用于模拟器。需要正式签名时，
+在运行脚本前设置 `ANDROID_KEYSTORE_FILE` 和 `ANDROID_KEYSTORE_PASSWORD`。
+
+### iOS IPA
+
+iOS 包必须在安装 Xcode 的 macOS 上构建：
+
+```bash
+# 生成待重签的 unsigned IPA，供 SideStore、AltStore 等工具签名安装
+IOS_UNSIGNED_ONLY=1 ./package_ios.sh
+
+# 使用 provisioning profile 生成已签名 IPA
+IOS_PROVISION_PROFILE=/path/to/profile.mobileprovision ./package_ios.sh
+```
+
+可通过 `IOS_APP_ID`、`IOS_VERSION`、`IOS_OUTPUT` 和 `IOS_MIN_SDK` 覆盖默认值。
+未签名产物为 `novel-dl-ios-unsigned.ipa`，不能直接安装；成功构建后会同时生成
+`.sha256` 校验文件。
+
+GitHub Actions 中的 `android.yml` 和 `ios.yml` 可独立运行，也会在推送 `v*` 标签时由
+Release 流程调用并上传移动端产物。
+
 ### 测试
 
 ```bash

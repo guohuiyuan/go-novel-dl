@@ -1948,3 +1948,17 @@ func TestSearchTimeoutForSites(t *testing.T) {
 		t.Fatalf("expected aaatxt timeout, got %s", got)
 	}
 }
+
+func TestRouteListenAddress(t *testing.T) {
+	for address, want := range map[string]string{
+		":8082":           ":8082",
+		"127.0.0.1:37889": ":37889",
+		"[::1]:37889":     ":37889",
+		"127.0.0.1":       "",
+		"not-an-address":  "",
+	} {
+		if got := routeListenAddress(address); got != want {
+			t.Fatalf("routeListenAddress(%q) = %q, want %q", address, got, want)
+		}
+	}
+}

@@ -12,3 +12,11 @@ cmd/novel-dl/*.syso
 *.log
 logo_256x256.png
 internal/site/testdata
+*.apk
+*.idsig
+*.aab
+*.ipa
+*.sha256
+gogio-local.exe
+release.keystore
+desktop_app/mobile.log

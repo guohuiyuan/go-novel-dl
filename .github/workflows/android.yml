@@ -1,0 +1,147 @@
+name: Build Android APKs
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/android.yml'
+      - 'desktop_app/**'
+      - 'internal/**'
+      - 'package_app.bat'
+      - 'go.mod'
+      - 'go.sum'
+      - 'tools/gio-cmd/**'
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/android.yml'
+      - 'desktop_app/**'
+      - 'internal/**'
+      - 'package_app.bat'
+      - 'go.mod'
+      - 'go.sum'
+      - 'tools/gio-cmd/**'
+
+jobs:
+  build-android:
+    name: Build Android APKs
+    runs-on: windows-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.1'
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android build dependencies
+        shell: powershell
+        run: |
+          $sdkRoot = $env:ANDROID_SDK_ROOT
+          if (-not $sdkRoot) { $sdkRoot = $env:ANDROID_HOME }
+          if (-not $sdkRoot) { throw 'Android SDK root is not configured' }
+          $sdkManager = Get-ChildItem -Path (Join-Path $sdkRoot 'cmdline-tools') -Filter sdkmanager.bat -Recurse -ErrorAction Stop | Select-Object -First 1
+          if (-not $sdkManager) { throw 'sdkmanager.bat was not found' }
+          $licenseAnswers = ((1..64 | ForEach-Object { 'y' }) -join "`r`n") + "`r`n"
+          $licenseAnswers | & $sdkManager.FullName --licenses
+          if ($LASTEXITCODE -ne 0) { throw "sdkmanager license acceptance failed with exit code $LASTEXITCODE" }
+          $licenseAnswers | & $sdkManager.FullName "platform-tools" "platforms;android-33" "build-tools;34.0.0" "ndk;27.0.12077973"
+          if ($LASTEXITCODE -ne 0) { throw "sdkmanager failed with exit code $LASTEXITCODE" }
+          "ANDROID_HOME=$sdkRoot" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "ANDROID_SDK_ROOT=$sdkRoot" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "SDKMANAGER=$($sdkManager.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Decode release keystore
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
+        shell: powershell
+        run: |
+          [IO.File]::WriteAllBytes("release.keystore", [Convert]::FromBase64String($env:ANDROID_KEYSTORE_BASE64))
+
+      - name: Build APKs
+        shell: cmd
+        env:
+          ANDROID_KEYSTORE_FILE: ${{ env.ANDROID_KEYSTORE_BASE64 != '' && '..\release.keystore' || '' }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: package_app.bat
+
+      - name: Remove release keystore
+        if: always()
+        shell: powershell
+        run: Remove-Item -LiteralPath release.keystore -Force -ErrorAction SilentlyContinue
+
+      - name: Verify APK metadata
+        shell: powershell
+        run: |
+          $sdkRoot = $env:ANDROID_HOME
+          $aapt2 = Join-Path $sdkRoot 'build-tools\34.0.0\aapt2.exe'
+          if (-not (Test-Path $aapt2)) { throw "aapt2 not found: $aapt2" }
+          $apkSigner = Join-Path $sdkRoot 'build-tools\34.0.0\apksigner.bat'
+          if (-not (Test-Path $apkSigner)) { throw "apksigner not found: $apkSigner" }
+
+          $expected = @{
+            'novel-dl.apk' = @('arm64-v8a', 'armeabi-v7a', 'x86', 'x86_64')
+            'novel-dl_arm64-v8a.apk' = @('arm64-v8a')
+            'novel-dl_x86_64.apk' = @('x86_64')
+          }
+          foreach ($apk in $expected.Keys) {
+            if (-not (Test-Path $apk)) { throw "missing APK: $apk" }
+            $badging = & $aapt2 dump badging $apk
+            if ($LASTEXITCODE -ne 0) { throw "aapt2 failed for $apk" }
+            $badgingText = $badging -join "`n"
+            if ($badgingText -notmatch "package: name='com\.guohuiyuan\.noveldl'") {
+              throw "unexpected application id in $apk"
+            }
+            if ($badgingText -notmatch "application-label:'NovelDL'") {
+              throw "unexpected application label in $apk"
+            }
+            if ($badgingText -notmatch "launchable-activity: name='org\.gioui\.GioActivity'") {
+              throw "unexpected launchable activity in $apk"
+            }
+            foreach ($abi in $expected[$apk]) {
+              if (-not $badgingText.Contains("'$abi'")) {
+                throw "missing $abi native code in $apk"
+              }
+            }
+            & $apkSigner verify $apk
+            if ($LASTEXITCODE -ne 0) { throw "invalid APK signature: $apk" }
+          }
+
+      - name: Upload APK artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: novel-dl-android
+          path: |
+            novel-dl.apk
+            novel-dl_arm64-v8a.apk
+            novel-dl_x86_64.apk
+          retention-days: 30
+
+      - name: Attach APKs to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            novel-dl.apk
+            novel-dl_arm64-v8a.apk
+            novel-dl_x86_64.apk

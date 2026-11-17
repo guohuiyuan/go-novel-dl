@@ -10,6 +10,19 @@ permissions:
   contents: write
 
 jobs:
+  build-android-apk:
+    name: Build Android APKs
+    uses: ./.github/workflows/android.yml
+    permissions:
+      contents: write
+    secrets: inherit
+
+  build-ios-unsigned:
+    name: Build unsigned iOS IPA
+    uses: ./.github/workflows/ios.yml
+    permissions:
+      contents: write
+
   goreleaser:
     runs-on: ubuntu-latest
     steps:

@@ -1,0 +1,80 @@
+name: Build iOS unsigned IPA
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/ios.yml'
+      - 'desktop_app/**'
+      - 'internal/**'
+      - 'package_ios.sh'
+      - 'go.mod'
+      - 'go.sum'
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/ios.yml'
+      - 'desktop_app/**'
+      - 'internal/**'
+      - 'package_ios.sh'
+      - 'go.mod'
+      - 'go.sum'
+
+jobs:
+  build-ios-unsigned:
+    name: Build unsigned iOS IPA
+    # macos-14 was retired on 2026-11-02. Keep an explicit supported image
+    # instead of macos-latest so an image rollout cannot silently change Xcode.
+    runs-on: macos-15
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Show build environment
+        run: |
+          echo "Xcode: $(xcodebuild -version | head -n 1)"
+          echo "Go: $(go version)"
+          echo "SDK: $(xcrun --sdk iphoneos --show-sdk-version)"
+
+      - name: Build unsigned iOS package
+        env:
+          IOS_UNSIGNED_ONLY: "1"
+          IOS_APP_ID: ${{ vars.IOS_APP_ID || 'com.guohuiyuan.noveldl' }}
+        run: |
+          chmod +x package_ios.sh
+          ./package_ios.sh
+
+      - name: Verify IPA and checksum
+        run: |
+          ls -lh novel-dl-ios-unsigned.ipa novel-dl-ios-unsigned.ipa.sha256
+          shasum -a 256 -c novel-dl-ios-unsigned.ipa.sha256
+          unzip -tq novel-dl-ios-unsigned.ipa
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: novel-dl-ios-unsigned
+          path: |
+            novel-dl-ios-unsigned.ipa
+            novel-dl-ios-unsigned.ipa.sha256
+          retention-days: 30
+
+      - name: Attach unsigned IPA to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            novel-dl-ios-unsigned.ipa
+            novel-dl-ios-unsigned.ipa.sha256
