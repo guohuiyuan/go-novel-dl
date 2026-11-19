@@ -1,8 +1,8 @@
 package site
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"golang.org/x/net/html"
+	charsetpkg "golang.org/x/net/html/charset"
 
 	"github.com/guohuiyuan/go-novel-dl/internal/config"
 	"github.com/guohuiyuan/go-novel-dl/internal/model"
@@ -46,7 +47,7 @@ func NewIxdzs8Site(cfg config.ResolvedSiteConfig) *Ixdzs8Site {
 		html:       NewHTMLSite(client),
 		client:     client,
 		baseURL:    baseURL,
-		catalogURL: baseURL + "/novel/clist/",
+		catalogURL: baseURL + "/novel/html",
 		searchURL:  baseURL + "/bsearch",
 	}
 }
@@ -96,7 +97,7 @@ func (s *Ixdzs8Site) DownloadPlan(ctx context.Context, ref model.BookRef) (*mode
 	if err != nil {
 		return nil, err
 	}
-	catalogJSON, err := s.postCatalog(ctx, ref.BookID)
+	catalogMarkup, err := s.postCatalog(ctx, ref.BookID)
 	if err != nil {
 		return nil, err
 	}
@@ -120,31 +121,72 @@ func (s *Ixdzs8Site) DownloadPlan(ctx context.Context, ref model.BookRef) (*mode
 		DownloadedAt: time.Now().UTC(),
 		UpdatedAt:    time.Now().UTC(),
 	}
-	var payload struct {
-		Data []struct {
-			OrderNum any    `json:"ordernum"`
-			Title    string `json:"title"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal([]byte(catalogJSON), &payload); err != nil {
+	chapters, err := parseIxdzsCatalog(catalogMarkup, ref.BookID, s.baseURL)
+	if err != nil {
 		return nil, err
-	}
-	chapters := make([]model.Chapter, 0, len(payload.Data))
-	for _, item := range payload.Data {
-		ord := strings.TrimSpace(fmt.Sprintf("%v", item.OrderNum))
-		if ord == "" || ord == "<nil>" {
-			continue
-		}
-		cid := "p" + ord
-		chapters = append(chapters, model.Chapter{
-			ID:    cid,
-			Title: compactWhitespace(item.Title),
-			URL:   s.chapterURL(ref.BookID, cid),
-			Order: len(chapters) + 1,
-		})
 	}
 	book.Chapters = applyChapterRange(chapters, ref)
 	return book, nil
+}
+
+func parseIxdzsCatalog(markup, bookID, baseURL string) ([]model.Chapter, error) {
+	doc, err := parseHTML(markup)
+	if err != nil {
+		return nil, err
+	}
+
+	bookID = strings.TrimSpace(bookID)
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	chapters := make([]model.Chapter, 0)
+	seen := make(map[string]struct{})
+	for _, item := range findAll(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.Data == "li" && !hasClass(n, "catalog-all")
+	}) {
+		link := findFirst(item, func(n *html.Node) bool {
+			return n.Type == html.ElementNode && n.Data == "a"
+		})
+		chapterID := ixdzsCatalogChapterID(attrValue(link, "href"), bookID)
+		if chapterID == "" {
+			continue
+		}
+		if _, exists := seen[chapterID]; exists {
+			continue
+		}
+		seen[chapterID] = struct{}{}
+		title := compactWhitespace(nodeText(link))
+		if title == "" {
+			title = compactWhitespace(nodeText(item))
+		}
+		chapters = append(chapters, model.Chapter{
+			ID:    chapterID,
+			Title: title,
+			URL:   baseURL + "/read/" + bookID + "/" + chapterID + ".html",
+			Order: len(chapters) + 1,
+		})
+	}
+	if len(chapters) == 0 {
+		return nil, fmt.Errorf("ixdzs8 catalog chapters not found")
+	}
+	return chapters, nil
+}
+
+func ixdzsCatalogChapterID(rawHref, bookID string) string {
+	rawHref = strings.TrimSpace(rawHref)
+	if rawHref == "" {
+		return ""
+	}
+	parsed, err := url.Parse(rawHref)
+	if err != nil {
+		return ""
+	}
+	if host := strings.TrimPrefix(strings.ToLower(parsed.Hostname()), "www."); host != "" && host != "ixdzs8.com" {
+		return ""
+	}
+	match := ixdzsChapterRe.FindStringSubmatch(parsed.Path)
+	if len(match) != 3 || strings.TrimSpace(bookID) == "" || match[1] != strings.TrimSpace(bookID) {
+		return ""
+	}
+	return match[2]
 }
 
 func (s *Ixdzs8Site) FetchChapter(ctx context.Context, bookID string, chapter model.Chapter) (model.Chapter, error) {
@@ -414,11 +456,14 @@ func (s *Ixdzs8Site) postCatalogOnce(ctx context.Context, bookID string) (string
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
 	req.Header.Set("User-Agent", defaultBrowserUserAgent)
-	req.Header.Set("Accept", "application/json, text/plain, */*")
+	req.Header.Set("Accept", "*/*")
 	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
 	req.Header.Set("Origin", strings.TrimRight(s.baseURL, "/"))
 	req.Header.Set("Referer", s.bookInfoURL(bookID))
 	req.Header.Set("X-Requested-With", "XMLHttpRequest")
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	req.Header.Set("Sec-Fetch-Mode", "cors")
+	req.Header.Set("Sec-Fetch-Dest", "empty")
 	resp, err := s.client.Do(req)
 	if err != nil {
 		return "", err
@@ -430,6 +475,12 @@ func (s *Ixdzs8Site) postCatalogOnce(ctx context.Context, bookID string) (string
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", err
+	}
+	reader, err := charsetpkg.NewReader(bytes.NewReader(data), resp.Header.Get("Content-Type"))
+	if err == nil {
+		if decoded, decodeErr := io.ReadAll(reader); decodeErr == nil {
+			return string(decoded), nil
+		}
 	}
 	return string(data), nil
 }

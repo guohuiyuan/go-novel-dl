@@ -32,6 +32,31 @@ func TestIxdzs8ResolveURL(t *testing.T) {
 	}
 }
 
+func TestIxdzs8ParseCatalogUsesLinkedChapters(t *testing.T) {
+	markup := `<ul>
+		<li class="catalog-all"><a href="/read/69997/p1.html">全部目录</a></li>
+		<li>【001】 首章无地址</li>
+		<li><a href="/read/69997/p2.html">【002】 我的世界观破灭了</a></li>
+		<li><a href="/read/69997/p3.html">【003】 被告白了</a></li>
+		<li><a href="/read/69998/p4.html">【004】 其他书籍</a></li>
+		<li><a href="https://ixdzs8.com/read/69997/p2.html">【002】 重复章节</a></li>
+	</ul>`
+
+	chapters, err := parseIxdzsCatalog(markup, "69997", "https://ixdzs8.com")
+	if err != nil {
+		t.Fatalf("parse catalog: %v", err)
+	}
+	if len(chapters) != 2 {
+		t.Fatalf("expected 2 linked chapters, got %+v", chapters)
+	}
+	if chapters[0].ID != "p2" || chapters[0].URL != "https://ixdzs8.com/read/69997/p2.html" {
+		t.Fatalf("unexpected first chapter: %+v", chapters[0])
+	}
+	if chapters[1].ID != "p3" || chapters[1].Title != "【003】 被告白了" {
+		t.Fatalf("unexpected second chapter: %+v", chapters[1])
+	}
+}
+
 func TestIxdzs8DownloadPlanHandlesCatalogChallenge(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/read/15918/", func(w http.ResponseWriter, r *http.Request) {
@@ -41,7 +66,7 @@ func TestIxdzs8DownloadPlanHandlesCatalogChallenge(t *testing.T) {
 <meta property="og:description" content="测试简介" />
 </head><body></body></html>`))
 	})
-	mux.HandleFunc("/novel/clist/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/novel/html", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.URL.Query().Get("challenge") == "token-2" {
 			http.SetCookie(w, &http.Cookie{
 				Name:  "ixdzs_verify",
@@ -68,14 +93,14 @@ func TestIxdzs8DownloadPlanHandlesCatalogChallenge(t *testing.T) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		_, _ = w.Write([]byte(`{"data":[{"ordernum":246,"title":"第246章 测试章节"}]}`))
+		_, _ = w.Write([]byte(`<ul><li>【001】 首章无地址</li><li><a href="/read/15918/p246.html">第246章 测试章节</a></li></ul>`))
 	})
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
 	s := NewIxdzs8Site(config.DefaultConfig().ResolveSiteConfig("ixdzs8"))
 	s.baseURL = server.URL
-	s.catalogURL = server.URL + "/novel/clist/"
+	s.catalogURL = server.URL + "/novel/html"
 
 	book, err := s.DownloadPlan(context.Background(), model.BookRef{BookID: "15918"})
 	if err != nil {
@@ -100,7 +125,7 @@ func TestIxdzs8DownloadPlanFetchChapterAndSearch(t *testing.T) {
 <meta property="og:image" content="https://ixdzs8.com/covers/15918.jpg" />
 </head><body></body></html>`))
 	})
-	mux.HandleFunc("/novel/clist/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/novel/html", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
@@ -113,7 +138,7 @@ func TestIxdzs8DownloadPlanFetchChapterAndSearch(t *testing.T) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		_, _ = w.Write([]byte(`{"data":[{"ordernum":246,"title":"第246章 测试章节"}]}`))
+		_, _ = w.Write([]byte(`<ul><li>【001】 首章无地址</li><li><a href="/read/15918/p246.html">第246章 测试章节</a></li></ul>`))
 	})
 	mux.HandleFunc("/read/15918/p246.html", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`<html><body><article class="page-content"><div class="page-d-top"><h1>第246章 测试章节</h1></div><section><p>ixdzs8.com</p><p>正文第一段</p><p>正文第二段</p><p>本章完</p></section></article></body></html>`))
@@ -135,7 +160,7 @@ func TestIxdzs8DownloadPlanFetchChapterAndSearch(t *testing.T) {
 
 	s := NewIxdzs8Site(config.DefaultConfig().ResolveSiteConfig("ixdzs8"))
 	s.baseURL = server.URL
-	s.catalogURL = server.URL + "/novel/clist/"
+	s.catalogURL = server.URL + "/novel/html"
 	s.searchURL = server.URL + "/bsearch"
 
 	book, err := s.DownloadPlan(context.Background(), model.BookRef{BookID: "15918"})
