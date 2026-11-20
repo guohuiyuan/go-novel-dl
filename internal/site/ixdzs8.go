@@ -25,6 +25,8 @@ var (
 	ixdzsTokenRegexp = regexp.MustCompile(`(?i)(?:let|var|const)\s+token\s*=\s*["']([^"']+)["']`)
 )
 
+const ixdzs8VisitorCookie = "__cn_v=ix26_k7m9p3w8"
+
 type Ixdzs8Site struct {
 	cfg        config.ResolvedSiteConfig
 	html       HTMLSite
@@ -363,7 +365,7 @@ func ixdzsSearchBookID(raw string) string {
 
 func (s *Ixdzs8Site) fetchVerifiedHTML(ctx context.Context, rawURL string) (string, error) {
 	for attempt := 0; attempt < 3; attempt++ {
-		markup, err := s.html.Get(ctx, rawURL)
+		markup, err := s.html.GetWithHeaders(ctx, rawURL, s.requestHeaders())
 		if err != nil {
 			return "", err
 		}
@@ -378,10 +380,21 @@ func (s *Ixdzs8Site) fetchVerifiedHTML(ctx context.Context, rawURL string) (stri
 }
 
 func (s *Ixdzs8Site) postCatalog(ctx context.Context, bookID string) (string, error) {
+	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
 		payload, err := s.postCatalogOnce(ctx, bookID)
 		if err != nil {
-			return "", err
+			lastErr = err
+			if !strings.Contains(strings.ToLower(err.Error()), "http 403") || attempt == 2 {
+				return "", err
+			}
+			if _, refreshErr := s.fetchVerifiedHTML(ctx, s.bookInfoURL(bookID)); refreshErr != nil {
+				return "", fmt.Errorf("%w; ixdzs8 visitor session refresh failed: %v", err, refreshErr)
+			}
+			if sleepErr := sleepWithContext(ctx, 200*time.Millisecond); sleepErr != nil {
+				return "", sleepErr
+			}
+			continue
 		}
 		if !isIxdzsChallengeMarkup(payload) {
 			return payload, nil
@@ -389,6 +402,9 @@ func (s *Ixdzs8Site) postCatalog(ctx context.Context, bookID string) (string, er
 		if err := s.completeIxdzsChallenge(ctx, s.catalogURL, payload); err != nil {
 			return "", err
 		}
+	}
+	if lastErr != nil {
+		return "", lastErr
 	}
 	return "", fmt.Errorf("ixdzs8 catalog challenge not bypassed")
 }
@@ -441,7 +457,9 @@ func (s *Ixdzs8Site) completeIxdzsChallenge(ctx context.Context, rawURL, markup 
 	query := challengeURL.Query()
 	query.Set("challenge", m[1])
 	challengeURL.RawQuery = query.Encode()
-	if _, err := s.html.GetWithHeaders(ctx, challengeURL.String(), map[string]string{"Referer": rawURL}); err != nil {
+	headers := s.requestHeaders()
+	headers["Referer"] = rawURL
+	if _, err := s.html.GetWithHeaders(ctx, challengeURL.String(), headers); err != nil {
 		return err
 	}
 	return nil
@@ -460,6 +478,7 @@ func (s *Ixdzs8Site) postCatalogOnce(ctx context.Context, bookID string) (string
 	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
 	req.Header.Set("Origin", strings.TrimRight(s.baseURL, "/"))
 	req.Header.Set("Referer", s.bookInfoURL(bookID))
+	req.Header.Set("Cookie", ixdzs8CookieHeader(s.cfg.Cookie))
 	req.Header.Set("X-Requested-With", "XMLHttpRequest")
 	req.Header.Set("Sec-Fetch-Site", "same-origin")
 	req.Header.Set("Sec-Fetch-Mode", "cors")
@@ -483,4 +502,34 @@ func (s *Ixdzs8Site) postCatalogOnce(ctx context.Context, bookID string) (string
 		}
 	}
 	return string(data), nil
+}
+
+func (s *Ixdzs8Site) requestHeaders() map[string]string {
+	return map[string]string{
+		"Cookie": ixdzs8CookieHeader(s.cfg.Cookie),
+	}
+}
+
+func ixdzs8CookieHeader(configured string) string {
+	configured = strings.TrimSpace(configured)
+	if len(configured) >= len("Cookie:") && strings.EqualFold(configured[:len("Cookie:")], "Cookie:") {
+		configured = strings.TrimSpace(configured[len("Cookie:"):])
+	}
+	if ixdzs8CookieHasName(configured, "__cn_v") {
+		return configured
+	}
+	if configured == "" {
+		return ixdzs8VisitorCookie
+	}
+	return configured + "; " + ixdzs8VisitorCookie
+}
+
+func ixdzs8CookieHasName(raw, name string) bool {
+	for _, item := range strings.Split(raw, ";") {
+		cookieName, _, ok := strings.Cut(strings.TrimSpace(item), "=")
+		if ok && strings.TrimSpace(cookieName) == name {
+			return true
+		}
+	}
+	return false
 }

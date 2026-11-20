@@ -32,6 +32,133 @@ func TestIxdzs8ResolveURL(t *testing.T) {
 	}
 }
 
+func TestIxdzs8CookieHeader(t *testing.T) {
+	tests := []struct {
+		name       string
+		configured string
+		want       string
+	}{
+		{
+			name: "visitor fallback",
+			want: ixdzs8VisitorCookie,
+		},
+		{
+			name:       "configured cookie is preserved",
+			configured: "session=abc; theme=dark",
+			want:       "session=abc; theme=dark; " + ixdzs8VisitorCookie,
+		},
+		{
+			name:       "configured visitor cookie wins",
+			configured: "session=abc; __cn_v=custom-visitor",
+			want:       "session=abc; __cn_v=custom-visitor",
+		},
+		{
+			name:       "cookie prefix is removed",
+			configured: "Cookie: session=abc",
+			want:       "session=abc; " + ixdzs8VisitorCookie,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ixdzs8CookieHeader(tt.configured); got != tt.want {
+				t.Fatalf("unexpected cookie header: got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIxdzs8PostCatalogSendsVisitorCookie(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		if !strings.Contains(r.Header.Get("Cookie"), ixdzs8VisitorCookie) {
+			t.Errorf("catalog request missing visitor cookie: %q", r.Header.Get("Cookie"))
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if r.Form.Get("bid") != "54374" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		_, _ = w.Write([]byte(`<ul><li><a href="/read/54374/p1.html">绗?1绔?/a></li></ul>`))
+	}))
+	defer server.Close()
+
+	s := NewIxdzs8Site(config.DefaultConfig().ResolveSiteConfig("ixdzs8"))
+	s.baseURL = server.URL
+	s.catalogURL = server.URL + "/novel/html"
+
+	if _, err := s.postCatalogOnce(context.Background(), "54374"); err != nil {
+		t.Fatalf("post catalog: %v", err)
+	}
+}
+
+func TestIxdzs8PostCatalogPreservesConfiguredCookie(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.Header.Get("Cookie"), "session=abc") ||
+			!strings.Contains(r.Header.Get("Cookie"), ixdzs8VisitorCookie) {
+			t.Errorf("unexpected catalog cookie: %q", r.Header.Get("Cookie"))
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		_, _ = w.Write([]byte(`<ul><li><a href="/read/54374/p1.html">绗?1绔?/a></li></ul>`))
+	}))
+	defer server.Close()
+
+	cfg := config.DefaultConfig().ResolveSiteConfig("ixdzs8")
+	cfg.Cookie = "session=abc"
+	s := NewIxdzs8Site(cfg)
+	s.baseURL = server.URL
+	s.catalogURL = server.URL + "/novel/html"
+
+	if _, err := s.postCatalogOnce(context.Background(), "54374"); err != nil {
+		t.Fatalf("post catalog: %v", err)
+	}
+}
+
+func TestIxdzs8PostCatalogRefreshesVisitorSessionAfterForbidden(t *testing.T) {
+	catalogAttempts := 0
+	sessionRefreshes := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/read/54374/", func(w http.ResponseWriter, r *http.Request) {
+		sessionRefreshes++
+		http.SetCookie(w, &http.Cookie{Name: "ixdzs_visitor", Value: "fresh", Path: "/"})
+		_, _ = w.Write([]byte(`<html><body>book page</body></html>`))
+	})
+	mux.HandleFunc("/novel/html", func(w http.ResponseWriter, r *http.Request) {
+		catalogAttempts++
+		if cookie, err := r.Cookie("ixdzs_visitor"); err != nil || cookie.Value != "fresh" {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		_, _ = w.Write([]byte(`<ul><li><a href="/read/54374/p1.html">绗?1绔?/a></li></ul>`))
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	s := NewIxdzs8Site(config.DefaultConfig().ResolveSiteConfig("ixdzs8"))
+	s.baseURL = server.URL
+	s.catalogURL = server.URL + "/novel/html"
+
+	payload, err := s.postCatalog(context.Background(), "54374")
+	if err != nil {
+		t.Fatalf("post catalog after session refresh: %v", err)
+	}
+	if !strings.Contains(payload, "/read/54374/p1.html") {
+		t.Fatalf("unexpected catalog payload: %s", payload)
+	}
+	if catalogAttempts != 2 || sessionRefreshes != 1 {
+		t.Fatalf("unexpected retry counts: catalog=%d refresh=%d", catalogAttempts, sessionRefreshes)
+	}
+}
+
 func TestIxdzs8ParseCatalogUsesLinkedChapters(t *testing.T) {
 	markup := `<ul>
 		<li class="catalog-all"><a href="/read/69997/p1.html">全部目录</a></li>
