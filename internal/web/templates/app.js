@@ -138,6 +138,7 @@ const appState = {
     total: 0,
     pages: 1,
     pageSize: 0,
+    countPromise: null,
   },
   sourceSpeed: {
     running: false,
@@ -967,6 +968,9 @@ function activateTab(tabName, options = {}) {
     });
   }
   if (tabName === "favorites") {
+    // Keep the history badge accurate even before the user opens the history
+    // sub-tab (the list itself is still loaded lazily).
+    void refreshHistoryCount();
     activateSubTab(appState.activeSubTab || "bookshelf", options);
   }
   if (options.syncURL !== false) scheduleAppURLSync();
@@ -5740,6 +5744,35 @@ function renderBookshelf() {
 
 function setHistoryStatus(text) {
   if (historyStatusNode) historyStatusNode.textContent = text;
+}
+
+// refreshHistoryCount keeps the "历史" tab badge populated without loading the
+// full list. One-row requests are cheap and the server reports the real total.
+async function refreshHistoryCount() {
+  const history = appState.history;
+  if (historyTabCountNode && history.loaded) {
+    historyTabCountNode.textContent = String(history.total || 0);
+    return;
+  }
+  if (history.countPromise) return history.countPromise;
+  history.countPromise = (async () => {
+    try {
+      const params = new URLSearchParams();
+      params.set("page", "1");
+      params.set("page_size", "1");
+      const response = await fetch(`${root}/api/bookshelf/history?${params.toString()}`);
+      if (!response.ok) return;
+      const payload = await response.json();
+      const total = Math.max(0, Number(payload.total) || 0);
+      history.total = total;
+      if (historyTabCountNode) historyTabCountNode.textContent = String(total);
+    } catch (_) {
+      // A stale badge is better than blocking the bookshelf view.
+    } finally {
+      history.countPromise = null;
+    }
+  })();
+  return history.countPromise;
 }
 
 async function loadHistory(page = 1) {

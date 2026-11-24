@@ -51,6 +51,23 @@ func TestDiscoveryListUIPaginates(t *testing.T) {
 	}
 }
 
+func TestFavoritesTabPrefetchesHistoryCount(t *testing.T) {
+	data, err := templateFS.ReadFile("templates/app.js")
+	if err != nil {
+		t.Fatalf("read app.js: %v", err)
+	}
+	script := string(data)
+	for _, needle := range []string{
+		`void refreshHistoryCount();`,
+		`params.set("page_size", "1");`,
+		`historyTabCountNode.textContent = String(total);`,
+	} {
+		if !strings.Contains(script, needle) {
+			t.Fatalf("expected history badge prefetch to contain %s", needle)
+		}
+	}
+}
+
 func TestDiscoveryURLRestoresDirectQidianBooklists(t *testing.T) {
 	data, err := templateFS.ReadFile("templates/app.js")
 	if err != nil {
