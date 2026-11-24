@@ -85,6 +85,9 @@ const bridgeScript = `(function () {
     }
     if (event.key === "BrowserBack" || (event.altKey && !event.ctrlKey && !event.metaKey && event.key === "ArrowLeft")) {
       event.preventDefault();
+      if (typeof window.__novelDlNavigateBack === "function" && window.__novelDlNavigateBack()) {
+        return;
+      }
       window.history.back();
     }
   }, true);
@@ -124,6 +127,9 @@ const bridgeScript = `(function () {
 })();`
 
 const historyBackScript = `(function () {
+  if (typeof window.__novelDlNavigateBack === "function" && window.__novelDlNavigateBack()) {
+    return;
+  }
   if (window.history.length > 1) {
     window.history.back();
   }

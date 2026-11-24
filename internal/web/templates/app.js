@@ -705,6 +705,8 @@ const generalRequestIntervalNode = document.getElementById("generalRequestInterv
 const generalLocaleStyleNode = document.getElementById("generalLocaleStyle");
 const generalFormatsNode = document.getElementById("generalFormats");
 const generalFilenameTemplateNode = document.getElementById("generalFilenameTemplate");
+const generalEpubCSSFileNode = document.getElementById("generalEpubCSSFile");
+const generalEpubCSSNode = document.getElementById("generalEpubCSS");
 const generalAppendTimestampNode = document.getElementById("generalAppendTimestamp");
 const generalIncludePictureNode = document.getElementById("generalIncludePicture");
 const generalDisableCacheNode = document.getElementById("generalDisableCache");
@@ -3790,6 +3792,80 @@ async function restoreAppFromLocation() {
   }
 }
 
+// navigateBackInApp powers the Android/iOS back button and edge-swipe gesture.
+// It walks the visible overlay/sub-tab stack so the native back action always
+// has a meaningful target even though the SPA syncs URLs with replaceState.
+function navigateBackInApp() {
+  if (resultActionSheet && !resultActionSheet.hidden) {
+    closeResultActionSheet();
+    return true;
+  }
+  if (readerCatalogPanel && !readerCatalogPanel.hidden) {
+    hideReaderCatalog();
+    return true;
+  }
+  if (readerOverlay && !readerOverlay.hidden) {
+    closeReader();
+    return true;
+  }
+  if (detailOverlay && !detailOverlay.hidden) {
+    closeDetail();
+    return true;
+  }
+  if (siteConfigOverlay && !siteConfigOverlay.hidden) {
+    closeSiteConfig();
+    return true;
+  }
+  if (appState.discover.activeList) {
+    closeDiscoverList();
+    return true;
+  }
+  if (appState.activeTab === "favorites") {
+    if (appState.activeSubTab !== "bookshelf") {
+      activateSubTab("bookshelf");
+      return true;
+    }
+    if (appState.bookshelf.parentId) {
+      void loadBookshelf(null, 1);
+      return true;
+    }
+  }
+  if (appState.activeTab === "discover") {
+    if (appState.discover.section !== "trending") {
+      activateDiscoverSection("trending");
+      return true;
+    }
+    activateTab("search");
+    return true;
+  }
+  if (appState.activeTab !== "search") {
+    activateTab("search");
+    return true;
+  }
+  if (appState.lastKeyword || appState.results.length) {
+    appState.lastKeyword = "";
+    appState.lastExact = false;
+    appState.lastTagSearch = "";
+    appState.lastTagSearchUsed = false;
+    appState.results = [];
+    appState.total = 0;
+    appState.totalExact = true;
+    appState.page = 1;
+    appState.hasPrev = false;
+    appState.hasNext = false;
+    keywordInput.value = "";
+    resultsNode.innerHTML = "";
+    resultsNode.appendChild(createEmptyState("输入关键词开始搜索，或直接粘贴书籍链接。"));
+    renderPaging();
+    renderResultMeta();
+    setStatus("已返回搜索首页。");
+    scheduleAppURLSync();
+    return true;
+  }
+  return false;
+}
+window.__novelDlNavigateBack = navigateBackInApp;
+
 function openReader(chapters, index, options = {}) {
   const pageViewport = ensureReaderPageViewport();
   if (!readerOverlay || !readerContent || !pageViewport) {
@@ -5809,6 +5885,8 @@ function renderGeneralConfigForm(item) {
   setRangeVal("generalRequestInterval", item.request_interval || 0.5);
   generalLocaleStyleNode.value = item.locale_style || "simplified";
   generalFormatsNode.value = Array.isArray(item.formats) ? item.formats.join(",") : "txt,epub";
+  if (generalEpubCSSFileNode) generalEpubCSSFileNode.value = item.epub_css_file || "";
+  if (generalEpubCSSNode) generalEpubCSSNode.value = item.epub_css || "";
   generalAppendTimestampNode.checked = item.append_timestamp !== false;
   generalIncludePictureNode.checked = item.include_picture !== false;
   generalDisableCacheNode.checked = item.disable_cache === true;
@@ -5876,6 +5954,8 @@ async function saveGeneralConfig(options = {}) {
     locale_style: (generalLocaleStyleNode.value || "simplified").trim(),
     formats: (generalFormatsNode.value || "txt,epub").split(",").map((item) => item.trim()).filter(Boolean),
     filename_template: (generalFilenameTemplateNode && generalFilenameTemplateNode.value.trim()) || "{title}_{author}",
+    epub_css_file: generalEpubCSSFileNode ? generalEpubCSSFileNode.value.trim() : "",
+    epub_css: generalEpubCSSNode ? generalEpubCSSNode.value : "",
     append_timestamp: generalAppendTimestampNode.checked,
     include_picture: generalIncludePictureNode.checked,
     disable_cache: generalDisableCacheNode.checked,

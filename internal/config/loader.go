@@ -226,6 +226,8 @@ func applyOutputConfig(dst *OutputConfig, raw map[string]any) {
 	boolField(raw, "render_missing_chapter", &dst.RenderMissingChapter)
 	stringField(raw, "filename_template", &dst.FilenameTemplate)
 	boolField(raw, "include_picture", &dst.IncludePicture)
+	stringField(raw, "epub_css", &dst.EPUBCSS)
+	stringField(raw, "epub_css_file", &dst.EPUBCSSFile)
 }
 
 func applyOutputOverride(dst *OutputOverride, raw map[string]any) {
@@ -236,6 +238,8 @@ func applyOutputOverride(dst *OutputOverride, raw map[string]any) {
 	optionalBoolField(raw, "render_missing_chapter", &dst.RenderMissingChapter)
 	optionalStringField(raw, "filename_template", &dst.FilenameTemplate)
 	optionalBoolField(raw, "include_picture", &dst.IncludePicture)
+	optionalStringField(raw, "epub_css", &dst.EPUBCSS)
+	optionalStringField(raw, "epub_css_file", &dst.EPUBCSSFile)
 }
 
 func applyParserConfig(dst *ParserConfig, raw map[string]any) {

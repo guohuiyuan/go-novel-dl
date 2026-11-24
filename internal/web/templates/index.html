@@ -508,6 +508,16 @@
                     <input id="generalFilenameTemplate" class="search-input settings-mono-input" type="text" placeholder="{title}_{author}">
                     <span class="field-help">支持 <code>{title}</code>、<code>{author}</code>、<code>{site}</code>、<code>{book_id}</code>。例：<code>{title}-{author}（{site}）</code>。</span>
                   </label>
+                  <label class="settings-field settings-field-span" for="generalEpubCSSFile">
+                    <span class="settings-field-label">EPUB 自定义 CSS 文件</span>
+                    <input id="generalEpubCSSFile" class="search-input settings-mono-input" type="text" placeholder="例如 C:\Users\me\epub.css 或 ./epub.css">
+                    <span class="field-help">可选。导出 EPUB 时读取该文件并追加到内置样式之后；文件不存在时导出会明确报错。相对路径以程序运行目录为基准。</span>
+                  </label>
+                  <label class="settings-field settings-field-span" for="generalEpubCSS">
+                    <span class="settings-field-label">EPUB 自定义 CSS</span>
+                    <textarea id="generalEpubCSS" class="search-input site-config-textarea" rows="7" placeholder="body { font-family: 'Noto Serif SC', serif; }&#10;p { line-height: 1.9; text-indent: 2em; }"></textarea>
+                    <span class="field-help">直接粘贴 CSS，导出 EPUB 时追加；同时填写文件时会先应用文件内容，再应用这里的文本（可覆盖前面的规则）。</span>
+                  </label>
                 </div>
               </section>
               <section class="settings-card">

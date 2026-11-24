@@ -46,6 +46,11 @@ type OutputConfig struct {
 	RenderMissingChapter bool
 	FilenameTemplate     string
 	IncludePicture       bool
+	// EPUBCSS is inline CSS appended after the built-in EPUB stylesheet.
+	EPUBCSS string
+	// EPUBCSSFile is an optional path to a .css file read at export time. Its
+	// contents are applied before EPUBCSS.
+	EPUBCSSFile string
 }
 
 type OutputOverride struct {
@@ -54,6 +59,8 @@ type OutputOverride struct {
 	RenderMissingChapter *bool
 	FilenameTemplate     *string
 	IncludePicture       *bool
+	EPUBCSS              *string
+	EPUBCSSFile          *string
 }
 
 type ParserConfig struct {
@@ -234,6 +241,12 @@ func mergeOutputConfig(dst *OutputConfig, src *OutputOverride) {
 	}
 	if src.IncludePicture != nil {
 		dst.IncludePicture = *src.IncludePicture
+	}
+	if src.EPUBCSS != nil {
+		dst.EPUBCSS = *src.EPUBCSS
+	}
+	if src.EPUBCSSFile != nil {
+		dst.EPUBCSSFile = *src.EPUBCSSFile
 	}
 }
 

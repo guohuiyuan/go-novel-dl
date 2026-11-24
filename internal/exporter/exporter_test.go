@@ -530,3 +530,64 @@ func TestTXTExportPreservesReasonableParagraphSpacing(t *testing.T) {
 		t.Fatalf("expected txt output to avoid nbsp entities, got: %s", text)
 	}
 }
+
+func TestEPUBExportAppendsCustomCSS(t *testing.T) {
+	service := New()
+	dir := t.TempDir()
+	cssFile := filepath.Join(dir, "custom.css")
+	if err := os.WriteFile(cssFile, []byte(".from-file{color:red;}"), 0o644); err != nil {
+		t.Fatalf("write css file: %v", err)
+	}
+
+	output := config.DefaultConfig().General.Output
+	output.EPUBCSSFile = cssFile
+	output.EPUBCSS = ".inline{color:blue;}"
+	book := &model.Book{
+		Site:     "linovelib",
+		ID:       "css-test",
+		Title:    "CSS Test",
+		Author:   "Tester",
+		Chapters: []model.Chapter{{ID: "1", Title: "Chapter 1", Content: "Hello."}},
+	}
+	paths, err := service.Export(book, "linovelib", output, dir, []string{"epub"})
+	if err != nil {
+		t.Fatalf("export epub: %v", err)
+	}
+	if len(paths) != 1 {
+		t.Fatalf("expected one exported file, got %d", len(paths))
+	}
+	r, err := zip.OpenReader(paths[0])
+	if err != nil {
+		t.Fatalf("open epub: %v", err)
+	}
+	defer r.Close()
+	styles := readZipEntry(t, r, "OEBPS/styles.css")
+	if !strings.Contains(styles, "body{font-family") {
+		t.Fatalf("expected built-in styles to remain, got: %s", styles)
+	}
+	fileIndex := strings.Index(styles, ".from-file{color:red;}")
+	inlineIndex := strings.Index(styles, ".inline{color:blue;}")
+	if fileIndex < 0 || inlineIndex < 0 {
+		t.Fatalf("expected custom css in stylesheet, got: %s", styles)
+	}
+	if inlineIndex < fileIndex {
+		t.Fatalf("inline css should come after file css, got: %s", styles)
+	}
+}
+
+func TestEPUBExportReportsMissingCustomCSSFile(t *testing.T) {
+	service := New()
+	output := config.DefaultConfig().General.Output
+	output.EPUBCSSFile = filepath.Join(t.TempDir(), "missing.css")
+	book := &model.Book{
+		Site:     "linovelib",
+		ID:       "css-missing",
+		Title:    "CSS Missing",
+		Author:   "Tester",
+		Chapters: []model.Chapter{{ID: "1", Title: "Chapter 1", Content: "Hello."}},
+	}
+	_, err := service.Export(book, "linovelib", output, t.TempDir(), []string{"epub"})
+	if err == nil || !strings.Contains(err.Error(), "epub css file") {
+		t.Fatalf("expected missing css file error, got: %v", err)
+	}
+}

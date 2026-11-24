@@ -139,7 +139,7 @@ func (s *Service) Export(book *model.Book, site string, cfg config.OutputConfig,
 				return created, err
 			}
 		case "epub":
-			if err := renderEPUB(path, book); err != nil {
+			if err := renderEPUB(path, book, cfg); err != nil {
 				return created, err
 			}
 		default:
@@ -325,9 +325,31 @@ func renderHTML(book *model.Book) []byte {
 	return buf.Bytes()
 }
 
-func renderEPUB(path string, book *model.Book) error {
+// epubStylesheet combines the built-in stylesheet with the optional user CSS
+// file and inline CSS. File contents come first so inline text can override
+// them.
+func epubStylesheet(cfg config.OutputConfig) ([]byte, error) {
+	css := defaultEPUBCSS
+	if path := strings.TrimSpace(cfg.EPUBCSSFile); path != "" {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("read epub css file %q: %w", path, err)
+		}
+		css += "\n" + string(data)
+	}
+	if extra := strings.TrimSpace(cfg.EPUBCSS); extra != "" {
+		css += "\n" + extra
+	}
+	return []byte(css), nil
+}
+
+func renderEPUB(path string, book *model.Book, cfg config.OutputConfig) error {
 	if strings.EqualFold(strings.TrimSpace(book.Site), "esjzone") {
-		return renderEPUBLikeESJScript(path, book)
+		return renderEPUBLikeESJScript(path, book, cfg)
+	}
+	css, err := epubStylesheet(cfg)
+	if err != nil {
+		return err
 	}
 
 	file, err := os.Create(path)
@@ -359,7 +381,7 @@ func renderEPUB(path string, book *model.Book) error {
 		_ = zw.Close()
 		return err
 	}
-	if err := writeZipFile(zw, "OEBPS/styles.css", []byte(defaultEPUBCSS)); err != nil {
+	if err := writeZipFile(zw, "OEBPS/styles.css", css); err != nil {
 		_ = zw.Close()
 		return err
 	}
@@ -384,7 +406,11 @@ func renderEPUB(path string, book *model.Book) error {
 	return zw.Close()
 }
 
-func renderEPUBLikeESJScript(path string, book *model.Book) error {
+func renderEPUBLikeESJScript(path string, book *model.Book, cfg config.OutputConfig) error {
+	css, err := epubStylesheet(cfg)
+	if err != nil {
+		return err
+	}
 	file, err := os.Create(path)
 	if err != nil {
 		return err
@@ -408,7 +434,7 @@ func renderEPUBLikeESJScript(path string, book *model.Book) error {
 		_ = zw.Close()
 		return err
 	}
-	if err := writeZipFile(zw, "OEBPS/styles.css", []byte(defaultEPUBCSS)); err != nil {
+	if err := writeZipFile(zw, "OEBPS/styles.css", css); err != nil {
 		_ = zw.Close()
 		return err
 	}

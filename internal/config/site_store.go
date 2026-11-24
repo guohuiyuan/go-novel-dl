@@ -66,6 +66,8 @@ type GeneralConfigRecord struct {
 	AppendTimestamp  bool     `json:"append_timestamp"`
 	IncludePicture   bool     `json:"include_picture"`
 	FilenameTemplate string   `json:"filename_template"`
+	EPUBCSS          string   `json:"epub_css"`
+	EPUBCSSFile      string   `json:"epub_css_file"`
 }
 
 type SiteCatalogRecord struct {
@@ -635,6 +637,8 @@ func mergeGeneralConfig(cfg *Config) error {
 	cfg.General.Output.AppendTimestamp = record.AppendTimestamp
 	cfg.General.Output.IncludePicture = record.IncludePicture
 	cfg.General.Output.FilenameTemplate = record.FilenameTemplate
+	cfg.General.Output.EPUBCSS = record.EPUBCSS
+	cfg.General.Output.EPUBCSSFile = record.EPUBCSSFile
 	return nil
 }
 
@@ -659,6 +663,8 @@ func defaultGeneralRecord(general GeneralConfig) GeneralConfigRecord {
 		AppendTimestamp:  general.Output.AppendTimestamp,
 		IncludePicture:   general.Output.IncludePicture,
 		FilenameTemplate: general.Output.FilenameTemplate,
+		EPUBCSS:          general.Output.EPUBCSS,
+		EPUBCSSFile:      general.Output.EPUBCSSFile,
 	}
 }
 

@@ -46,7 +46,7 @@ iOS 的 `unsigned IPA` 不能直接安装，需要使用 SideStore、AltStore �
 - **官方发现页**：聚合各渠道公开排行榜、书荒殿热点榜与真实书单，支持直接进入现有详情、阅读和下载流程
 - **阅读历史**：在线读过但未入书架的书也会出现在「阅读历史」；从书架移除有进度的书会降级为隐式记录而非丢失
 - **异步下载任务**：前端轮询进度；下载速度走 30s 滑动窗口斜率估算，加减速/卡住/重试回退都能正确反映；非进行中任务可一键「📤 重新导出」换 txt/epub/html
-- **多格式导出**：`txt` / `html` / `epub`，文件名模板支持 `{title}` `{author}` `{site}` `{book_id}` 占位符
+- **多格式导出**：`txt` / `html` / `epub`，文件名模板支持 `{title}` `{author}` `{site}` `{book_id}` 占位符；EPUB 支持追加自定义 CSS 文件或直接粘贴 CSS，导出即完成排版
 - **分阶段存储**：原始 / 处理后 / 导出文件分层落盘
 - **图片处理**：章节图片保留、EPUB 图片抓取与压缩；Web 全局可开启图片模糊
 - **统一配置**：CLI 与 Web 共用 `data/site_catalog.db`；站点级支持可选登录/Cookie、镜像、并发、抓图、文字转换、缓存开关
@@ -379,6 +379,8 @@ Content-Type: application/json
 - `formats`
 - `include_picture`
 - `filename_template`（默认 `{title}_{author}`，支持 `{title}/{author}/{site}/{book_id}` 占位符）
+- `epub_css_file`（可选，EPUB 自定义 CSS 文件路径；相对路径以运行目录为基准）
+- `epub_css`（可选，直接追加到 EPUB 内置样式表之后的 CSS；同时配置时先应用文件、再应用此文本）
 
 ## 数据目录
 
@@ -629,7 +631,8 @@ go build -o novel-dl ./cmd/novel-dl
 
 移动端使用 Gio 承载系统 WebView，在应用进程内启动现有 Web UI，默认只监听
 `127.0.0.1:37889`。应用数据、SQLite 配置、缓存和下载文件都保存在应用私有目录，
-下载链接会交给系统浏览器处理。
+下载链接会交给系统浏览器处理。系统返回键/侧滑返回会依次关闭操作面板、阅读器、
+详情、设置和发现榜单，再回到上一级 Tab，不依赖浏览器历史栈。
 
 Windows 本地打包前置条件：
 

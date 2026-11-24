@@ -53,9 +53,18 @@ func TestBridgeScriptUsesExpectedCallback(t *testing.T) {
 		"callback.novelDlAppState",
 		"state:loaded",
 		"/api/download-file",
+		"__novelDlNavigateBack",
 	} {
 		if !strings.Contains(bridgeScript, fragment) {
 			t.Fatalf("bridgeScript is missing %q", fragment)
+		}
+	}
+	for _, fragment := range []string{
+		"__novelDlNavigateBack",
+		"window.history.back()",
+	} {
+		if !strings.Contains(historyBackScript, fragment) {
+			t.Fatalf("historyBackScript is missing %q", fragment)
 		}
 	}
 }

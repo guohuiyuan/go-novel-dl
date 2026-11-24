@@ -216,3 +216,37 @@ func resetSiteCatalogForTest(t *testing.T) {
 		siteCatalogOnce = sync.Once{}
 	})
 }
+
+func TestGeneralConfigEPUBCSSRoundTrip(t *testing.T) {
+	resetSiteCatalogForTest(t)
+
+	record, err := LoadGeneralConfig()
+	if err != nil {
+		t.Fatalf("load default general config: %v", err)
+	}
+	record.EPUBCSS = "body{font-family:serif;}"
+	record.EPUBCSSFile = "./custom-epub.css"
+	saved, err := SaveGeneralConfig(record)
+	if err != nil {
+		t.Fatalf("save general config: %v", err)
+	}
+	if saved.EPUBCSS != record.EPUBCSS || saved.EPUBCSSFile != record.EPUBCSSFile {
+		t.Fatalf("saved config lost EPUB CSS fields: %+v", saved)
+	}
+
+	loaded, err := LoadGeneralConfig()
+	if err != nil {
+		t.Fatalf("reload general config: %v", err)
+	}
+	if loaded.EPUBCSS != record.EPUBCSS || loaded.EPUBCSSFile != record.EPUBCSSFile {
+		t.Fatalf("reloaded config lost EPUB CSS fields: %+v", loaded)
+	}
+
+	cfg := DefaultConfig()
+	if err := mergeGeneralConfig(&cfg); err != nil {
+		t.Fatalf("merge general config: %v", err)
+	}
+	if cfg.General.Output.EPUBCSS != record.EPUBCSS || cfg.General.Output.EPUBCSSFile != record.EPUBCSSFile {
+		t.Fatalf("runtime output config lost EPUB CSS fields: %+v", cfg.General.Output)
+	}
+}
