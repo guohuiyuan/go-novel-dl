@@ -411,3 +411,148 @@ func TestFindBookshelfProgress(t *testing.T) {
 		t.Fatalf("expected page progress on lookup, got %+v", found)
 	}
 }
+
+func TestBookshelfOrdersRecentlyUsedFirstAndPaginates(t *testing.T) {
+	resetSiteCatalogForTest(t)
+
+	alpha, err := AddBookshelfBook(BookshelfBookInput{Site: "esjzone", BookID: "alpha", Title: "Alpha"})
+	if err != nil {
+		t.Fatalf("add alpha: %v", err)
+	}
+	time.Sleep(5 * time.Millisecond)
+	beta, err := AddBookshelfBook(BookshelfBookInput{Site: "esjzone", BookID: "beta", Title: "Beta"})
+	if err != nil {
+		t.Fatalf("add beta: %v", err)
+	}
+
+	items, err := ListBookshelfItems(nil)
+	if err != nil {
+		t.Fatalf("list shelf: %v", err)
+	}
+	if len(items) != 2 || items[0].ID != beta.ID {
+		t.Fatalf("newly added book should lead the shelf, got %+v", items)
+	}
+
+	time.Sleep(5 * time.Millisecond)
+	if _, err := TouchBookshelfItem(alpha.ID); err != nil {
+		t.Fatalf("touch alpha: %v", err)
+	}
+	items, err = ListBookshelfItems(nil)
+	if err != nil {
+		t.Fatalf("list shelf after touch: %v", err)
+	}
+	if items[0].ID != alpha.ID {
+		t.Fatalf("clicked book should move to the front, got %+v", items)
+	}
+
+	time.Sleep(5 * time.Millisecond)
+	if _, _, err := UpdateBookshelfProgress(BookshelfProgressInput{
+		Site:         "esjzone",
+		BookID:       "beta",
+		ChapterID:    "ch-1",
+		ChapterIndex: 0,
+		ChapterTitle: "第一章",
+	}); err != nil {
+		t.Fatalf("progress beta: %v", err)
+	}
+	items, err = ListBookshelfItems(nil)
+	if err != nil {
+		t.Fatalf("list shelf after progress: %v", err)
+	}
+	if items[0].ID != beta.ID {
+		t.Fatalf("most recently read book should lead the shelf, got %+v", items)
+	}
+
+	pageItems, total, err := ListBookshelfItemsPage(nil, 1, 1)
+	if err != nil {
+		t.Fatalf("list shelf page: %v", err)
+	}
+	if total != 2 || len(pageItems) != 1 || pageItems[0].ID != alpha.ID {
+		t.Fatalf("unexpected shelf page: total=%d items=%+v", total, pageItems)
+	}
+	if count, err := CountBookshelfBooks(nil); err != nil || count != 2 {
+		t.Fatalf("unexpected book count: count=%d err=%v", count, err)
+	}
+}
+
+func TestBookshelfHistoryPagination(t *testing.T) {
+	resetSiteCatalogForTest(t)
+
+	for _, id := range []string{"a", "b", "c", "d", "e"} {
+		if _, err := AddBookshelfBook(BookshelfBookInput{Site: "esjzone", BookID: id, Title: id}); err != nil {
+			t.Fatalf("add %s: %v", id, err)
+		}
+		if _, _, err := UpdateBookshelfProgress(BookshelfProgressInput{
+			Site:         "esjzone",
+			BookID:       id,
+			ChapterID:    "ch-" + id,
+			ChapterIndex: 0,
+			ChapterTitle: "第 " + id + " 章",
+		}); err != nil {
+			t.Fatalf("progress %s: %v", id, err)
+		}
+		time.Sleep(3 * time.Millisecond)
+	}
+
+	items, total, err := ListBookshelfHistoryPage(2, 2)
+	if err != nil {
+		t.Fatalf("history page: %v", err)
+	}
+	if total != 5 {
+		t.Fatalf("expected history total 5, got %d", total)
+	}
+	if len(items) != 2 || items[0].BookID != "c" || items[1].BookID != "b" {
+		t.Fatalf("unexpected history page window: %+v", items)
+	}
+}
+
+func TestBookshelfKeepsFoldersAheadOfBooks(t *testing.T) {
+	resetSiteCatalogForTest(t)
+
+	if _, err := AddBookshelfBook(BookshelfBookInput{Site: "esjzone", BookID: "alpha", Title: "Alpha"}); err != nil {
+		t.Fatalf("add book: %v", err)
+	}
+	folder, err := CreateBookshelfFolder(nil, "Favorites")
+	if err != nil {
+		t.Fatalf("create folder: %v", err)
+	}
+	items, err := ListBookshelfItems(nil)
+	if err != nil {
+		t.Fatalf("list shelf: %v", err)
+	}
+	if len(items) != 2 || items[0].Kind != BookshelfItemKindFolder || items[0].ID != folder.ID {
+		t.Fatalf("folders must stay ahead of books, got %+v", items)
+	}
+}
+
+func TestBookshelfSortsLegacyRowsByRealTimestamp(t *testing.T) {
+	resetSiteCatalogForTest(t)
+
+	legacy, err := AddBookshelfBook(BookshelfBookInput{Site: "esjzone", BookID: "legacy", Title: "Legacy"})
+	if err != nil {
+		t.Fatalf("add legacy book: %v", err)
+	}
+	db, err := bookshelfDB()
+	if err != nil {
+		t.Fatalf("open bookshelf db: %v", err)
+	}
+	// Simulate a row written before LastUsedAt existed, with a local-time
+	// AddedAt that would sort incorrectly if compared as raw text.
+	if err := db.Model(&bookshelfItem{}).Where("id = ?", legacy.ID).Updates(map[string]any{
+		"last_used_at": nil,
+		"added_at":     time.Now().Add(-2 * time.Hour),
+	}).Error; err != nil {
+		t.Fatalf("prepare legacy row: %v", err)
+	}
+	newer, err := AddBookshelfBook(BookshelfBookInput{Site: "esjzone", BookID: "newer", Title: "Newer"})
+	if err != nil {
+		t.Fatalf("add newer book: %v", err)
+	}
+	items, err := ListBookshelfItems(nil)
+	if err != nil {
+		t.Fatalf("list shelf: %v", err)
+	}
+	if len(items) != 2 || items[0].ID != newer.ID {
+		t.Fatalf("expected the newer book first, got %+v", items)
+	}
+}

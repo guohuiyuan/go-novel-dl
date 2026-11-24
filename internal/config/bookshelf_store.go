@@ -33,6 +33,7 @@ type bookshelfItem struct {
 	LastReadChapterTitle string `gorm:"size:512"`
 	LastReadPage         int    `gorm:"default:1"`
 	LastReadAt           *time.Time
+	LastUsedAt           *time.Time
 	Implicit             bool      `gorm:"default:false;index"`
 	AddedAt              time.Time `gorm:"autoCreateTime"`
 	UpdatedAt            time.Time `gorm:"autoUpdateTime"`
@@ -70,6 +71,7 @@ type BookshelfItem struct {
 	LastReadChapterTitle string     `json:"last_read_chapter_title,omitempty"`
 	LastReadPage         int        `json:"last_read_page,omitempty"`
 	LastReadAt           *time.Time `json:"last_read_at,omitempty"`
+	LastUsedAt           *time.Time `json:"last_used_at,omitempty"`
 	Implicit             bool       `json:"implicit,omitempty"`
 	AddedAt              time.Time  `json:"added_at"`
 	UpdatedAt            time.Time  `json:"updated_at"`
@@ -132,19 +134,90 @@ func bookshelfDB() (*gorm.DB, error) {
 	return siteCatalogDB, nil
 }
 
-// ListBookshelfItems returns every item directly under parentID, sorted by
-// folders-first then by Sort/AddedAt. Pass nil to list root entries.
+// ListBookshelfItems returns every item directly under parentID. Books are
+// ordered by newest activity first (last used, then last read, then added) so
+// clicking a book brings it to the front of the shelf, mirroring history.
+// Folders stay first to keep navigation stable. Pass nil for root entries.
 func ListBookshelfItems(parentID *uint) ([]BookshelfItem, error) {
+	return listBookshelfItems(parentID, 0, 0)
+}
+
+// ListBookshelfItemsPage returns one shelf page plus the total number of
+// sibling items. A non-positive limit returns every item (used by tests and
+// legacy callers).
+func ListBookshelfItemsPage(parentID *uint, offset, limit int) ([]BookshelfItem, int, error) {
+	total, err := CountBookshelfItems(parentID)
+	if err != nil {
+		return nil, 0, err
+	}
+	items, err := listBookshelfItems(parentID, offset, limit)
+	if err != nil {
+		return nil, 0, err
+	}
+	return items, total, nil
+}
+
+// CountBookshelfItems counts non-implicit entries directly under parentID.
+func CountBookshelfItems(parentID *uint) (int, error) {
+	db, err := bookshelfDB()
+	if err != nil {
+		return 0, err
+	}
+	var total int64
+	query := db.Model(&bookshelfItem{}).Where("implicit = ?", false)
+	if parentID == nil {
+		query = query.Where("parent_id IS NULL")
+	} else {
+		query = query.Where("parent_id = ?", *parentID)
+	}
+	if err := query.Count(&total).Error; err != nil {
+		return 0, err
+	}
+	return int(total), nil
+}
+
+// CountBookshelfBooks counts shelved books (not folders) under parentID. It
+// feeds the tab badge, which must not shrink when a page is shown.
+func CountBookshelfBooks(parentID *uint) (int, error) {
+	db, err := bookshelfDB()
+	if err != nil {
+		return 0, err
+	}
+	var total int64
+	query := db.Model(&bookshelfItem{}).
+		Where("kind = ? AND implicit = ?", BookshelfItemKindBook, false)
+	if parentID == nil {
+		query = query.Where("parent_id IS NULL")
+	} else {
+		query = query.Where("parent_id = ?", *parentID)
+	}
+	if err := query.Count(&total).Error; err != nil {
+		return 0, err
+	}
+	return int(total), nil
+}
+
+func listBookshelfItems(parentID *uint, offset, limit int) ([]BookshelfItem, error) {
 	db, err := bookshelfDB()
 	if err != nil {
 		return nil, err
 	}
 	var entries []bookshelfItem
-	query := db.Order("kind asc, sort asc, added_at asc").Where("implicit = ?", false)
+	// Folders first, then newest activity. COALESCE keeps older rows without
+	// LastUsedAt/LastReadAt sortable by their original AddedAt.
+	query := db.
+		Order("CASE WHEN kind = 'folder' THEN 0 ELSE 1 END ASC, julianday(COALESCE(last_used_at, last_read_at, added_at)) DESC, id DESC").
+		Where("implicit = ?", false)
 	if parentID == nil {
 		query = query.Where("parent_id IS NULL")
 	} else {
 		query = query.Where("parent_id = ?", *parentID)
+	}
+	if limit > 0 {
+		if offset < 0 {
+			offset = 0
+		}
+		query = query.Offset(offset).Limit(limit)
 	}
 	if err := query.Find(&entries).Error; err != nil {
 		return nil, err
@@ -336,9 +409,11 @@ func AddBookshelfBook(input BookshelfBookInput) (BookshelfItem, error) {
 	err = db.Where("kind = ? AND site = ? AND book_id = ?", BookshelfItemKindBook, site, bookID).
 		Take(&existing).Error
 	if err == nil {
+		now := time.Now().UTC()
 		if existing.Implicit {
 			existing.Implicit = false
 		}
+		existing.LastUsedAt = &now
 		if input.ParentID != nil {
 			existing.ParentID = input.ParentID
 		}
@@ -369,6 +444,7 @@ func AddBookshelfBook(input BookshelfBookInput) (BookshelfItem, error) {
 		return BookshelfItem{}, err
 	}
 
+	now := time.Now().UTC()
 	entry := bookshelfItem{
 		Kind:          BookshelfItemKindBook,
 		ParentID:      input.ParentID,
@@ -380,6 +456,7 @@ func AddBookshelfBook(input BookshelfBookInput) (BookshelfItem, error) {
 		Description:   strings.TrimSpace(input.Description),
 		LatestChapter: strings.TrimSpace(input.LatestChapter),
 		SourceURL:     strings.TrimSpace(input.SourceURL),
+		LastUsedAt:    &now,
 	}
 	if entry.Title == "" {
 		entry.Title = bookID
@@ -480,6 +557,29 @@ func UpdateBookshelfItem(id uint, patch BookshelfMutation) (BookshelfItem, error
 		entry.LastReadAt = &stamp
 	}
 
+	if err := db.Save(&entry).Error; err != nil {
+		return BookshelfItem{}, err
+	}
+	return toBookshelfItem(entry), nil
+}
+
+// TouchBookshelfItem records a click/open on a shelf entry so the most
+// recently used books rise to the front of the shelf. It does not alter
+// reading progress.
+func TouchBookshelfItem(id uint) (BookshelfItem, error) {
+	if id == 0 {
+		return BookshelfItem{}, fmt.Errorf("bookshelf id is required")
+	}
+	db, err := bookshelfDB()
+	if err != nil {
+		return BookshelfItem{}, err
+	}
+	var entry bookshelfItem
+	if err := db.Where("id = ?", id).Take(&entry).Error; err != nil {
+		return BookshelfItem{}, err
+	}
+	now := time.Now().UTC()
+	entry.LastUsedAt = &now
 	if err := db.Save(&entry).Error; err != nil {
 		return BookshelfItem{}, err
 	}
@@ -597,6 +697,7 @@ func UpdateBookshelfProgress(input BookshelfProgressInput) (BookshelfItem, bool,
 		entry.LastReadChapterTitle = strings.TrimSpace(input.ChapterTitle)
 		entry.LastReadPage = page
 		entry.LastReadAt = &now
+		entry.LastUsedAt = &now
 		if value := strings.TrimSpace(input.Title); value != "" && entry.Title == "" {
 			entry.Title = value
 		}
@@ -644,6 +745,7 @@ func UpdateBookshelfProgress(input BookshelfProgressInput) (BookshelfItem, bool,
 		LastReadChapterTitle: strings.TrimSpace(input.ChapterTitle),
 		LastReadPage:         page,
 		LastReadAt:           &now,
+		LastUsedAt:           &now,
 		Implicit:             true,
 	}
 	if err := db.Create(&created).Error; err != nil {
@@ -662,23 +764,56 @@ func ListBookshelfHistory(limit int) ([]BookshelfItem, error) {
 	if limit > 500 {
 		limit = 500
 	}
+	items, _, err := ListBookshelfHistoryPage(0, limit)
+	return items, err
+}
+
+// CountBookshelfHistory counts book entries that have a recorded read time.
+func CountBookshelfHistory() (int, error) {
 	db, err := bookshelfDB()
 	if err != nil {
-		return nil, err
+		return 0, err
+	}
+	var total int64
+	if err := db.Model(&bookshelfItem{}).
+		Where("kind = ? AND last_read_at IS NOT NULL", BookshelfItemKindBook).
+		Count(&total).Error; err != nil {
+		return 0, err
+	}
+	return int(total), nil
+}
+
+// ListBookshelfHistoryPage returns one history page plus the total number of
+// history rows. Pass a non-positive limit to return everything.
+func ListBookshelfHistoryPage(offset, limit int) ([]BookshelfItem, int, error) {
+	db, err := bookshelfDB()
+	if err != nil {
+		return nil, 0, err
+	}
+	var total int64
+	if err := db.Model(&bookshelfItem{}).
+		Where("kind = ? AND last_read_at IS NOT NULL", BookshelfItemKindBook).
+		Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	query := db.
+		Where("kind = ? AND last_read_at IS NOT NULL", BookshelfItemKindBook).
+		Order("julianday(last_read_at) DESC, id DESC")
+	if limit > 0 {
+		if offset < 0 {
+			offset = 0
+		}
+		query = query.Offset(offset).Limit(limit)
 	}
 	var entries []bookshelfItem
-	if err := db.
-		Where("kind = ? AND last_read_at IS NOT NULL", BookshelfItemKindBook).
-		Order("last_read_at DESC").
-		Limit(limit).
-		Find(&entries).Error; err != nil {
-		return nil, err
+	if err := query.Find(&entries).Error; err != nil {
+		return nil, 0, err
 	}
 	items := make([]BookshelfItem, 0, len(entries))
 	for _, entry := range entries {
 		items = append(items, toBookshelfItem(entry))
 	}
-	return items, nil
+	return items, int(total), nil
 }
 
 // UpdateBookshelfCacheStats refreshes the cache progress columns for a book by
@@ -774,6 +909,7 @@ func toBookshelfItem(entry bookshelfItem) BookshelfItem {
 		LastReadChapterTitle: entry.LastReadChapterTitle,
 		LastReadPage:         entry.LastReadPage,
 		LastReadAt:           entry.LastReadAt,
+		LastUsedAt:           entry.LastUsedAt,
 		Implicit:             entry.Implicit,
 		AddedAt:              entry.AddedAt,
 		UpdatedAt:            entry.UpdatedAt,

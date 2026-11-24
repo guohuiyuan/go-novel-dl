@@ -379,18 +379,45 @@ func (s *QQReaderSite) DiscoveryLists(ctx context.Context) ([]DiscoveryList, err
 }
 
 func (s *QQReaderSite) DiscoveryBooks(ctx context.Context, listID string, limit int) ([]model.SearchResult, error) {
+	return s.discoveryBooksWindow(ctx, listID, 0, limit)
+}
+
+func (s *QQReaderSite) discoveryBooksWindow(ctx context.Context, listID string, offset, limit int) ([]model.SearchResult, error) {
 	listID = strings.TrimSpace(listID)
+	if limit <= 0 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
 	for _, item := range qqReaderRankingSpecs {
 		if item.List.ID == listID {
-			return s.fetchQQReaderRanking(ctx, item, normalizeDiscoveryLimit(limit, 20))
+			return s.fetchQQReaderRanking(ctx, item, offset, limit)
 		}
 	}
 	for _, item := range qqReaderAllBooklistSpecs() {
 		if item.List.ID == listID {
-			return s.fetchQQReaderBooklist(ctx, item, normalizeDiscoveryLimit(limit, 20))
+			return s.fetchQQReaderBooklist(ctx, item, offset, limit)
 		}
 	}
 	return nil, fmt.Errorf("qqreader discovery list %q not found", listID)
+}
+
+// DiscoveryBooksPage pages QQ Reader rankings/booklists without going through
+// the cumulative fallback, so deep pages are not truncated by the provider cap.
+func (s *QQReaderSite) DiscoveryBooksPage(ctx context.Context, listID string, offset, limit int) (DiscoveryBookPage, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	books, err := s.discoveryBooksWindow(ctx, listID, offset, limit+1)
+	if err != nil {
+		return DiscoveryBookPage{}, err
+	}
+	hasMore := len(books) > limit
+	if hasMore {
+		books = books[:limit]
+	}
+	return DiscoveryBookPage{Books: books, HasMore: hasMore}, nil
 }
 
 func qqReaderAllBooklistSpecs() []qqReaderBooklistSpec {
@@ -403,10 +430,11 @@ func qqReaderAllBooklistSpecs() []qqReaderBooklistSpec {
 func (s *QQReaderSite) fetchQQReaderRanking(
 	ctx context.Context,
 	spec qqReaderRankingSpec,
-	limit int,
+	offset, limit int,
 ) ([]model.SearchResult, error) {
 	results := make([]model.SearchResult, 0, limit)
-	seen := make(map[string]struct{}, limit)
+	seen := make(map[string]struct{}, limit+offset)
+	skip := offset
 	for pageNo := 1; len(results) < limit; pageNo++ {
 		endpoint := url.Values{}
 		endpoint.Set("columnId", strconv.Itoa(spec.ColumnID))
@@ -424,13 +452,21 @@ func (s *QQReaderSite) fetchQQReaderRanking(
 			break
 		}
 		before := len(results)
+		skipBefore := skip
 		for _, item := range envelope.Data.Books {
+			if skip > 0 {
+				if qqReaderDiscoveryBookSeen(seen, item) {
+					continue
+				}
+				skip--
+				continue
+			}
 			appendQQReaderDiscoveryBook(&results, seen, item)
 			if len(results) >= limit {
 				break
 			}
 		}
-		if len(results) == before {
+		if len(results) == before && skip == skipBefore {
 			break
 		}
 	}
@@ -440,11 +476,23 @@ func (s *QQReaderSite) fetchQQReaderRanking(
 func (s *QQReaderSite) fetchQQReaderBooklist(
 	ctx context.Context,
 	spec qqReaderBooklistSpec,
-	limit int,
+	offset, limit int,
 ) ([]model.SearchResult, error) {
 	results := make([]model.SearchResult, 0, limit)
-	seen := make(map[string]struct{}, limit)
+	seen := make(map[string]struct{}, limit+offset)
+	skip := offset
 	var firstErr error
+	collect := func(item qqReaderDiscoveryBook) bool {
+		if skip > 0 {
+			if qqReaderDiscoveryBookSeen(seen, item) {
+				return false
+			}
+			skip--
+			return false
+		}
+		appendQQReaderDiscoveryBook(&results, seen, item)
+		return len(results) >= limit
+	}
 	for _, tagID := range spec.TagIDs {
 		for pageNo := 1; len(results) < limit; pageNo++ {
 			endpoint := url.Values{}
@@ -470,19 +518,18 @@ func (s *QQReaderSite) fetchQQReaderBooklist(
 				break
 			}
 			before := len(results)
+			skipBefore := skip
 			for _, group := range envelope.Data.List {
-				appendQQReaderDiscoveryBook(&results, seen, group.BookInfo)
-				if len(results) >= limit {
+				if collect(group.BookInfo) {
 					return results, nil
 				}
 				for _, item := range group.RelatedBooks {
-					appendQQReaderDiscoveryBook(&results, seen, item)
-					if len(results) >= limit {
+					if collect(item) {
 						return results, nil
 					}
 				}
 			}
-			if len(results) == before || !envelope.Data.NextPage || envelope.Data.TotalPage <= pageNo {
+			if (len(results) == before && skip == skipBefore) || !envelope.Data.NextPage || envelope.Data.TotalPage <= pageNo {
 				break
 			}
 		}
@@ -491,6 +538,20 @@ func (s *QQReaderSite) fetchQQReaderBooklist(
 		return nil, firstErr
 	}
 	return results, nil
+}
+
+// qqReaderDiscoveryBookSeen marks an entry as seen while skipping the prefix of
+// a page window. It returns true when the entry was already observed.
+func qqReaderDiscoveryBookSeen(seen map[string]struct{}, item qqReaderDiscoveryBook) bool {
+	if item.BookID <= 0 {
+		return true
+	}
+	bookID := strconv.FormatInt(item.BookID, 10)
+	if _, exists := seen[bookID]; exists {
+		return true
+	}
+	seen[bookID] = struct{}{}
+	return false
 }
 
 func appendQQReaderDiscoveryBook(

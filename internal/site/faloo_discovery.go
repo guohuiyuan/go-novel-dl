@@ -3,6 +3,7 @@ package site
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"golang.org/x/net/html"
@@ -46,6 +47,63 @@ func (s *FalooSite) DiscoveryBooks(ctx context.Context, listID string, limit int
 		return nil, err
 	}
 	return parseFalooDiscoveryResults(markup, limit)
+}
+
+const falooDiscoveryPageSize = 30
+
+func (s *FalooSite) DiscoveryBooksPage(ctx context.Context, listID string, offset, limit int) (DiscoveryBookPage, error) {
+	path, ok := falooDiscoveryPaths[strings.TrimSpace(listID)]
+	if !ok {
+		return DiscoveryBookPage{}, fmt.Errorf("faloo discovery list %q not found", listID)
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	pageNo := offset/falooDiscoveryPageSize + 1
+	skip := offset % falooDiscoveryPageSize
+	window := skip + limit + 1
+	results := make([]model.SearchResult, 0, window)
+	seen := make(map[string]struct{}, window)
+	for page := pageNo; len(results) < window; page++ {
+		markup, err := s.fetchPage(ctx, "https://b.faloo.com"+falooDiscoveryPagePath(path, page))
+		if err != nil {
+			return DiscoveryBookPage{}, err
+		}
+		books, err := parseFalooDiscoveryResults(markup, window-len(results))
+		if err != nil {
+			return DiscoveryBookPage{}, err
+		}
+		added := 0
+		for _, book := range books {
+			if _, exists := seen[book.BookID]; exists {
+				continue
+			}
+			seen[book.BookID] = struct{}{}
+			results = append(results, book)
+			added++
+		}
+		if added == 0 || len(books) < falooDiscoveryPageSize {
+			break
+		}
+	}
+	return DiscoveryBookPage{
+		Books:   SliceDiscoveryBooks(results, skip, limit),
+		HasMore: len(results) > skip+limit,
+	}, nil
+}
+
+func falooDiscoveryPagePath(path string, page int) string {
+	if page < 1 {
+		page = 1
+	}
+	idx := strings.LastIndex(path, "_")
+	if idx < 0 || !strings.HasSuffix(path, ".html") {
+		return path
+	}
+	return path[:idx] + "_" + strconv.Itoa(page) + ".html"
 }
 
 func parseFalooDiscoveryResults(markup string, limit int) ([]model.SearchResult, error) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -326,32 +327,127 @@ func TestCollectDiscoveryTrendingResultsReturnsPartialAtDeadline(t *testing.T) {
 	}
 }
 
-func TestDefaultDiscoverySitesExcludeUnavailableChannels(t *testing.T) {
-	sites, explicit := normalizeDiscoverySites(nil)
+func TestDefaultDiscoverySitesCoverEveryProvider(t *testing.T) {
+	sites, explicit := normalizeDiscoverySites(nil, []string{"qidian", "qqreader", "weread", "alphapolis", "kadokado"})
 	if explicit {
 		t.Fatal("empty site list should use defaults")
 	}
 	foundQQReader := false
 	foundWeRead := false
+	foundAlphapolis := false
+	foundKadokado := false
 	for _, siteKey := range sites {
-		if siteKey == "qqreader" {
+		switch siteKey {
+		case "qqreader":
 			foundQQReader = true
-		}
-		if siteKey == "weread" {
+		case "weread":
 			foundWeRead = true
-		}
-		if siteKey == "alphapolis" || siteKey == "kadokado" {
-			t.Fatalf("%s must not be included in default discovery sites: %v", siteKey, sites)
+		case "alphapolis":
+			foundAlphapolis = true
+		case "kadokado":
+			foundKadokado = true
 		}
 	}
-	if !foundQQReader {
-		t.Fatalf("qqreader should be included in default discovery sites: %v", sites)
+	if !foundQQReader || !foundWeRead {
+		t.Fatalf("expected qqreader and weread in default discovery sites: %v", sites)
 	}
-	if !foundWeRead {
-		t.Fatalf("weread should be included in default discovery sites: %v", sites)
+	if !foundAlphapolis || !foundKadokado {
+		t.Fatalf("every discovery provider should be shown by default: %v", sites)
 	}
 }
 
+func TestDiscoveryListPaginatesThroughEntireResultSet(t *testing.T) {
+	service := newTestService()
+	books := make([]model.SearchResult, 0, 120)
+	for idx := 1; idx <= 120; idx++ {
+		books = append(books, model.SearchResult{
+			Site:   "rank-a",
+			BookID: fmt.Sprintf("b%03d", idx),
+			Title:  fmt.Sprintf("Book %d", idx),
+		})
+	}
+	registerFakeDiscoverySite(service, "rank-a", "榜单 A", []site.DiscoveryList{
+		{ID: "hot", Name: "热门榜", Kind: "ranking"},
+	}, map[string][]model.SearchResult{"hot": books}, nil)
+
+	resp := discoveryTestGet(t, service, RoutePrefix+"/api/discovery/list?site=rank-a&id=hot&page=2&page_size=50")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	var payload discoveryListResponse
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+	if payload.Page != 2 || payload.PageSize != 50 {
+		t.Fatalf("unexpected page metadata: %+v", payload)
+	}
+	if len(payload.Books) != 50 || payload.Books[0].BookID != "b051" || payload.Books[49].BookID != "b100" {
+		t.Fatalf("unexpected page window: %d books, first=%v", len(payload.Books), payload.Books[0])
+	}
+	if !payload.HasMore {
+		t.Fatal("expected has_more on page 2 of 120 results")
+	}
+
+	resp = discoveryTestGet(t, service, RoutePrefix+"/api/discovery/list?site=rank-a&id=hot&page=3&page_size=50")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+	if len(payload.Books) != 20 || payload.Books[0].BookID != "b101" || payload.HasMore {
+		t.Fatalf("unexpected last page: %d books, first=%v, has_more=%v", len(payload.Books), payload.Books[0], payload.HasMore)
+	}
+	if payload.Total != 120 {
+		t.Fatalf("expected total 120, got %d", payload.Total)
+	}
+}
+
+func TestDiscoveryListAcceptsLegacyLimitAsPageSize(t *testing.T) {
+	service := newTestService()
+	books := make([]model.SearchResult, 0, 80)
+	for idx := 1; idx <= 80; idx++ {
+		books = append(books, model.SearchResult{
+			Site:   "rank-a",
+			BookID: fmt.Sprintf("b%03d", idx),
+			Title:  fmt.Sprintf("Book %d", idx),
+		})
+	}
+	registerFakeDiscoverySite(service, "rank-a", "榜单 A", []site.DiscoveryList{
+		{ID: "hot", Name: "热门榜", Kind: "ranking"},
+	}, map[string][]model.SearchResult{"hot": books}, nil)
+
+	resp := discoveryTestGet(t, service, RoutePrefix+"/api/discovery/list?site=rank-a&id=hot&limit=30")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	var payload discoveryListResponse
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+	if payload.PageSize != 30 || len(payload.Books) != 30 || !payload.HasMore {
+		t.Fatalf("legacy limit should behave as one page: %+v", payload)
+	}
+}
+
+func TestDiscoveryCatalogUsesEveryRegisteredProvider(t *testing.T) {
+	service := newTestService()
+	registerFakeDiscoverySite(service, "rank-a", "榜单 A", []site.DiscoveryList{
+		{ID: "hot", Name: "热门榜", Kind: "ranking"},
+	}, nil, nil)
+	registerFakeDiscoverySite(service, "rank-b", "榜单 B", []site.DiscoveryList{
+		{ID: "new", Name: "新书榜", Kind: "ranking"},
+	}, nil, nil)
+
+	keys := service.discoverySiteKeys()
+	found := map[string]bool{}
+	for _, key := range keys {
+		found[key] = true
+	}
+	if !found["rank-a"] || !found["rank-b"] {
+		t.Fatalf("every registered discovery provider should be shown: %v", keys)
+	}
+}
 func TestIndexPageIncludesDiscoveryControls(t *testing.T) {
 	service := newTestService()
 	resp := discoveryTestGet(t, service, RoutePrefix+"/")
@@ -365,6 +461,9 @@ func TestIndexPageIncludesDiscoveryControls(t *testing.T) {
 		`id="discoverTrendingPanel"`,
 		`id="discoverCatalogPanel"`,
 		`id="discoverListPanel"`,
+		`id="discoverBookPagination"`,
+		`id="discoverBooksPrevPage"`,
+		`id="discoverBooksNextPage"`,
 	} {
 		if !strings.Contains(body, needle) {
 			t.Fatalf("expected index page to contain %s", needle)

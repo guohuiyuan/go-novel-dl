@@ -3,6 +3,7 @@ package site
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/guohuiyuan/go-novel-dl/internal/model"
@@ -38,13 +39,7 @@ func (s *CiyuanjiSite) DiscoveryLists(ctx context.Context) ([]DiscoveryList, err
 
 func (s *CiyuanjiSite) DiscoveryBooks(ctx context.Context, listID string, limit int) ([]model.SearchResult, error) {
 	listID = strings.TrimSpace(listID)
-	var selected *ciyuanjiDiscoverySpec
-	for idx := range ciyuanjiDiscoverySpecs {
-		if ciyuanjiDiscoverySpecs[idx].List.ID == listID {
-			selected = &ciyuanjiDiscoverySpecs[idx]
-			break
-		}
-	}
+	selected := ciyuanjiDiscoverySpecByID(listID)
 	if selected == nil {
 		return nil, fmt.Errorf("ciyuanji discovery list %q not found", listID)
 	}
@@ -54,6 +49,77 @@ func (s *CiyuanjiSite) DiscoveryBooks(ctx context.Context, listID string, limit 
 		return nil, err
 	}
 	return parseCiyuanjiDiscoveryResults(markup, normalizeDiscoveryLimit(limit, 20))
+}
+
+const ciyuanjiDiscoveryPageSize = 10
+
+func (s *CiyuanjiSite) DiscoveryBooksPage(ctx context.Context, listID string, offset, limit int) (DiscoveryBookPage, error) {
+	selected := ciyuanjiDiscoverySpecByID(strings.TrimSpace(listID))
+	if selected == nil {
+		return DiscoveryBookPage{}, fmt.Errorf("ciyuanji discovery list %q not found", listID)
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	pageNo := offset/ciyuanjiDiscoveryPageSize + 1
+	skip := offset % ciyuanjiDiscoveryPageSize
+	window := skip + limit + 1
+	results := make([]model.SearchResult, 0, window)
+	seen := make(map[string]struct{}, window)
+	for page := pageNo; len(results) < window; page++ {
+		markup, err := s.getPage(ctx, ciyuanjiDesktopBase+ciyuanjiDiscoveryPagePath(selected.Path, page), ciyuanjiDesktopBase+"/")
+		if err != nil {
+			return DiscoveryBookPage{}, err
+		}
+		books, err := parseCiyuanjiDiscoveryResults(markup, window-len(results))
+		if err != nil {
+			// Some ranking URLs return an empty page past the first one; treat
+			// that as the end of the list instead of a hard failure.
+			if page > 1 || len(results) > 0 {
+				break
+			}
+			return DiscoveryBookPage{}, err
+		}
+		added := 0
+		for _, book := range books {
+			if _, exists := seen[book.BookID]; exists {
+				continue
+			}
+			seen[book.BookID] = struct{}{}
+			results = append(results, book)
+			added++
+		}
+		if added == 0 || len(books) < ciyuanjiDiscoveryPageSize {
+			break
+		}
+	}
+	return DiscoveryBookPage{
+		Books:   SliceDiscoveryBooks(results, skip, limit),
+		HasMore: len(results) > skip+limit,
+	}, nil
+}
+
+func ciyuanjiDiscoverySpecByID(listID string) *ciyuanjiDiscoverySpec {
+	for idx := range ciyuanjiDiscoverySpecs {
+		if ciyuanjiDiscoverySpecs[idx].List.ID == listID {
+			return &ciyuanjiDiscoverySpecs[idx]
+		}
+	}
+	return nil
+}
+
+func ciyuanjiDiscoveryPagePath(path string, page int) string {
+	if page < 1 {
+		page = 1
+	}
+	idx := strings.LastIndex(path, "_")
+	if idx < 0 || !strings.HasSuffix(path, ".html") {
+		return path
+	}
+	return path[:idx] + "_" + strconv.Itoa(page) + ".html"
 }
 
 func parseCiyuanjiDiscoveryResults(markup string, limit int) ([]model.SearchResult, error) {

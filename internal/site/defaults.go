@@ -63,6 +63,23 @@ func (r *Registry) DownloadableKeys() []string {
 	})
 }
 
+// DiscoveryKeys returns every registered site that implements
+// DiscoveryProvider, so newly added discovery adapters show up without editing
+// a hard-coded channel list.
+func (r *Registry) DiscoveryKeys() []string {
+	keys := make([]string, 0, len(r.factories))
+	for _, key := range r.Keys() {
+		client, err := r.Build(key, configForDescriptor(key))
+		if err != nil {
+			continue
+		}
+		if _, ok := client.(DiscoveryProvider); ok {
+			keys = append(keys, key)
+		}
+	}
+	return keys
+}
+
 func (r *Registry) DefaultSearchKeys() []string {
 	set := DefaultAvailableSiteSet()
 	keys := make([]string, 0, len(defaultAvailableSiteKeys))

@@ -40,6 +40,7 @@ type shuhuangdianBooklistItem struct {
 
 type shuhuangdianBooklistBooksData struct {
 	Books []shuhuangdianBooklistItem `json:"books"`
+	Total int                        `json:"total"`
 }
 
 type shuhuangdianAttentionData struct {
@@ -120,45 +121,147 @@ func (s *ShuhuangdianSite) DiscoveryLists(ctx context.Context) ([]DiscoveryList,
 func (s *ShuhuangdianSite) DiscoveryBooks(ctx context.Context, listID string, limit int) ([]model.SearchResult, error) {
 	listID = strings.TrimSpace(listID)
 	limit = normalizeDiscoveryLimit(limit, 30)
+	page, err := s.discoveryBookPage(ctx, listID, 1, limit)
+	if err != nil {
+		return nil, err
+	}
+	return page.Books, nil
+}
 
+const shuhuangdianAttentionPageSize = 20
+const shuhuangdianBooklistMaxPageSize = 100
+
+// DiscoveryBooksPage reads a window directly from the Shuhuangdian API. Its
+// booklists can contain thousands of entries, so paging avoids the cumulative
+// refetch required by single-page sources.
+func (s *ShuhuangdianSite) DiscoveryBooksPage(ctx context.Context, listID string, offset, limit int) (DiscoveryBookPage, error) {
+	listID = strings.TrimSpace(listID)
+	if offset < 0 {
+		offset = 0
+	}
+	if limit <= 0 {
+		limit = 30
+	}
+	if offset%limit != 0 {
+		// Callers normally use page-aligned offsets; fall back to the
+		// cumulative path for unusual windows.
+		all, err := s.DiscoveryBooks(ctx, listID, offset+limit+1)
+		if err != nil {
+			return DiscoveryBookPage{}, err
+		}
+		return DiscoveryBookPage{
+			Books:   SliceDiscoveryBooks(all, offset, limit),
+			HasMore: len(all) > offset+limit,
+		}, nil
+	}
 	if listID == shuhuangdianAttentionListID {
-		query := url.Values{}
-		query.Set("page", "1")
-		query.Set("pageSize", strconv.Itoa(limit))
-		var envelope shuhuangdianAPIEnvelope[shuhuangdianAttentionData]
-		if err := s.getAPI(ctx, "/attention/books", query, &envelope); err != nil {
-			return nil, err
+		// Attention lists are small and the endpoint caps one page at 20, so
+		// the cumulative path keeps offsets exact without extra bookkeeping.
+		all, err := s.DiscoveryBooks(ctx, listID, offset+limit+1)
+		if err != nil {
+			return DiscoveryBookPage{}, err
 		}
-		if err := shuhuangdianEnvelopeError("attention books", envelope.Code, envelope.Message); err != nil {
-			return nil, err
+		return DiscoveryBookPage{
+			Books:   SliceDiscoveryBooks(all, offset, limit),
+			HasMore: len(all) > offset+limit,
+		}, nil
+	}
+	pageNo := offset/limit + 1
+	return s.discoveryBookPage(ctx, listID, pageNo, limit)
+}
+
+func (s *ShuhuangdianSite) discoveryBookPage(ctx context.Context, listID string, pageNo, limit int) (DiscoveryBookPage, error) {
+	if listID == shuhuangdianAttentionListID {
+		// The attention endpoint caps one request at 20 entries, so collect
+		// enough pages for the requested window.
+		pageSize := shuhuangdianAttentionPageSize
+		if limit < pageSize {
+			pageSize = limit
 		}
-		return shuhuangdianSearchResults(envelope.Data.List, limit), nil
+		if pageSize <= 0 {
+			pageSize = shuhuangdianAttentionPageSize
+		}
+		want := limit
+		results := make([]model.SearchResult, 0, want)
+		seen := make(map[string]struct{}, want)
+		fullPage := false
+		for current := pageNo; len(results) < want; current++ {
+			query := url.Values{}
+			query.Set("page", strconv.Itoa(current))
+			query.Set("pageSize", strconv.Itoa(pageSize))
+			var envelope shuhuangdianAPIEnvelope[shuhuangdianAttentionData]
+			if err := s.getAPI(ctx, "/attention/books", query, &envelope); err != nil {
+				return DiscoveryBookPage{}, err
+			}
+			if err := shuhuangdianEnvelopeError("attention books", envelope.Code, envelope.Message); err != nil {
+				return DiscoveryBookPage{}, err
+			}
+			if len(envelope.Data.List) == 0 {
+				fullPage = false
+				break
+			}
+			fullPage = len(envelope.Data.List) >= pageSize
+			added := 0
+			for _, item := range shuhuangdianSearchResults(envelope.Data.List, pageSize) {
+				key := item.Site + "/" + item.BookID
+				if _, exists := seen[key]; exists {
+					continue
+				}
+				seen[key] = struct{}{}
+				results = append(results, item)
+				added++
+			}
+			if added == 0 || !fullPage {
+				break
+			}
+		}
+		if len(results) == 0 {
+			return DiscoveryBookPage{}, nil
+		}
+		hasMore := len(results) >= limit && fullPage
+		books := results
+		if len(books) > limit {
+			books = books[:limit]
+		}
+		return DiscoveryBookPage{Books: books, HasMore: hasMore}, nil
 	}
 
 	rawID, ok := strings.CutPrefix(listID, "booklist:")
 	if !ok {
-		return nil, fmt.Errorf("shuhuangdian discovery list %q not found", listID)
+		return DiscoveryBookPage{}, fmt.Errorf("shuhuangdian discovery list %q not found", listID)
 	}
 	booklistID, err := strconv.ParseInt(strings.TrimSpace(rawID), 10, 64)
 	if err != nil || booklistID <= 0 {
-		return nil, fmt.Errorf("shuhuangdian booklist id %q is invalid", rawID)
+		return DiscoveryBookPage{}, fmt.Errorf("shuhuangdian booklist id %q is invalid", rawID)
+	}
+	pageSize := limit
+	if pageSize > shuhuangdianBooklistMaxPageSize {
+		pageSize = shuhuangdianBooklistMaxPageSize
 	}
 	query := url.Values{}
-	query.Set("page", "1")
-	query.Set("limit", strconv.Itoa(limit))
+	query.Set("page", strconv.Itoa(pageNo))
+	query.Set("limit", strconv.Itoa(pageSize))
 	var envelope shuhuangdianAPIEnvelope[shuhuangdianBooklistBooksData]
 	path := "/booklists/" + strconv.FormatInt(booklistID, 10) + "/books"
 	if err := s.getAPI(ctx, path, query, &envelope); err != nil {
-		return nil, err
+		return DiscoveryBookPage{}, err
 	}
 	if err := shuhuangdianEnvelopeError("booklist books", envelope.Code, envelope.Message); err != nil {
-		return nil, err
+		return DiscoveryBookPage{}, err
 	}
 	books := make([]shuhuangdianBookInfo, 0, len(envelope.Data.Books))
 	for _, item := range envelope.Data.Books {
 		books = append(books, item.BookInfo)
 	}
-	return shuhuangdianSearchResults(books, limit), nil
+	total := envelope.Data.Total
+	results := shuhuangdianSearchResults(books, pageSize)
+	hasMore := false
+	if total > 0 {
+		hasMore = pageNo*pageSize < total
+	} else {
+		hasMore = len(envelope.Data.Books) >= pageSize
+	}
+	return DiscoveryBookPage{Books: results, Total: total, HasMore: hasMore}, nil
 }
 
 func shuhuangdianEnvelopeError(action string, code int, message string) error {

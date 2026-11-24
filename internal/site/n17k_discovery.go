@@ -68,18 +68,82 @@ func (s *N17KSite) DiscoveryLists(ctx context.Context) ([]DiscoveryList, error) 
 
 func (s *N17KSite) DiscoveryBooks(ctx context.Context, listID string, limit int) ([]model.SearchResult, error) {
 	listID = strings.TrimSpace(listID)
-	var selected *n17kDiscoverySpec
-	for idx := range n17kDiscoverySpecs {
-		if n17kDiscoverySpecs[idx].List.ID == listID {
-			selected = &n17kDiscoverySpecs[idx]
-			break
-		}
-	}
+	selected := n17kDiscoverySpecByID(listID)
 	if selected == nil {
 		return nil, fmt.Errorf("n17k discovery list %q not found", listID)
 	}
 
 	return loadN17KDiscoveryResults(ctx, s.fetchAPI, *selected, normalizeDiscoveryLimit(limit, 20))
+}
+
+const n17kDiscoveryPageSize = 20
+
+func (s *N17KSite) DiscoveryBooksPage(ctx context.Context, listID string, offset, limit int) (DiscoveryBookPage, error) {
+	selected := n17kDiscoverySpecByID(strings.TrimSpace(listID))
+	if selected == nil {
+		return DiscoveryBookPage{}, fmt.Errorf("n17k discovery list %q not found", listID)
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	pageNo := offset/n17kDiscoveryPageSize + 1
+	skip := offset % n17kDiscoveryPageSize
+	window := skip + limit + 1
+
+	if selected.RankType > 0 {
+		results := make([]model.SearchResult, 0, window)
+		seen := make(map[string]struct{}, window)
+		for page := pageNo; len(results) < window; page++ {
+			apiURL := fmt.Sprintf("%s&type=%d&page=%d", n17kDiscoveryRankAPI, selected.RankType, page)
+			markup, err := s.fetchAPI(ctx, apiURL)
+			if err != nil {
+				return DiscoveryBookPage{}, err
+			}
+			books, err := parseN17KDiscoveryAPIResults(markup, window-len(results))
+			if err != nil {
+				return DiscoveryBookPage{}, err
+			}
+			added := 0
+			for _, book := range books {
+				if _, exists := seen[book.BookID]; exists {
+					continue
+				}
+				seen[book.BookID] = struct{}{}
+				results = append(results, book)
+				added++
+			}
+			if added == 0 || len(books) < n17kDiscoveryPageSize {
+				break
+			}
+		}
+		return DiscoveryBookPage{
+			Books:   SliceDiscoveryBooks(results, skip, limit),
+			HasMore: len(results) > skip+limit,
+		}, nil
+	}
+
+	// Static top/ pages expose one fixed ranking block; paging past it yields
+	// the normal empty window instead of an upstream 404.
+	books, err := loadN17KDiscoveryResults(ctx, s.fetchAPI, *selected, window)
+	if err != nil {
+		return DiscoveryBookPage{}, err
+	}
+	return DiscoveryBookPage{
+		Books:   SliceDiscoveryBooks(books, skip, limit),
+		HasMore: len(books) > skip+limit,
+	}, nil
+}
+
+func n17kDiscoverySpecByID(listID string) *n17kDiscoverySpec {
+	for idx := range n17kDiscoverySpecs {
+		if n17kDiscoverySpecs[idx].List.ID == listID {
+			return &n17kDiscoverySpecs[idx]
+		}
+	}
+	return nil
 }
 
 func loadN17KDiscoveryResults(

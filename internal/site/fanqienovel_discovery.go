@@ -135,14 +135,7 @@ func (s *FanqieNovelSite) DiscoveryLists(ctx context.Context) ([]DiscoveryList, 
 }
 
 func (s *FanqieNovelSite) DiscoveryBooks(ctx context.Context, listID string, limit int) ([]model.SearchResult, error) {
-	listID = strings.TrimSpace(listID)
-	var selected *fanqieDiscoverySpec
-	for idx := range fanqieDiscoverySpecs {
-		if fanqieDiscoverySpecs[idx].List.ID == listID {
-			selected = &fanqieDiscoverySpecs[idx]
-			break
-		}
-	}
+	selected := fanqieDiscoverySpecByID(strings.TrimSpace(listID))
 	if selected == nil {
 		return nil, fmt.Errorf("fanqienovel discovery list %q not found", listID)
 	}
@@ -163,8 +156,68 @@ func (s *FanqieNovelSite) DiscoveryBooks(ctx context.Context, listID string, lim
 		return fanqieDiscoveryResults(state, limit), nil
 	}
 
+	books, _, err := s.fetchFanqieDiscoveryPage(ctx, *selected, 0, limit)
+	if err != nil {
+		return nil, err
+	}
+	return fanqieDiscoveryItemResults(books, limit), nil
+}
+
+func (s *FanqieNovelSite) DiscoveryBooksPage(ctx context.Context, listID string, offset, limit int) (DiscoveryBookPage, error) {
+	selected := fanqieDiscoverySpecByID(strings.TrimSpace(listID))
+	if selected == nil {
+		return DiscoveryBookPage{}, fmt.Errorf("fanqienovel discovery list %q not found", listID)
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if selected.Mode == fanqieDiscoveryRankPage {
+		all, err := s.DiscoveryBooks(ctx, listID, offset+limit+1)
+		if err != nil {
+			return DiscoveryBookPage{}, err
+		}
+		return DiscoveryBookPage{
+			Books:   SliceDiscoveryBooks(all, offset, limit),
+			HasMore: len(all) > offset+limit,
+		}, nil
+	}
+	books, total, err := s.fetchFanqieDiscoveryPage(ctx, *selected, offset, limit+1)
+	if err != nil {
+		return DiscoveryBookPage{}, err
+	}
+	results := fanqieDiscoveryItemResults(books, limit+1)
+	hasMore := len(results) > limit
+	if total > 0 {
+		hasMore = offset+len(results) < total
+	}
+	if len(results) > limit {
+		results = results[:limit]
+	}
+	return DiscoveryBookPage{Books: results, Total: total, HasMore: hasMore}, nil
+}
+
+func fanqieDiscoverySpecByID(listID string) *fanqieDiscoverySpec {
+	for idx := range fanqieDiscoverySpecs {
+		if fanqieDiscoverySpecs[idx].List.ID == listID {
+			return &fanqieDiscoverySpecs[idx]
+		}
+	}
+	return nil
+}
+
+// fetchFanqieDiscoveryPage requests one offset window from the recommendation
+// or category ranking APIs and returns the raw book entries plus the source's
+// advertised total (0 when absent).
+func (s *FanqieNovelSite) fetchFanqieDiscoveryPage(
+	ctx context.Context,
+	selected fanqieDiscoverySpec,
+	offset, limit int,
+) ([]any, int, error) {
 	query := url.Values{}
-	query.Set("offset", "0")
+	query.Set("offset", strconv.Itoa(offset))
 	query.Set("limit", strconv.Itoa(limit))
 	endpoint := ""
 	switch selected.Mode {
@@ -188,31 +241,35 @@ func (s *FanqieNovelSite) DiscoveryBooks(ctx context.Context, listID string, lim
 		}
 		endpoint = base + "?" + query.Encode()
 	default:
-		return nil, fmt.Errorf("fanqienovel discovery list %q has no ranking mode", listID)
+		return nil, 0, fmt.Errorf("fanqienovel discovery list %q has no ranking mode", selected.List.ID)
 	}
 	body, err := s.getJSON(ctx, endpoint, "https://fanqienovel.com/rank")
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	var payload map[string]any
 	if err := decodeFanqieJSONObject(string(body), &payload); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if code := int64Value(payload["code"]); code != 0 && code != 200 {
-		return nil, fmt.Errorf("fanqienovel ranking api: %s", stringValue(payload["message"]))
+		return nil, 0, fmt.Errorf("fanqienovel ranking api: %s", stringValue(payload["message"]))
 	}
 	data := mapValue(payload, "data")
 	if data == nil {
-		return nil, fmt.Errorf("fanqienovel ranking data not found")
+		return nil, 0, fmt.Errorf("fanqienovel ranking data not found")
 	}
+	total := int(int64Value(data["total"]))
 	if nested := mapValue(data, "data"); nested != nil {
+		if total == 0 {
+			total = int(int64Value(nested["total"]))
+		}
 		data = nested
 	}
 	books := sliceValue(data["book_list"])
 	if len(books) == 0 {
 		books = sliceValue(data["list"])
 	}
-	return fanqieDiscoveryItemResults(books, limit), nil
+	return books, total, nil
 }
 
 func fanqieDiscoveryResults(state map[string]any, limit int) []model.SearchResult {

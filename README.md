@@ -288,8 +288,9 @@ go run ./cmd/novel-dl config site-set esjzone ^
 - **渠道测速**：一键并发探测可见渠道，每站最多采两次取最优（best-of-2），前端用耗时徽章展示
 - **状态持久化**：渠道选择与标签筛选写入 `localStorage`，换浏览器/重启后保留
 - **详情与阅读器**：`DownloadPlan` 拉目录与元数据并 TTL 缓存；章节正文按需 + 上下文预加载；阅读器支持主题/背景/字号/排版
+- **发现**：自动聚合所有实现发现能力的渠道（含 Alphapolis、KadoKado 等），展示源站全部公开排行榜与书单；榜单正文按页加载，不设总量上限，翻页状态写入 URL
 - **下载任务**：异步执行 + 前端轮询；任务卡片显示进度/ETA；非进行中任务可点「📤 重新导出」弹 popover 重选格式重新生成（复用已下载章节）
-- **书架**：支持文件夹分组（仅根目录可建）；进入 tab 自动刷新；「加入书架」与「下载」语义分离——前者只登记本地引用 + 触发缓存，不会触发完整导出
+- **书架**：支持文件夹分组（仅根目录可建）；进入 tab 自动刷新；按最近点击/阅读/加入时间倒序排列，新操作的书自动置顶；条数多时服务端分页；「加入书架」与「下载」语义分离——前者只登记本地引用 + 触发缓存，不会触发完整导出
 - **设置中心**：右侧垂直侧边栏入口，「阅读历史」与「设置」并列；顶部 Tab 精简为「搜索 / 书架 / 下载任务」
 - **临时提示**：站点状态用顶部 toast 展示，不阻塞搜索、详情和阅读
 
@@ -314,6 +315,9 @@ POST /novel/api/sources/speedtest
 GET  /novel/api/discovery/catalog
 GET  /novel/api/discovery/list
 GET  /novel/api/discovery/trending
+GET  /novel/api/bookshelf/items
+GET  /novel/api/bookshelf/history
+POST /novel/api/bookshelf/items/:id/touch
 GET  /novel/api/books/detail
 GET  /novel/api/chapter-content
 POST /novel/api/download-tasks
@@ -321,6 +325,10 @@ GET  /novel/api/download-tasks/:id
 GET  /novel/api/download-file
 GET  /novel/healthz
 ```
+
+发现榜单分页参数：`site`、`id`、`page`（默认 1）、`page_size`（默认 30，最大 100）；旧的 `limit` 仍可作为单页条数使用。响应包含 `page`、`page_size`、`total`（源站提供时）与 `has_more`。
+
+书架与历史分页参数：`page`、`page_size`。书架接口另返回 `total`、`book_total`、`pages`；返回顺序为文件夹在前，书籍按最近点击/阅读/加入时间倒序。`POST /api/bookshelf/items/:id/touch` 用于点击书籍时刷新“最近使用”时间，使其置顶。
 
 搜索示例：
 

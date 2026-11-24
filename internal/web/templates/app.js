@@ -24,6 +24,7 @@ const discoverySiteShortLabels = Object.freeze({
   sfacg: "SF轻文",
   ciyuanji: "次元姬",
   kadokado: "角角者",
+  alphapolis: "阿尔法",
 });
 let siteWarnings = window.__NOVEL_DL__.siteWarnings || [];
 let siteStats = window.__NOVEL_DL__.siteStats || [];
@@ -90,6 +91,10 @@ const appState = {
     trendingLoading: false,
     activeList: null,
     activeBooks: [],
+    activePage: 1,
+    activePageSize: 0,
+    activeTotal: 0,
+    activeHasMore: false,
     listLoading: false,
     requestToken: 0,
   },
@@ -119,6 +124,10 @@ const appState = {
     loading: false,
     loaded: false,
     page: 1,
+    total: 0,
+    bookTotal: 0,
+    pages: 1,
+    pageSize: 0,
     booksByKey: new Map(),
   },
   history: {
@@ -126,6 +135,9 @@ const appState = {
     loading: false,
     loaded: false,
     page: 1,
+    total: 0,
+    pages: 1,
+    pageSize: 0,
   },
   sourceSpeed: {
     running: false,
@@ -606,6 +618,10 @@ const discoverBackButton = document.getElementById("discoverBackButton");
 const discoverListHeaderNode = document.getElementById("discoverListHeader");
 const discoverBookStatusNode = document.getElementById("discoverBookStatus");
 const discoverBookGridNode = document.getElementById("discoverBookGrid");
+const discoverBookPaginationNode = document.getElementById("discoverBookPagination");
+const discoverBooksPrevPageButton = document.getElementById("discoverBooksPrevPage");
+const discoverBooksNextPageButton = document.getElementById("discoverBooksNextPage");
+const discoverBookPageIndicatorNode = document.getElementById("discoverBookPageIndicator");
 const historyListNode = document.getElementById("historyList");
 const historyStatusNode = document.getElementById("historyStatus");
 const historyRefreshButton = document.getElementById("historyRefresh");
@@ -749,15 +765,40 @@ function bootstrap() {
 
   if (historyRefreshButton) historyRefreshButton.addEventListener("click", () => void loadHistory());
 
-  const goBookshelfPrev = () => { if (appState.bookshelf.page > 1) { appState.bookshelf.page -= 1; renderBookshelf(); } };
-  const goBookshelfNext = () => { appState.bookshelf.page += 1; renderBookshelf(); };
+  const goBookshelfPrev = () => {
+    if (appState.bookshelf.page <= 1) return;
+    void loadBookshelf(appState.bookshelf.parentId, appState.bookshelf.page - 1);
+  };
+  const goBookshelfNext = () => {
+    if (appState.bookshelf.page >= appState.bookshelf.pages) return;
+    void loadBookshelf(appState.bookshelf.parentId, appState.bookshelf.page + 1);
+  };
   if (bookshelfPrevPageButton) bookshelfPrevPageButton.addEventListener("click", goBookshelfPrev);
   if (bookshelfNextPageButton) bookshelfNextPageButton.addEventListener("click", goBookshelfNext);
 
-  const goHistoryPrev = () => { if (appState.history.page > 1) { appState.history.page -= 1; renderHistory(); } };
-  const goHistoryNext = () => { appState.history.page += 1; renderHistory(); };
+  const goHistoryPrev = () => {
+    if (appState.history.page <= 1) return;
+    void loadHistory(appState.history.page - 1);
+  };
+  const goHistoryNext = () => {
+    if (appState.history.page >= appState.history.pages) return;
+    void loadHistory(appState.history.page + 1);
+  };
   if (historyPrevPageButton) historyPrevPageButton.addEventListener("click", goHistoryPrev);
   if (historyNextPageButton) historyNextPageButton.addEventListener("click", goHistoryNext);
+
+  const goDiscoverBooksPrev = () => {
+    const discover = appState.discover;
+    if (!discover.activeList || discover.activePage <= 1 || discover.listLoading) return;
+    void openDiscoverList(discover.activeList.site, discover.activeList, discover.activePage - 1);
+  };
+  const goDiscoverBooksNext = () => {
+    const discover = appState.discover;
+    if (!discover.activeList || !discover.activeHasMore || discover.listLoading) return;
+    void openDiscoverList(discover.activeList.site, discover.activeList, discover.activePage + 1);
+  };
+  if (discoverBooksPrevPageButton) discoverBooksPrevPageButton.addEventListener("click", goDiscoverBooksPrev);
+  if (discoverBooksNextPageButton) discoverBooksNextPageButton.addEventListener("click", goDiscoverBooksNext);
 
   const goTasksPrev = () => { if (appState.tasksPage > 1) { appState.tasksPage -= 1; renderTasks(); } };
   const goTasksNext = () => { appState.tasksPage += 1; renderTasks(); };
@@ -1845,6 +1886,9 @@ function activateDiscoverSection(section, options = {}) {
   if (!options.preserveList) {
     discover.activeList = null;
     discover.activeBooks = [];
+    discover.activePage = 1;
+    discover.activeTotal = 0;
+    discover.activeHasMore = false;
     discover.listError = "";
   }
 
@@ -2087,16 +2131,22 @@ function createDiscoverCover(list, source, index) {
   return cover;
 }
 
-async function openDiscoverList(siteKey, list) {
+async function openDiscoverList(siteKey, list, page = 1) {
   const discover = appState.discover;
   const token = ++discover.requestToken;
+  const pageSize = discoverListPageSize();
+  const requestedPage = Math.max(1, Math.trunc(Number(page) || 1));
+  const previousPage = discover.activePage || 1;
+  const pageChanged = requestedPage !== previousPage;
   discover.activeSite = siteKey;
   discover.activeList = {
     ...list,
     site: siteKey,
     site_name: sourceLabel(siteKey),
   };
-  discover.activeBooks = [];
+  discover.activePage = requestedPage;
+  discover.activePageSize = pageSize;
+  discover.activeBooks = requestedPage > 1 ? discover.activeBooks : [];
   discover.listLoading = true;
   discover.listError = "";
   renderDiscover();
@@ -2106,7 +2156,8 @@ async function openDiscoverList(siteKey, list) {
     const url = new URL(`${window.location.origin}${root}/api/discovery/list`);
     url.searchParams.set("site", siteKey);
     url.searchParams.set("id", list.id);
-    url.searchParams.set("limit", "30");
+    url.searchParams.set("page", String(requestedPage));
+    url.searchParams.set("page_size", String(pageSize));
     const payload = await fetchJSONWithTimeout(
       url.toString(),
       {},
@@ -2119,6 +2170,10 @@ async function openDiscoverList(siteKey, list) {
       site: siteKey,
       site_name: payload.name || sourceLabel(siteKey),
     };
+    discover.activePage = Math.max(1, Number(payload.page) || requestedPage);
+    discover.activePageSize = Math.max(1, Number(payload.page_size) || pageSize);
+    discover.activeTotal = Math.max(0, Number(payload.total) || 0);
+    discover.activeHasMore = Boolean(payload.has_more);
     discover.activeBooks = Array.isArray(payload.books) ? payload.books : [];
   } catch (error) {
     if (token !== discover.requestToken) return;
@@ -2127,7 +2182,20 @@ async function openDiscoverList(siteKey, list) {
     if (token !== discover.requestToken) return;
     discover.listLoading = false;
     renderDiscoverList();
+    if (pageChanged && discoverListPanel) {
+      window.requestAnimationFrame(() => {
+        discoverListPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    }
   }
+}
+
+function discoverListPageSize() {
+  const configured = Number.parseInt(String(appState.pageSize || ""), 10);
+  if (Number.isFinite(configured) && configured > 0) {
+    return Math.min(100, configured);
+  }
+  return 30;
 }
 
 function closeDiscoverList(options = {}) {
@@ -2135,6 +2203,9 @@ function closeDiscoverList(options = {}) {
   discover.requestToken += 1;
   discover.activeList = null;
   discover.activeBooks = [];
+  discover.activePage = 1;
+  discover.activeTotal = 0;
+  discover.activeHasMore = false;
   discover.listLoading = false;
   discover.listError = "";
   renderDiscover();
@@ -2164,7 +2235,8 @@ function renderDiscoverList() {
   description.textContent = list.description || "以下内容直接来自原站公开页面。";
   const meta = document.createElement("div");
   meta.className = "discover-list-header-meta";
-  [list.update_frequency, discover.activeBooks.length ? `${discover.activeBooks.length} 本` : ""]
+  const totalLabel = discover.activeTotal > 0 ? `共 ${discover.activeTotal} 本` : (discover.activeBooks.length ? `${discover.activeBooks.length} 本` : "");
+  [list.update_frequency, totalLabel]
     .filter(Boolean)
     .forEach((text) => {
       const chip = document.createElement("span");
@@ -2175,11 +2247,13 @@ function renderDiscoverList() {
   discoverListHeaderNode.append(cover, copy);
 
   discoverBookGridNode.innerHTML = "";
+  const rankOffset = Math.max(0, (discover.activePage - 1) * discover.activePageSize);
   discover.activeBooks.forEach((book, index) => {
-    discoverBookGridNode.appendChild(createDiscoveryBookCard(book, index));
+    discoverBookGridNode.appendChild(createDiscoveryBookCard(book, index, rankOffset));
   });
+  renderDiscoveryBookPagination();
   if (discover.listLoading) {
-    setDiscoverStatus(discoverBookStatusNode, "正在加载完整榜单…", true);
+    setDiscoverStatus(discoverBookStatusNode, "正在加载榜单…", true);
   } else if (discover.listError) {
     setDiscoverStatus(discoverBookStatusNode, discover.listError, true, "error");
   } else if (!discover.activeBooks.length) {
@@ -2189,8 +2263,25 @@ function renderDiscoverList() {
   }
 }
 
-function createDiscoveryBookCard(book, index = 0) {
+function renderDiscoveryBookPagination() {
+  const discover = appState.discover;
+  const node = discoverBookPaginationNode;
+  if (!node) return;
+  const page = Math.max(1, discover.activePage || 1);
+  const hasPrev = page > 1;
+  const hasNext = Boolean(discover.activeHasMore);
+  node.hidden = !hasPrev && !hasNext;
+  if (discoverBooksPrevPageButton) discoverBooksPrevPageButton.disabled = !hasPrev || discover.listLoading;
+  if (discoverBooksNextPageButton) discoverBooksNextPageButton.disabled = !hasNext || discover.listLoading;
+  if (discoverBookPageIndicatorNode) {
+    const total = discover.activeTotal > 0 ? ` · 共 ${discover.activeTotal} 本` : "";
+    discoverBookPageIndicatorNode.textContent = `第 ${page} 页${total}`;
+  }
+}
+
+function createDiscoveryBookCard(book, index = 0, rankOffset = 0) {
   const canDownload = sourceSupportsDownload(book.site);
+  const rankNumber = Math.max(1, Number(rankOffset) + Number(index) + 1);
   const result = {
     title: book.title || "",
     author: book.author || "",
@@ -2205,7 +2296,7 @@ function createDiscoveryBookCard(book, index = 0) {
   };
   const card = document.createElement("article");
   card.className = "result-card is-clickable discover-book-card";
-  card.dataset.rank = String(index + 1);
+  card.dataset.rank = String(rankNumber);
   card.setAttribute("tabindex", "0");
   card.setAttribute("aria-label", `${canDownload ? "查看" : "打开"}${book.title || "未命名小说"}`);
   const open = () => openResultVariant(result, book);
@@ -2224,7 +2315,7 @@ function createDiscoveryBookCard(book, index = 0) {
   coverButton.appendChild(createCoverImage(book.cover_url, book.title, "result-cover"));
   const rank = document.createElement("span");
   rank.className = "discover-rank-badge";
-  rank.textContent = String(index + 1);
+  rank.textContent = String(rankNumber);
   coverButton.appendChild(rank);
 
   const body = document.createElement("div");
@@ -3136,6 +3227,7 @@ function syncAppURL() {
       section: discover.section || "trending",
       site: discover.activeSite,
       list: discover.activeList ? discover.activeList.id : "",
+      page: discover.activeList && discover.activePage > 1 ? discover.activePage : "",
     });
     return;
   }
@@ -3236,13 +3328,9 @@ async function restoreFavoritesFromURL(view, params) {
   activateSubTab(subTab, { load: false, syncURL: false });
   if (appState.activeSubTab === "bookshelf") {
     const folder = urlPositiveInt(params, "folder", 0) || null;
-    await loadBookshelf(folder);
-    appState.bookshelf.page = urlPositiveInt(params, "page", 1);
-    renderBookshelf();
+    await loadBookshelf(folder, urlPositiveInt(params, "page", 1));
   } else if (appState.activeSubTab === "history") {
-    await loadHistory();
-    appState.history.page = urlPositiveInt(params, "page", 1);
-    renderHistory();
+    await loadHistory(urlPositiveInt(params, "page", 1));
   } else {
     await hydrateTasksFromServer();
     appState.tasksPage = urlPositiveInt(params, "page", 1);
@@ -3285,7 +3373,7 @@ async function restoreDiscoverFromURL(params) {
     };
   }
   if (!list) throw new Error("URL 中的榜单不存在或已下线");
-  await openDiscoverList(appState.discover.activeSite, list);
+  await openDiscoverList(appState.discover.activeSite, list, urlPositiveInt(params, "page", 1));
 }
 
 async function restoreDetailFromURL(params) {
@@ -5532,27 +5620,46 @@ function setBookshelfStatus(text) {
   if (bookshelfStatusNode) bookshelfStatusNode.textContent = text;
 }
 
-async function loadBookshelf(parentId) {
+async function loadBookshelf(parentId, page = 1) {
   if (!bookshelfNode) return;
   const shelf = appState.bookshelf;
   shelf.loading = true;
   setBookshelfStatus("正在加载书架...");
-  const query = parentId ? `?parent_id=${encodeURIComponent(parentId)}` : "";
+  const params = new URLSearchParams();
+  if (parentId) params.set("parent_id", String(parentId));
+  const requestedPage = Math.max(1, Math.trunc(Number(page) || 1));
+  const pageSize = favoritesPageSize();
+  params.set("page", String(requestedPage));
+  params.set("page_size", String(pageSize));
   try {
-    const response = await fetch(`${root}/api/bookshelf/items${query}`);
+    const response = await fetch(`${root}/api/bookshelf/items?${params.toString()}`);
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "load bookshelf failed");
     shelf.parentId = parentId || null;
     shelf.items = Array.isArray(payload.items) ? payload.items : [];
     shelf.breadcrumb = Array.isArray(payload.breadcrumb) ? payload.breadcrumb : [];
+    shelf.total = Math.max(0, Number(payload.total) || 0);
+    shelf.bookTotal = Math.max(0, Number(payload.book_total) || 0);
+    shelf.pages = Math.max(1, Number(payload.pages) || 1);
+    shelf.pageSize = Math.max(1, Number(payload.page_size) || pageSize);
+    shelf.page = Math.min(Math.max(1, Number(payload.page) || requestedPage), shelf.pages);
     shelf.loaded = true;
-    shelf.page = 1;
     updateBookshelfFolderActions();
     rebuildBookshelfIndex();
     renderBookshelf();
     renderBookshelfBreadcrumb();
-    const total = shelf.items.length;
+    const total = shelf.total;
     setBookshelfStatus(total === 0 ? "当前目录为空。" : `当前目录共 ${total} 项。`);
+    // Deleting the last entry of the final page leaves an empty window; step
+    // back to the new last page instead of showing a blank shelf.
+    if (!shelf.items.length && shelf.page > 1 && requestedPage === shelf.page && !shelf.reloading) {
+      shelf.reloading = true;
+      try {
+        await loadBookshelf(parentId, shelf.page - 1);
+      } finally {
+        shelf.reloading = false;
+      }
+    }
   } catch (error) {
     setBookshelfStatus(`加载书架失败：${error.message}`);
   } finally {
@@ -5576,8 +5683,7 @@ function rebuildBookshelfIndex() {
     if (item.kind === "book") map.set(bookshelfBookKey(item), item);
   });
   if (bookshelfTabCountNode) {
-    const bookCount = Array.from(map.keys()).length;
-    bookshelfTabCountNode.textContent = String(bookCount);
+    bookshelfTabCountNode.textContent = String(appState.bookshelf.bookTotal || 0);
   }
 }
 
@@ -5609,49 +5715,69 @@ function renderBookshelf() {
   if (!bookshelfNode) return;
   scheduleAppURLSync();
   bookshelfNode.innerHTML = "";
-  const items = appState.bookshelf.items;
+  const shelf = appState.bookshelf;
+  const items = shelf.items;
+  const pageInfo = {
+    total: shelf.total,
+    pageSize: shelf.pageSize || favoritesPageSize(),
+    current: shelf.page || 1,
+    pages: shelf.pages || 1,
+  };
   if (!items.length) {
-    appState.bookshelf.page = 1;
-    renderSubPagination(bookshelfPaginationNode, bookshelfPrevPageButton, bookshelfNextPageButton, bookshelfPageIndicatorNode, { total: 0, pageSize: favoritesPageSize(), current: 1, pages: 1 });
-    bookshelfNode.appendChild(createEmptyState(appState.bookshelf.parentId ? "这个文件夹是空的。" : "书架还是空的。", true));
+    renderSubPagination(bookshelfPaginationNode, bookshelfPrevPageButton, bookshelfNextPageButton, bookshelfPageIndicatorNode, pageInfo);
+    bookshelfNode.appendChild(createEmptyState(shelf.parentId ? "这个文件夹是空的。" : "书架还是空的。", true));
     return;
   }
-  const pageSize = favoritesPageSize();
-  const info = paginate(items, appState.bookshelf.page, pageSize);
-  appState.bookshelf.page = info.current;
-  info.slice.forEach((item) => {
+  items.forEach((item) => {
     if (item.kind === "folder") {
       bookshelfNode.appendChild(renderBookshelfFolderCard(item));
     } else {
       bookshelfNode.appendChild(renderBookshelfBookCard(item));
     }
   });
-  renderSubPagination(bookshelfPaginationNode, bookshelfPrevPageButton, bookshelfNextPageButton, bookshelfPageIndicatorNode, { ...info, pageSize });
+  renderSubPagination(bookshelfPaginationNode, bookshelfPrevPageButton, bookshelfNextPageButton, bookshelfPageIndicatorNode, pageInfo);
 }
 
 function setHistoryStatus(text) {
   if (historyStatusNode) historyStatusNode.textContent = text;
 }
 
-async function loadHistory() {
+async function loadHistory(page = 1) {
   if (!historyListNode) return;
   const history = appState.history;
   if (history.loading) return;
   history.loading = true;
   setHistoryStatus("正在加载阅读历史...");
+  const pageSize = favoritesPageSize();
+  const requestedPage = Math.max(1, Math.trunc(Number(page) || 1));
+  const params = new URLSearchParams();
+  params.set("page", String(requestedPage));
+  params.set("page_size", String(pageSize));
   try {
-    const response = await fetch(`${root}/api/bookshelf/history?limit=100`);
+    const response = await fetch(`${root}/api/bookshelf/history?${params.toString()}`);
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "load history failed");
     history.items = Array.isArray(payload.items) ? payload.items : [];
+    history.total = Math.max(0, Number(payload.total) || 0);
+    history.pages = Math.max(1, Number(payload.pages) || 1);
+    history.pageSize = Math.max(1, Number(payload.page_size) || pageSize);
+    history.page = Math.min(Math.max(1, Number(payload.page) || requestedPage), history.pages);
     history.loaded = true;
-    history.page = 1;
     renderHistory();
-    if (historyTabCountNode) historyTabCountNode.textContent = String(history.items.length);
-    if (history.items.length === 0) {
+    if (historyTabCountNode) historyTabCountNode.textContent = String(history.total);
+    if (history.total === 0) {
       setHistoryStatus("尚未读过任何小说，先去书架点击书籍开始阅读吧。");
     } else {
-      setHistoryStatus(`共 ${history.items.length} 条阅读记录。`);
+      setHistoryStatus(`共 ${history.total} 条阅读记录。`);
+    }
+    if (!history.items.length && history.page > 1 && requestedPage === history.page && !history.reloading) {
+      history.reloading = true;
+      history.loading = false;
+      try {
+        await loadHistory(history.page - 1);
+      } finally {
+        history.reloading = false;
+      }
     }
   } catch (error) {
     setHistoryStatus(`加载阅读历史失败：${error.message}`);
@@ -5664,18 +5790,21 @@ function renderHistory() {
   if (!historyListNode) return;
   scheduleAppURLSync();
   historyListNode.innerHTML = "";
-  const items = appState.history.items;
+  const history = appState.history;
+  const items = history.items;
+  const pageInfo = {
+    total: history.total,
+    pageSize: history.pageSize || favoritesPageSize(),
+    current: history.page || 1,
+    pages: history.pages || 1,
+  };
   if (!items.length) {
-    appState.history.page = 1;
-    renderSubPagination(historyPaginationNode, historyPrevPageButton, historyNextPageButton, historyPageIndicatorNode, { total: 0, pageSize: favoritesPageSize(), current: 1, pages: 1 });
+    renderSubPagination(historyPaginationNode, historyPrevPageButton, historyNextPageButton, historyPageIndicatorNode, pageInfo);
     historyListNode.appendChild(createEmptyState("还没有阅读记录。", true));
     return;
   }
-  const pageSize = favoritesPageSize();
-  const info = paginate(items, appState.history.page, pageSize);
-  appState.history.page = info.current;
-  info.slice.forEach((item) => historyListNode.appendChild(renderHistoryCard(item)));
-  renderSubPagination(historyPaginationNode, historyPrevPageButton, historyNextPageButton, historyPageIndicatorNode, { ...info, pageSize });
+  items.forEach((item) => historyListNode.appendChild(renderHistoryCard(item)));
+  renderSubPagination(historyPaginationNode, historyPrevPageButton, historyNextPageButton, historyPageIndicatorNode, pageInfo);
 }
 
 function renderHistoryCard(item) {
@@ -6131,11 +6260,26 @@ async function continueReadingFromDetail(result, variant, detail, button) {
   appState.activeDetailVariant = savedVariant;
 }
 
+// touchBookshelfItem marks a shelf entry as just used so the shelf can sort by
+// newest activity, mirroring how history brings the latest read to the front.
+async function touchBookshelfItem(id) {
+  const itemID = Math.trunc(Number(id) || 0);
+  if (itemID <= 0) return;
+  try {
+    await fetch(`${root}/api/bookshelf/items/${itemID}/touch`, { method: "POST" });
+    // The next shelf visit reloads from the server so ordering stays fresh.
+    appState.bookshelf.loaded = false;
+  } catch (_) {
+    // Best effort: reading still works if the touch request fails.
+  }
+}
+
 async function openBookshelfReader(item, button, options = {}) {
   const original = button ? button.textContent : "";
   if (button) { button.disabled = true; button.textContent = "加载中..."; }
   try {
     if (!item.site || !item.book_id) throw new Error("缺少站点或 book_id");
+    if (item.id) void touchBookshelfItem(item.id);
 
     setStatus(`正在打开《${item.title || item.book_id}》...`);
     const { detail, variant, localOnly } = await loadDetailWithLocalFallback(item);

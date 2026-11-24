@@ -865,10 +865,39 @@ func registerBookshelfRoutes(group *gin.RouterGroup, service *Service) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid parent_id"})
 			return
 		}
-		items, err := config.ListBookshelfItems(parentID)
+		page := queryPositiveInt(c, "page", 1)
+		pageSize := queryPositiveInt(c, "page_size", 0)
+		items := make([]config.BookshelfItem, 0)
+		total := 0
+		bookTotal := 0
+		var err error
+		if pageSize > 0 {
+			if pageSize > 200 {
+				pageSize = 200
+			}
+			offset := (page - 1) * pageSize
+			items, total, err = config.ListBookshelfItemsPage(parentID, offset, pageSize)
+		} else {
+			// Legacy callers without paging still get the whole folder.
+			items, err = config.ListBookshelfItems(parentID)
+			total = len(items)
+		}
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
+		}
+		bookTotal, err = config.CountBookshelfBooks(parentID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		pages := 1
+		if pageSize > 0 {
+			if total == 0 {
+				pages = 1
+			} else {
+				pages = (total + pageSize - 1) / pageSize
+			}
 		}
 		var breadcrumb []config.BookshelfItem
 		if parentID != nil {
@@ -881,6 +910,11 @@ func registerBookshelfRoutes(group *gin.RouterGroup, service *Service) {
 		c.JSON(http.StatusOK, gin.H{
 			"items":      items,
 			"breadcrumb": breadcrumb,
+			"total":      total,
+			"book_total": bookTotal,
+			"page":       page,
+			"page_size":  pageSize,
+			"pages":      pages,
 		})
 	})
 
@@ -1006,6 +1040,20 @@ func registerBookshelfRoutes(group *gin.RouterGroup, service *Service) {
 		c.JSON(http.StatusAccepted, gin.H{"task": task})
 	})
 
+	group.POST("/api/bookshelf/items/:id/touch", func(c *gin.Context) {
+		id, ok := parseBookshelfID(c.Param("id"))
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			return
+		}
+		item, err := config.TouchBookshelfItem(id)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"item": item})
+	})
+
 	group.GET("/api/bookshelf/progress", func(c *gin.Context) {
 		siteKey := strings.TrimSpace(c.Query("site"))
 		bookID := strings.TrimSpace(c.Query("book_id"))
@@ -1070,18 +1118,53 @@ func registerBookshelfRoutes(group *gin.RouterGroup, service *Service) {
 	})
 
 	group.GET("/api/bookshelf/history", func(c *gin.Context) {
+		page := queryPositiveInt(c, "page", 1)
+		pageSize := queryPositiveInt(c, "page_size", 0)
 		limit := 0
 		if raw := strings.TrimSpace(c.Query("limit")); raw != "" {
 			if value, err := strconv.Atoi(raw); err == nil {
 				limit = value
 			}
 		}
-		items, err := config.ListBookshelfHistory(limit)
+		items := make([]config.BookshelfItem, 0)
+		total := 0
+		var err error
+		if pageSize > 0 {
+			if pageSize > 200 {
+				pageSize = 200
+			}
+			offset := (page - 1) * pageSize
+			items, total, err = config.ListBookshelfHistoryPage(offset, pageSize)
+		} else {
+			// Legacy callers pass limit; keep the same most-recent-first
+			// truncation semantics while still reporting the true total.
+			items, err = config.ListBookshelfHistory(limit)
+			if err == nil {
+				total, _ = config.CountBookshelfHistory()
+				if total < len(items) {
+					total = len(items)
+				}
+			}
+		}
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"items": items})
+		pages := 1
+		if pageSize > 0 {
+			if total == 0 {
+				pages = 1
+			} else {
+				pages = (total + pageSize - 1) / pageSize
+			}
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"items":     items,
+			"total":     total,
+			"page":      page,
+			"page_size": pageSize,
+			"pages":     pages,
+		})
 	})
 }
 
