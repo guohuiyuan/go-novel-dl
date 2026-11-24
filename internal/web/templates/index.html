@@ -695,6 +695,20 @@
     </div>
   </div>
 
+  <div id="resultActionSheet" class="result-action-sheet" hidden>
+    <div class="result-action-sheet-backdrop" data-result-action-close></div>
+    <section class="result-action-sheet-panel" role="dialog" aria-modal="true" aria-labelledby="resultActionSheetTitle">
+      <header class="result-action-sheet-head">
+        <div class="result-action-sheet-title-block">
+          <strong id="resultActionSheetTitle">书籍操作</strong>
+          <span id="resultActionSheetMeta" class="result-action-sheet-meta"></span>
+        </div>
+        <button type="button" id="resultActionSheetClose" class="result-action-sheet-close" aria-label="关闭">✕</button>
+      </header>
+      <div id="resultActionSheetActions" class="result-action-sheet-actions"></div>
+    </section>
+  </div>
+
   <button id="backToTop" class="back-to-top" aria-label="回到顶部">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
       <path d="M12 19V5M5 12l7-7 7 7"/>

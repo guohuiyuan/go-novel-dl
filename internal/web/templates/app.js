@@ -623,6 +623,11 @@ const discoverBookPaginationNode = document.getElementById("discoverBookPaginati
 const discoverBooksPrevPageButton = document.getElementById("discoverBooksPrevPage");
 const discoverBooksNextPageButton = document.getElementById("discoverBooksNextPage");
 const discoverBookPageIndicatorNode = document.getElementById("discoverBookPageIndicator");
+const resultActionSheet = document.getElementById("resultActionSheet");
+const resultActionSheetTitle = document.getElementById("resultActionSheetTitle");
+const resultActionSheetMeta = document.getElementById("resultActionSheetMeta");
+const resultActionSheetActions = document.getElementById("resultActionSheetActions");
+const resultActionSheetClose = document.getElementById("resultActionSheetClose");
 const historyListNode = document.getElementById("historyList");
 const historyStatusNode = document.getElementById("historyStatus");
 const historyRefreshButton = document.getElementById("historyRefresh");
@@ -1667,18 +1672,279 @@ function sourceSupportsDownload(siteKey) {
 }
 
 function openResultVariant(result, variant) {
-  const activeVariant = variant || (result && result.primary) || {};
-  if (sourceSupportsDownload(activeVariant.site)) {
-    openDetail(result, activeVariant);
+  const requested = variant || (result && result.primary) || {};
+  if (requested.site && sourceSupportsDownload(requested.site)) {
+    if (requested.book_id) {
+      openDetail(result, requested);
+      return;
+    }
+    // A hybrid result can expose a download-capable source without a usable
+    // book id; fall through to another variant instead of a dead click.
+  } else if (requested.site) {
+    openOriginalResult(result, requested);
     return;
   }
-  const targetURL = `${activeVariant.url || (result && result.url) || ""}`.trim();
-  if (!targetURL) {
-    setStatus("这个渠道当前只提供搜索，但没有返回可打开的原站链接。", "error");
+
+  const fallback = firstDownloadableVariant(result, requested);
+  if (fallback) {
+    openDetail(result, fallback);
     return;
   }
-  window.open(targetURL, "_blank", "noopener,noreferrer");
+  openOriginalResult(result, requested);
 }
+
+function firstDownloadableVariant(result, exclude) {
+  if (!result) return null;
+  const excludeKey = exclude && exclude.site ? detailKey(exclude) : "";
+  const candidates = [];
+  if (Array.isArray(result.variants)) candidates.push(...result.variants);
+  if (Array.isArray(result.sources)) candidates.push(...result.sources);
+  if (result.primary) candidates.push(result.primary);
+  for (const item of candidates) {
+    if (!item || !item.site || !item.book_id) continue;
+    if (!sourceSupportsDownload(item.site)) continue;
+    if (excludeKey && detailKey(item) === excludeKey) continue;
+    return item;
+  }
+  return null;
+}
+
+function openOriginalResult(result, variant) {
+  const target = variant || (result && result.primary) || {};
+  const targetURL = String(target.url || (result && result.url) || (result && result.primary && result.primary.url) || "").trim();
+  if (!targetURL) {
+    setStatus("这个渠道当前没有返回可打开的原站链接。", "error");
+    return;
+  }
+  const opened = window.open(targetURL, "_blank", "noopener,noreferrer");
+  if (!opened) {
+    setStatus("浏览器拦截了新窗口，请允许本站弹出窗口后重试。", "error");
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Search result quick actions (long press / right click)
+// -----------------------------------------------------------------------------
+
+let resultActionReturnFocus = null;
+let detailFallbackKeys = new Set();
+
+function attachResultLongPress(card, onLongPress) {
+  if (!card || typeof onLongPress !== "function") return;
+  let timer = 0;
+  let startX = 0;
+  let startY = 0;
+  let fired = false;
+
+  const clearTimer = () => {
+    if (timer) {
+      window.clearTimeout(timer);
+      timer = 0;
+    }
+  };
+  const trigger = () => {
+    if (fired) return;
+    fired = true;
+    clearTimer();
+    if (navigator.vibrate) {
+      try { navigator.vibrate(12); } catch (_) { /* vibration is optional */ }
+    }
+    onLongPress();
+    // Some mobile browsers emit no click after a long press; release the
+    // suppression flag shortly afterwards so the next real tap still works.
+    window.setTimeout(() => { fired = false; }, 700);
+  };
+
+  card.addEventListener("pointerdown", (event) => {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    clearTimer();
+    fired = false;
+    startX = event.clientX;
+    startY = event.clientY;
+    timer = window.setTimeout(trigger, 520);
+  });
+  card.addEventListener("pointermove", (event) => {
+    if (!timer) return;
+    if (Math.abs(event.clientX - startX) > 10 || Math.abs(event.clientY - startY) > 10) clearTimer();
+  });
+  ["pointerup", "pointercancel", "pointerleave"].forEach((type) => {
+    card.addEventListener(type, clearTimer);
+  });
+  card.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    clearTimer();
+    trigger();
+  });
+  card.addEventListener("click", (event) => {
+    if (!fired) return;
+    event.preventDefault();
+    event.stopPropagation();
+    fired = false;
+  }, true);
+  card.addEventListener("keydown", (event) => {
+    if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+      event.preventDefault();
+      trigger();
+    }
+  });
+}
+
+function openResultActionSheet(result, variant) {
+  if (!resultActionSheet || !result) return;
+  const active = (variant && variant.site ? variant : null)
+    || firstDownloadableVariant(result, null)
+    || (result.primary && result.primary.site ? result.primary : null)
+    || {};
+  resultActionReturnFocus = document.activeElement;
+  resultActionSheetTitle.textContent = displayResultTitle(result) || "未命名小说";
+  const meta = [`来源：${sourceLabel(active.site || result.preferred_site)}`];
+  const author = displayResultAuthor(result);
+  if (author) meta.push(`作者：${author}`);
+  resultActionSheetMeta.textContent = meta.join(" · ");
+  resultActionSheetActions.innerHTML = "";
+
+  const canDownload = Boolean(active.site && active.book_id && sourceSupportsDownload(active.site));
+  const targetURL = String(active.url || result.url || (result.primary && result.primary.url) || "").trim();
+  const close = () => closeResultActionSheet();
+
+  if (canDownload) {
+    addResultAction("📖", "查看详情", () => {
+      close();
+      openDetail(result, active);
+    });
+  } else if (targetURL) {
+    addResultAction("🌐", "打开原站", () => {
+      close();
+      openOriginalResult(result, active);
+    });
+  }
+
+  if (canDownload) {
+    const shelfButton = addResultAction("➕", "加入书架", () => {
+      close();
+      void toggleCurrentDetailBookshelf(result, active, null, null);
+    });
+    void fetchBookshelfProgress(active.site, active.book_id).then((item) => {
+      if (!item || item.implicit || !shelfButton.isConnected) return;
+      const label = shelfButton.querySelector(".result-action-label");
+      if (label) label.textContent = "移出书架";
+      shelfButton.classList.add("is-danger");
+      shelfButton.dataset.shelfState = "saved";
+    });
+
+    addResultAction("🔍", "搜相似", () => {
+      close();
+      searchSimilarFromResult(result);
+    });
+
+    addResultAction("⬇️", "缓存到本地", () => {
+      close();
+      void startDownloadTask({
+        site: active.site,
+        book_id: active.book_id,
+        title: displayResultTitle(result),
+        cover_url: result.cover_url || active.cover_url || "",
+      }, null, { target: "local", noActivate: true, keepDetailOpen: true });
+    });
+
+    addResultAction("📤", "导出", () => {
+      close();
+      void startDownloadTask({
+        site: active.site,
+        book_id: active.book_id,
+        title: displayResultTitle(result),
+        cover_url: result.cover_url || active.cover_url || "",
+      }, null, { target: "export", noActivate: true, keepDetailOpen: true });
+    });
+
+    if (targetURL) {
+      addResultAction("🌐", "打开原站", () => {
+        close();
+        openOriginalResult(result, active);
+      });
+    }
+  } else {
+    addResultAction("🔍", "搜相似", () => {
+      close();
+      searchSimilarFromResult(result);
+    });
+  }
+
+  const hint = document.createElement("p");
+  hint.className = "result-action-sheet-hint";
+  hint.textContent = canDownload
+    ? "长按或右键任意搜索结果可再次打开此菜单。"
+    : "该渠道只提供搜索，详情请在原站查看。";
+  resultActionSheetActions.appendChild(hint);
+
+  resultActionSheet.hidden = false;
+  resultActionSheet.setAttribute("aria-hidden", "false");
+  document.body.classList.add("has-action-sheet");
+  window.requestAnimationFrame(() => {
+    const first = resultActionSheetActions.querySelector("button");
+    if (first) first.focus();
+  });
+}
+
+function addResultAction(icon, label, handler) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "result-action-sheet-button";
+  const iconNode = document.createElement("span");
+  iconNode.className = "result-action-icon";
+  iconNode.setAttribute("aria-hidden", "true");
+  iconNode.textContent = icon;
+  const labelNode = document.createElement("span");
+  labelNode.className = "result-action-label";
+  labelNode.textContent = label;
+  button.append(iconNode, labelNode);
+  button.addEventListener("click", handler);
+  resultActionSheetActions.appendChild(button);
+  return button;
+}
+
+function closeResultActionSheet(options = {}) {
+  if (!resultActionSheet || resultActionSheet.hidden) return;
+  resultActionSheet.hidden = true;
+  resultActionSheet.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("has-action-sheet");
+  resultActionSheetActions.innerHTML = "";
+  if (options.restoreFocus !== false && resultActionReturnFocus && typeof resultActionReturnFocus.focus === "function") {
+    const target = resultActionReturnFocus;
+    resultActionReturnFocus = null;
+    window.requestAnimationFrame(() => target.focus());
+  }
+}
+
+function searchSimilarFromResult(result) {
+  const title = displayResultTitle(result).trim();
+  if (!title) {
+    setStatus("没有可用于搜索相似的书名。", "error");
+    return;
+  }
+  keywordInput.value = title;
+  appState.page = 1;
+  void performSearch(false, { sites: Array.from(appState.selectedSites), tag: "" });
+}
+
+if (resultActionSheetClose) {
+  resultActionSheetClose.addEventListener("click", () => closeResultActionSheet());
+}
+if (resultActionSheet) {
+  resultActionSheet.addEventListener("click", (event) => {
+    if (event.target && event.target.closest("[data-result-action-close]")) {
+      closeResultActionSheet();
+    }
+  });
+}
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && resultActionSheet && !resultActionSheet.hidden) {
+    event.preventDefault();
+    closeResultActionSheet();
+  }
+});
+
+// -----------------------------------------------------------------------------
 
 function filteredSources() {
   if (appState.selectedSourceTags.size === 0) return allSources;
@@ -2406,8 +2672,11 @@ function renderResults(results) {
     card.className = "result-card is-clickable";
     card.setAttribute("tabindex", "0");
     card.setAttribute("aria-label", `${canDownload ? "查看" : "打开"} ${displayResultTitle(result)}`);
+    card.setAttribute("aria-haspopup", "dialog");
+    card.title = "点击查看详情；长按或右键打开快捷操作";
     const open = () => openResultVariant(result, result.primary);
     card.addEventListener("click", open);
+    attachResultLongPress(card, () => openResultActionSheet(result, result.primary));
     card.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
@@ -2455,7 +2724,31 @@ function renderResults(results) {
 }
 
 function openDetail(result, variant) {
-  openDetailPage(result, variant, 1, true);
+  const active = variant || result.primary;
+  detailFallbackKeys = new Set();
+  if (active && active.site) detailFallbackKeys.add(detailKey(active));
+  openDetailPage(result, active, 1, true);
+}
+
+// nextDetailFallbackVariant returns another download-capable source for the
+// same hybrid result. Search hits whose preferred source fails to detail are
+// switched automatically instead of leaving a dead click.
+function nextDetailFallbackVariant(result, failedVariant) {
+  if (failedVariant && failedVariant.site) detailFallbackKeys.add(detailKey(failedVariant));
+  if (!result) return null;
+  const candidates = [];
+  if (Array.isArray(result.variants)) candidates.push(...result.variants);
+  if (Array.isArray(result.sources)) candidates.push(...result.sources);
+  if (result.primary) candidates.push(result.primary);
+  for (const item of candidates) {
+    if (!item || !item.site || !item.book_id) continue;
+    if (item.local || !sourceSupportsDownload(item.site)) continue;
+    const key = detailKey(item);
+    if (detailFallbackKeys.has(key)) continue;
+    detailFallbackKeys.add(key);
+    return item;
+  }
+  return null;
 }
 
 function openDetailPage(result, variant, chapterPage = 1, resetScroll = false) {
@@ -2488,6 +2781,19 @@ function closeDetail() {
 
 async function loadDetail(result, variant, cacheKey, chapterPage = 1, chapterPageSize = normalizedChapterPageSize()) {
   const startedAt = performance.now();
+  let fallbackTimer = 0;
+  if (chapterPage === 1 && variant && !variant.local) {
+    // A slow source should not leave the user staring at a loading overlay
+    // when another variant can render the same book. Try the next source after
+    // a short grace period; the original request may still win the cache.
+    fallbackTimer = window.setTimeout(() => {
+      if (!canApplyDetailFallback(result, variant, chapterPage, chapterPageSize)) return;
+      const fallback = nextDetailFallbackVariant(result, variant);
+      if (!fallback) return;
+      setStatus(`当前来源响应较慢，正在尝试${sourceLabel(fallback.site)}…`, "warning");
+      openDetailPage(result, fallback, 1, false);
+    }, 15000);
+  }
   try {
     let pending = appState.detailPending.get(cacheKey);
     if (!pending) {
@@ -2506,8 +2812,18 @@ async function loadDetail(result, variant, cacheKey, chapterPage = 1, chapterPag
     }
   } catch (error) {
     if (isActiveDetailRequest(result, variant, chapterPage, chapterPageSize)) {
+      if (chapterPage === 1 && variant && !variant.local && canApplyDetailFallback(result, variant, chapterPage, chapterPageSize)) {
+        const fallback = nextDetailFallbackVariant(result, variant);
+        if (fallback) {
+          setStatus(`当前来源详情加载失败，正在尝试${sourceLabel(fallback.site)}…`, "warning");
+          openDetailPage(result, fallback, 1, false);
+          return;
+        }
+      }
       renderDetail(result, variant, null, false, error.message);
     }
+  } finally {
+    if (fallbackTimer) window.clearTimeout(fallbackTimer);
   }
 }
 
@@ -2761,7 +3077,28 @@ function renderDetail(result, variant, detail, loading, errorMessage) {
   chapterSection.appendChild(chapterHead);
 
   if (loading) chapterSection.appendChild(createEmptyInline("正在加载章节列表..."));
-  else if (errorMessage) chapterSection.appendChild(createEmptyInline(`详情加载失败：${errorMessage}`));
+  else if (errorMessage) {
+    chapterSection.appendChild(createEmptyInline(`详情加载失败：${errorMessage}`));
+    const errorActions = document.createElement("div");
+    errorActions.className = "detail-actions detail-error-actions";
+    const retryButton = document.createElement("button");
+    retryButton.type = "button";
+    retryButton.className = "download-button";
+    retryButton.textContent = "重试";
+    retryButton.title = "重新加载当前来源的详情";
+    retryButton.addEventListener("click", () => openDetailPage(result, activeVariant, 1, false));
+    errorActions.appendChild(retryButton);
+    const errorURL = String(activeVariant.url || result.url || "").trim();
+    if (errorURL) {
+      const originalButton = document.createElement("button");
+      originalButton.type = "button";
+      originalButton.className = "tool-button";
+      originalButton.textContent = "打开原站";
+      originalButton.addEventListener("click", () => openOriginalResult(result, activeVariant));
+      errorActions.appendChild(originalButton);
+    }
+    chapterSection.appendChild(errorActions);
+  }
   else if (!chapters.length) chapterSection.appendChild(createEmptyInline("当前源没有返回章节列表。"));
   else {
     if (chapterPage.total > chapterPage.page_size) chapterSection.appendChild(createChapterPaging(result, activeVariant, chapterPage));
@@ -3077,6 +3414,11 @@ function isActiveDetailRequest(result, variant, chapterPage, chapterPageSize) {
     && appState.activeDetailKey === detailKey(variant)
     && appState.activeDetailPage === chapterPage
     && appState.activeDetailPageSize === chapterPageSize;
+}
+
+function canApplyDetailFallback(result, variant, chapterPage, chapterPageSize) {
+  return Boolean(detailOverlay && !detailOverlay.hidden)
+    && isActiveDetailRequest(result, variant, chapterPage, chapterPageSize);
 }
 
 // ===== Chapter Reader =====
