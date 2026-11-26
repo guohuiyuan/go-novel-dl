@@ -591,3 +591,92 @@ func TestEPUBExportReportsMissingCustomCSSFile(t *testing.T) {
 		t.Fatalf("expected missing css file error, got: %v", err)
 	}
 }
+
+func TestSplitEPUBChapterTitle(t *testing.T) {
+	cases := []struct {
+		title    string
+		wantNum  string
+		wantName string
+		wantOK   bool
+	}{
+		{title: "第三章 抽旱烟，挂帘子", wantNum: "第三章", wantName: "抽旱烟，挂帘子", wantOK: true},
+		{title: "第123章：初入江湖", wantNum: "第123章", wantName: "初入江湖", wantOK: true},
+		{title: "第一卷 第十章 终局", wantNum: "第一卷 第十章", wantName: "终局", wantOK: true},
+		{title: "第12章（上） 激战", wantNum: "第12章（上）", wantName: "激战", wantOK: true},
+		{title: "番外一 日常", wantNum: "番外一", wantName: "日常", wantOK: true},
+		{title: "序章 命运的开端", wantNum: "序章", wantName: "命运的开端", wantOK: true},
+		{title: "Chapter 12: The Storm", wantNum: "Chapter 12", wantName: "The Storm", wantOK: true},
+		{title: "001 开篇", wantNum: "001", wantName: "开篇", wantOK: true},
+		{title: "第三章", wantOK: false},
+		{title: "Chapter 1", wantOK: false},
+		{title: "第一章的秘密", wantOK: false},
+		{title: "抽旱烟，挂帘子", wantOK: false},
+	}
+
+	for _, tc := range cases {
+		num, name, ok := splitEPUBChapterTitle(tc.title)
+		if ok != tc.wantOK || num != tc.wantNum || name != tc.wantName {
+			t.Errorf("splitEPUBChapterTitle(%q) = (%q, %q, %v), want (%q, %q, %v)",
+				tc.title, num, name, ok, tc.wantNum, tc.wantName, tc.wantOK)
+		}
+	}
+}
+
+func TestEPUBExportSplitsChapterTitleIntoNumberAndName(t *testing.T) {
+	service := New()
+	cases := []struct {
+		name        string
+		site        string
+		chapterFile string
+	}{
+		{name: "standard", site: "linovelib", chapterFile: "OEBPS/chapter-001.xhtml"},
+		{name: "esj", site: "esjzone", chapterFile: "OEBPS/chap_1.xhtml"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			book := &model.Book{
+				Site:   tc.site,
+				ID:     "title-split-1",
+				Title:  "成尊",
+				Author: "Tester",
+				Chapters: []model.Chapter{
+					{ID: "1", Title: "第三章 抽旱烟，挂帘子", Content: "正文第一段。"},
+					{ID: "2", Title: "后记", Content: "正文第二段。"},
+				},
+			}
+
+			paths, err := service.Export(book, tc.site, config.DefaultConfig().General.Output, t.TempDir(), []string{"epub"})
+			if err != nil {
+				t.Fatalf("export epub: %v", err)
+			}
+
+			r, err := zip.OpenReader(paths[0])
+			if err != nil {
+				t.Fatalf("open epub: %v", err)
+			}
+			defer r.Close()
+
+			chap1 := readZipEntry(t, r, tc.chapterFile)
+			wantHeading := `<h2 class="chapter-title"><span class="chapter-num">第三章</span><br class="chapter-title-break"/><span class="chapter-name">抽旱烟，挂帘子</span></h2>`
+			if !strings.Contains(chap1, wantHeading) {
+				t.Fatalf("expected split chapter heading %s, got: %s", wantHeading, chap1)
+			}
+			if !strings.Contains(chap1, `href="styles.css"`) {
+				t.Fatalf("expected chapter page to link styles.css, got: %s", chap1)
+			}
+
+			nav := readZipEntry(t, r, "OEBPS/nav.xhtml")
+			if !strings.Contains(nav, `第三章 抽旱烟，挂帘子</a>`) {
+				t.Fatalf("expected nav toc to keep full single-line title, got: %s", nav)
+			}
+
+			styles := readZipEntry(t, r, "OEBPS/styles.css")
+			for _, needle := range []string{`.chapter-title{`, `.chapter-num{`, `.chapter-title-break{display:none;}`, `.chapter-name{`} {
+				if !strings.Contains(styles, needle) {
+					t.Fatalf("expected styles.css to contain %s, got: %s", needle, styles)
+				}
+			}
+		})
+	}
+}

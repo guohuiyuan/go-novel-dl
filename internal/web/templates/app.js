@@ -45,21 +45,25 @@ const DEFAULT_COVER_SRC = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 480">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#f0fdf4"/>
-      <stop offset="100%" stop-color="#d1fae5"/>
+      <stop offset="0%" stop-color="#f5efe4"/>
+      <stop offset="100%" stop-color="#e5dccb"/>
     </linearGradient>
-    <linearGradient id="circleBg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#a7f3d0"/>
-      <stop offset="100%" stop-color="#34d399"/>
+    <linearGradient id="spine" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#2c3e55" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#2c3e55" stop-opacity="0"/>
     </linearGradient>
   </defs>
-  <rect width="360" height="480" rx="20" fill="url(#bg)"/>
-  <rect x="30" y="32" width="300" height="416" rx="16" fill="#ffffff" fill-opacity="0.9" stroke="#6ee7b7" stroke-width="2" stroke-opacity="0.5"/>
-  <circle cx="180" cy="164" r="58" fill="url(#circleBg)" opacity="0.8"/>
-  <rect x="104" y="248" width="152" height="16" rx="8" fill="#a7f3d0"/>
-  <rect x="90" y="282" width="180" height="16" rx="8" fill="#d1fae5"/>
-  <text x="180" y="356" text-anchor="middle" font-size="28" font-weight="bold" font-family="Arial, sans-serif" fill="#047857">Novel DL</text>
-  <text x="180" y="388" text-anchor="middle" font-size="16" font-family="Arial, sans-serif" fill="#059669">No Cover</text>
+  <rect width="360" height="480" rx="18" fill="url(#bg)"/>
+  <rect x="0" y="0" width="28" height="480" fill="url(#spine)"/>
+  <rect x="28" y="28" width="304" height="424" rx="12" fill="#fffdf9" fill-opacity="0.72" stroke="#c7bba5" stroke-width="1.5"/>
+  <rect x="44" y="44" width="272" height="392" rx="8" fill="none" stroke="#d8cebc" stroke-width="1" stroke-dasharray="4 4"/>
+  <g transform="translate(180 182)" fill="none" stroke="#64748b" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.65">
+    <path d="M-42 -26 C-22 -32, -8 -24, 0 -16 C8 -24, 22 -32, 42 -26 L42 30 C22 24, 8 30, 0 38 C-8 30, -22 24, -42 30 Z"/>
+    <path d="M0 -16 L0 38"/>
+  </g>
+  <line x1="120" y1="274" x2="240" y2="274" stroke="#b9ab94" stroke-width="2" stroke-linecap="round"/>
+  <text x="180" y="324" text-anchor="middle" font-size="22" font-weight="700" letter-spacing="2" font-family="Georgia, serif" fill="#475569">NOVEL DL</text>
+  <text x="180" y="354" text-anchor="middle" font-size="13" letter-spacing="1.5" font-family="sans-serif" fill="#847866">暂无封面</text>
 </svg>
 `)}`;
 
@@ -5080,17 +5084,111 @@ function saveReaderSettings(settings) {
   localStorage.setItem("reader-settings", JSON.stringify(settings));
 }
 
+const LAST_LIGHT_THEME_KEY = "novel-dl:last-light-theme";
+
 function applyReaderSettings(settings) {
   const theme = appThemes.find((item) => item.key === settings.theme) || appThemes[0];
   document.documentElement.dataset.appTheme = theme.key;
+  if (!theme.night) {
+    try {
+      localStorage.setItem(LAST_LIGHT_THEME_KEY, theme.key);
+    } catch (_) {}
+  }
   readerOverlay.style.setProperty("--reader-bg", theme.bg);
   readerOverlay.style.setProperty("--reader-text", theme.text);
   readerContent.style.fontSize = `${settings.fontSize || 18}px`;
   readerOverlay.classList.toggle("is-night", Boolean(theme.night));
+  const quickToggle = document.getElementById("quickThemeToggle");
+  if (quickToggle) {
+    const isNight = Boolean(theme.night);
+    quickToggle.dataset.themeMode = isNight ? "night" : "light";
+    quickToggle.setAttribute("aria-label", isNight ? "切换到日间主题" : "切换到夜间模式");
+    quickToggle.title = isNight ? "切换到日间主题" : "切换到夜间模式";
+  }
   if (!readerOverlay.hidden) scheduleReaderPageLayout();
 }
 
+function initFrontendEnhancements() {
+  const quickToggle = document.getElementById("quickThemeToggle");
+  if (quickToggle) {
+    quickToggle.addEventListener("click", () => {
+      const current = loadReaderSettings();
+      if (current.theme === "night") {
+        let fallbackLight = "paper";
+        try {
+          const saved = localStorage.getItem(LAST_LIGHT_THEME_KEY);
+          if (saved && appThemes.some((item) => item.key === saved && !item.night)) {
+            fallbackLight = saved;
+          }
+        } catch (_) {}
+        selectAppTheme(fallbackLight);
+      } else {
+        selectAppTheme("night");
+      }
+    });
+  }
+
+  const clearBtn = document.getElementById("clearKeywordButton");
+  if (keywordInput && clearBtn) {
+    const syncClearBtn = () => {
+      clearBtn.hidden = !keywordInput.value;
+    };
+    keywordInput.addEventListener("input", syncClearBtn);
+    clearBtn.addEventListener("click", () => {
+      keywordInput.value = "";
+      syncClearBtn();
+      keywordInput.focus();
+    });
+    syncClearBtn();
+  }
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "/" || event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return;
+    const active = document.activeElement;
+    if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT" || active.isContentEditable)) return;
+    if (!detailOverlay.hidden || !readerOverlay.hidden || !siteConfigOverlay.hidden) return;
+    if (appState.activeTab !== "search") activateTab("search");
+    if (keywordInput) {
+      event.preventDefault();
+      keywordInput.focus();
+      keywordInput.select();
+    }
+  });
+
+  const epubPresetSnippets = {
+    "centered-split": [
+      ".chapter-title { text-align: center; margin: 1.4em 0 1.8em; }",
+      ".chapter-num { font-size: 0.78em; letter-spacing: 0.12em; color: #666; margin-bottom: 0.35em; }",
+      ".chapter-name { font-size: 1.15em; font-weight: bold; }",
+    ].join("\n"),
+    "inline-title": [
+      ".chapter-num, .chapter-name { display: inline; font-size: 1em; font-weight: bold; margin: 0; }",
+      ".chapter-num::after { content: \" \"; }",
+    ].join("\n"),
+    "comfortable-serif": [
+      "body { font-family: \"Noto Serif SC\", \"Songti SC\", Georgia, serif; line-height: 1.95; }",
+      ".novel-paragraph { text-indent: 2em; margin: 0; }",
+      ".novel-paragraph + .novel-paragraph { margin-top: 0.9em; }",
+    ].join("\n"),
+  };
+
+  const presetWrap = document.getElementById("epubCSSPresets");
+  if (presetWrap && generalEpubCSSNode) {
+    presetWrap.addEventListener("click", (event) => {
+      const btn = event.target.closest("[data-epub-preset]");
+      if (!btn) return;
+      const snippet = epubPresetSnippets[btn.dataset.epubPreset];
+      if (!snippet) return;
+      const existing = generalEpubCSSNode.value.trim();
+      generalEpubCSSNode.value = existing ? `${existing}\n\n${snippet}` : snippet;
+      generalEpubCSSNode.focus();
+      generalEpubCSSNode.scrollTop = generalEpubCSSNode.scrollHeight;
+    });
+  }
+}
+
 initReaderSettings();
+initFrontendEnhancements();
 
 function resultBadge(text) {
   const node = document.createElement("span"); node.className = "result-badge"; node.textContent = text; return node;

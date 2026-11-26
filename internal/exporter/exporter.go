@@ -97,6 +97,13 @@ var htmlImgTagRe = regexp.MustCompile(`(?is)<img\b[^>]*>`)
 var htmlAttrDoubleQuotedRe = regexp.MustCompile(`(?i)([a-z0-9_:-]+)\s*=\s*"([^"]*)"`)
 var htmlAttrSingleQuotedRe = regexp.MustCompile(`(?i)([a-z0-9_:-]+)\s*=\s*'([^']*)'`)
 
+var (
+	chapterTitleCNNumberRe  = regexp.MustCompile(`^((?:第[零一二两兩三四五六七八九十百千万萬〇○0-9]+[卷部篇册冊]\s+)?第[零一二两兩三四五六七八九十百千万萬〇○0-9]+[章节節回话話集篇幕部卷折段辑輯番](?:\s*[（(][上中下前后前後一二三四五六七八九十0-9]+[）)])?)\s*[:：、.\-—–·\s\x{3000}]+\s*(.+)$`)
+	chapterTitleCNSpecialRe = regexp.MustCompile(`^((?:序章|楔子|引子|前言|序言|序幕|尾[声聲]|终章|終章|[后後][记記]|番外|外[传傳]|[间間]章|幕[间間]|特[别別]篇|特典)(?:[零一二两兩三四五六七八九十百千万萬〇○0-9]+)?)\s*[:：、.\-—–·\s\x{3000}]+\s*(.+)$`)
+	chapterTitleENRe        = regexp.MustCompile(`(?i)^((?:chapter|ch\.?|episode|ep\.?|part|section|act)\s*[0-9]+(?:\.[0-9]+)?|(?:prologue|epilogue|interlude)(?:\s*[0-9]+)?)\s*[:：.\-—–·\s\x{3000}]+\s*(.+)$`)
+	chapterTitleBareNumRe   = regexp.MustCompile(`^(\d{1,5})(?:\s*[:：、.\-—–·]\s*|[\s\x{3000}]+)(.+)$`)
+)
+
 func New() *Service {
 	return &Service{}
 }
@@ -570,15 +577,15 @@ func buildEPUBContentLikeESJScript(book *model.Book) (*epubPackage, error) {
 		chapterXHTML := fmt.Sprintf(
 			"<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"+
 				"            <html xmlns=\"http://www.w3.org/1999/xhtml\">\n"+
-				"              <head><title>%s</title><style>%s</style></head>\n"+
+				"              <head><title>%s</title><style>%s</style><link rel=\"stylesheet\" type=\"text/css\" href=\"styles.css\"/></head>\n"+
 				"              <body>\n"+
-				"                <h2>%s</h2>\n"+
+				"                %s\n"+
 				"                <div>%s</div>\n"+
 				"              </body>\n"+
 				"            </html>",
 			escapeHTML(title),
 			esjEPUBParagraphCSS,
-			escapeHTML(title),
+			buildEPUBChapterHeadingHTML(title),
 			strings.Join(bodyParts, "\n"),
 		)
 		chapterBuilds = append(chapterBuilds, chapterBuild{title: title, name: fileName, body: chapterXHTML, images: images})
@@ -974,8 +981,54 @@ func buildChapterPageWithBlocks(bookTitle string, chapter model.Chapter, blocks 
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head><title>%s - %s</title><link rel="stylesheet" type="text/css" href="styles.css"/></head>
-<body><article><h2>%s</h2>%s</article></body>
-</html>`, escapeHTML(bookTitle), escapeHTML(chapter.Title), escapeHTML(chapter.Title), strings.Join(body, ""))
+<body><article>%s%s</article></body>
+</html>`, escapeHTML(bookTitle), escapeHTML(chapter.Title), buildEPUBChapterHeadingHTML(chapter.Title), strings.Join(body, ""))
+}
+
+// splitEPUBChapterTitle splits a chapter title like "第三章 抽旱烟，挂帘子"
+// into its leading chapter number/label and chapter name so EPUB headings can
+// render them on separate lines and let user CSS style each part independently.
+func splitEPUBChapterTitle(title string) (num, name string, ok bool) {
+	cleaned := strings.TrimSpace(normalizeExportInlineWhitespace(strings.ReplaceAll(title, "\r\n", "\n")))
+	if cleaned == "" {
+		return "", "", false
+	}
+	if idx := strings.IndexByte(cleaned, '\n'); idx >= 0 {
+		left := strings.TrimSpace(cleaned[:idx])
+		right := strings.TrimSpace(strings.ReplaceAll(cleaned[idx+1:], "\n", " "))
+		if left != "" && right != "" {
+			return left, right, true
+		}
+		cleaned = strings.TrimSpace(strings.ReplaceAll(cleaned, "\n", " "))
+	}
+	for _, re := range []*regexp.Regexp{
+		chapterTitleCNNumberRe,
+		chapterTitleCNSpecialRe,
+		chapterTitleENRe,
+		chapterTitleBareNumRe,
+	} {
+		match := re.FindStringSubmatch(cleaned)
+		if len(match) != 3 {
+			continue
+		}
+		left := strings.TrimSpace(match[1])
+		right := strings.TrimSpace(strings.TrimLeft(match[2], ":：、.-—–· \t\u3000"))
+		if left != "" && right != "" {
+			return left, right, true
+		}
+	}
+	return "", "", false
+}
+
+func buildEPUBChapterHeadingHTML(title string) string {
+	if num, name, ok := splitEPUBChapterTitle(title); ok {
+		return fmt.Sprintf(
+			`<h2 class="chapter-title"><span class="chapter-num">%s</span><br class="chapter-title-break"/><span class="chapter-name">%s</span></h2>`,
+			escapeHTML(num),
+			escapeHTML(name),
+		)
+	}
+	return fmt.Sprintf(`<h2 class="chapter-title">%s</h2>`, escapeHTML(title))
 }
 
 func buildEPUBParagraphHTML(paragraph string) string {
@@ -1729,4 +1782,4 @@ const ncxTemplate = `<?xml version="1.0" encoding="utf-8"?>
 
 const esjEPUBParagraphCSS = `.novel-paragraph{margin:0;line-height:1.9;text-indent:2em;}.novel-paragraph + .novel-paragraph{margin-top:3.8em;}`
 
-const defaultEPUBCSS = `body{font-family:Georgia,serif;line-height:1.9;margin:5%;}h1,h2{line-height:1.3;}article{page-break-after:always;}.novel-paragraph{margin:0;line-height:1.9;text-indent:2em;}.novel-paragraph + .novel-paragraph{margin-top:3.8em;}.cover{margin-top:12%;text-align:center;}.cover-art,.illustration{margin:1.5em auto;text-align:center;text-indent:0;}.cover-art img,.illustration img{height:auto;max-width:100%;}.cover-art img{max-height:70vh;}.author{font-style:italic;}.book-description{margin:2em auto 0;max-width:36em;text-align:left;}.book-description h2{text-align:center;}`
+const defaultEPUBCSS = `body{font-family:Georgia,serif;line-height:1.9;margin:5%;}h1,h2{line-height:1.3;}article{page-break-after:always;}.chapter-title{line-height:1.4;margin:0 0 1.2em;}.chapter-num{display:block;font-size:0.8em;font-weight:normal;margin-bottom:0.25em;}.chapter-title-break{display:none;}.chapter-name{display:block;}.novel-paragraph{margin:0;line-height:1.9;text-indent:2em;}.novel-paragraph + .novel-paragraph{margin-top:3.8em;}.cover{margin-top:12%;text-align:center;}.cover-art,.illustration{margin:1.5em auto;text-align:center;text-indent:0;}.cover-art img,.illustration img{height:auto;max-width:100%;}.cover-art img{max-height:70vh;}.author{font-style:italic;}.book-description{margin:2em auto 0;max-width:36em;text-align:left;}.book-description h2{text-align:center;}`

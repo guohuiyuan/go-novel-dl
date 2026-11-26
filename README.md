@@ -380,7 +380,7 @@ Content-Type: application/json
 - `include_picture`
 - `filename_template`（默认 `{title}_{author}`，支持 `{title}/{author}/{site}/{book_id}` 占位符）
 - `epub_css_file`（可选，EPUB 自定义 CSS 文件路径；相对路径以运行目录为基准）
-- `epub_css`（可选，直接追加到 EPUB 内置样式表之后的 CSS；同时配置时先应用文件、再应用此文本）
+- `epub_css`（可选，直接追加到 EPUB 内置样式表之后的 CSS；同时配置时先应用文件、再应用此文本；EPUB 章节标题默认将序号与标题名拆分为 `.chapter-title` / `.chapter-num` / `.chapter-name` 分行展示，正文段落为 `.novel-paragraph`）
 
 ## 数据目录
 

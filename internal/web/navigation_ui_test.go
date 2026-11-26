@@ -51,6 +51,9 @@ func TestGeneralSettingsExposeEPUBTypography(t *testing.T) {
 		`epub_css_file: generalEpubCSSFileNode`,
 		`epub_css: generalEpubCSSNode`,
 		`generalEpubCSSNode.value = item.epub_css || ""`,
+		`epubPresetSnippets`,
+		`quickThemeToggle`,
+		`clearKeywordButton`,
 	} {
 		if !strings.Contains(script, needle) {
 			t.Fatalf("expected EPUB settings script to contain %s", needle)
